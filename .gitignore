@@ -2,6 +2,7 @@
 *.test
 *.out
 suprasole-server/go-tests/*.test
+suprasole-server/tests/e2e/suprasole-server
 
 
 # OS/IDE files

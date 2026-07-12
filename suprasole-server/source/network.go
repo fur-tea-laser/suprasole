@@ -17,14 +17,15 @@ type wsConnection struct {
 	connection *websocket.Conn
 	mutex      sync.Mutex // Serializes concurrent WriteMessage and WriteControl calls
 	closed     chan struct{}
+	done       chan struct{}
 	once       sync.Once
 }
 
 func (connection *wsConnection) WriteFrame(action uint16, terminalID uint16, payload []byte) error {
 	connection.mutex.Lock()
 	defer connection.mutex.Unlock()
-	// Enforce strict write deadline of 5 seconds
-	_ = connection.connection.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	// Enforce strict write deadline of 3 seconds
+	_ = connection.connection.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	buf := make([]byte, 4+len(payload))
 	binary.BigEndian.PutUint16(buf[0:2], action)
 	binary.BigEndian.PutUint16(buf[2:4], terminalID)
@@ -39,13 +40,21 @@ func (connection *wsConnection) WriteFrame(action uint16, terminalID uint16, pay
 func (connection *wsConnection) closeWithCode(code int, text string) {
 	connection.once.Do(func() {
 		close(connection.closed)
-		// Write WebSocket close frame cleanly
-		_ = connection.connection.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(code, text),
-			time.Now().Add(1*time.Second),
-		)
-		_ = connection.connection.Close()
+		connection.mutex.Lock()
+		conn := connection.connection
+		connection.mutex.Unlock()
+		if conn != nil {
+			if code != websocket.CloseMessageTooBig {
+				connection.mutex.Lock()
+				// Write WebSocket close frame cleanly
+				_ = conn.WriteControl(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(code, text),
+					time.Now().Add(1*time.Second),
+				)
+				connection.mutex.Unlock()
+			}
+		}
 	})
 }
 
@@ -68,18 +77,24 @@ func (registry *connectionRegistry) getActiveConnection(token string) *wsConnect
 	return registry.connections[token]
 }
 
-func (registry *connectionRegistry) registerOrHijack(token string, newConn *wsConnection) {
+func (registry *connectionRegistry) evictAndReserve(token string, newConn *wsConnection) *wsConnection {
 	registry.mutex.Lock()
-	defer registry.mutex.Unlock()
+	type eviction struct {
+		conn *wsConnection
+		code int
+		text string
+	}
+	var toEvict []eviction
+	var evictedConn *wsConnection
 	for otherToken, otherConn := range registry.connections {
 		if t, exists := registry.sweepers[otherToken]; exists {
 			t.Stop()
 			delete(registry.sweepers, otherToken)
 		}
 		if otherToken == token {
-			otherConn.closeWithCode(4000, "Session Taken Over")
+			evictedConn = otherConn
 		} else {
-			otherConn.closeWithCode(1000, "Singleton connection takeover")
+			toEvict = append(toEvict, eviction{conn: otherConn, code: 1000, text: "Singleton connection takeover"})
 		}
 		delete(registry.connections, otherToken)
 	}
@@ -88,6 +103,19 @@ func (registry *connectionRegistry) registerOrHijack(token string, newConn *wsCo
 		delete(registry.sweepers, token)
 	}
 	registry.connections[token] = newConn
+	registry.mutex.Unlock()
+	for _, ev := range toEvict {
+		ev.conn.closeWithCode(ev.code, ev.text)
+	}
+	return evictedConn
+}
+
+func (registry *connectionRegistry) cleanupPlaceholder(token string, conn *wsConnection) {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	if existing, exists := registry.connections[token]; exists && existing == conn {
+		delete(registry.connections, token)
+	}
 }
 
 func (registry *connectionRegistry) unregisterAndSweep(token string, connection *wsConnection, sweepDuration time.Duration, sweepAction func()) {
@@ -97,47 +125,41 @@ func (registry *connectionRegistry) unregisterAndSweep(token string, connection 
 		registry.mutex.Unlock()
 		return
 	}
-	_, hasSweeper := registry.sweepers[token]
-	if !exists && hasSweeper {
-		registry.mutex.Unlock()
-		return
-	}
 	if exists {
 		delete(registry.connections, token)
 	}
-	var timerStarted bool
-	if sweepDuration > 0 {
-		if t, exists := registry.sweepers[token]; exists {
-			t.Stop()
-		}
-		registry.sweepers[token] = time.AfterFunc(sweepDuration, func() {
-			registry.mutex.Lock()
-			delete(registry.sweepers, token)
-			activeConn := registry.connections[token]
-			registry.mutex.Unlock()
-			if activeConn == nil {
-				sweepAction()
-			}
-		})
-		timerStarted = true
-	}
-	registry.mutex.Unlock()
-	if !timerStarted && sweepDuration <= 0 {
+	if sweepDuration <= 0 {
+		registry.mutex.Unlock()
 		sweepAction()
+		return
 	}
+	timer := time.AfterFunc(sweepDuration, func() {
+		registry.mutex.Lock()
+		if _, exists := registry.connections[token]; !exists {
+			delete(registry.sweepers, token)
+			registry.mutex.Unlock()
+			sweepAction()
+		} else {
+			registry.mutex.Unlock()
+		}
+	})
+	registry.sweepers[token] = timer
+	registry.mutex.Unlock()
 }
 
 func (registry *connectionRegistry) closeAndRemove(token string, code int, text string) {
 	registry.mutex.Lock()
-	defer registry.mutex.Unlock()
 	if t, exists := registry.sweepers[token]; exists {
 		t.Stop()
 		delete(registry.sweepers, token)
 	}
 	connection, exists := registry.connections[token]
 	if exists {
-		connection.closeWithCode(code, text)
 		delete(registry.connections, token)
+	}
+	registry.mutex.Unlock()
+	if exists {
+		connection.closeWithCode(code, text)
 	}
 }
 
@@ -188,9 +210,28 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 		http.Error(responseWriter, "Missing token query parameter", http.StatusBadRequest)
 		return
 	}
-	// Upgrade connection to WebSocket
+	wsConn := &wsConnection{
+		token:  token,
+		closed: make(chan struct{}),
+		done:   make(chan struct{}),
+	}
+	defer func() {
+		select {
+		case <-wsConn.done:
+		default:
+			close(wsConn.done)
+		}
+	}()
+	// Register wsConn placeholder and evict any existing connection
+	oldConn := handler.netRegistry.evictAndReserve(token, wsConn)
+	if oldConn != nil {
+		oldConn.closeWithCode(4000, "Session Taken Over")
+	}
+
+	// Upgrade connection to WebSocket (returns 101 Switching Protocols to client, unblocking Dial)
 	connection, upgradeError := handler.upgrader.Upgrade(responseWriter, request, nil)
 	if upgradeError != nil {
+		handler.netRegistry.cleanupPlaceholder(token, wsConn)
 		return
 	}
 	// Set small write buffer to allow write deadline tests to saturate TCP buffers fast
@@ -199,6 +240,35 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 	}
 	// Set maximum message size constraint (64KB payload + 4 bytes header)
 	connection.SetReadLimit(65536 + 4)
+
+	wsConn.mutex.Lock()
+	wsConn.connection = connection
+	wsConn.mutex.Unlock()
+
+	// If we were already evicted/closed during the upgrade process (before connection was set),
+	// we must write the Close frame now and exit so the deferred handler can drain cleanly.
+	select {
+	case <-wsConn.closed:
+		_ = connection.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(4000, "Session Taken Over"),
+			time.Now().Add(1*time.Second),
+		)
+		return
+	default:
+	}
+
+	// Wait for the evicted connection to finish its teardown on the network layer
+	if oldConn != nil {
+		<-oldConn.done
+	}
+
+	// Check if we were evicted/closed during the upgrade/eviction wait process
+	select {
+	case <-wsConn.closed:
+		return
+	default:
+	}
 	// Fetch/Create core workspace state
 	workspace, workspaceError := handler.registry.GetOrCreateWorkspace(token)
 	if workspaceError != nil {
@@ -208,15 +278,9 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			time.Now().Add(1*time.Second),
 		)
 		connection.Close()
+		handler.netRegistry.cleanupPlaceholder(token, wsConn)
 		return
 	}
-	wsConn := &wsConnection{
-		token:      token,
-		connection: connection,
-		closed:     make(chan struct{}),
-	}
-	// Session Takeover / Hijacking Registration
-	handler.netRegistry.registerOrHijack(token, wsConn)
 	// 2. Perform State Replay by enqueuing into the PTY queues atomically
 	var replayFrames []OutboundFrame
 	activeTerminalIDs := workspace.GetActiveTerminalIDs()
@@ -271,17 +335,45 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			}
 		}
 	}()
+	closeCode := websocket.CloseNormalClosure
+	closeText := "Connection closing"
 	defer func() {
-		wsConn.closeWithCode(websocket.CloseNormalClosure, "Connection closing")
+		wsConn.closeWithCode(closeCode, closeText)
 		workspace.ClearSocketWriter(wsConn)
 		handler.netRegistry.unregisterAndSweep(token, wsConn, DefaultSweeperDuration, func() {
 			_ = handler.registry.RemoveWorkspace(token)
 		})
+		wsConn.mutex.Lock()
+		conn := wsConn.connection
+		wsConn.mutex.Unlock()
+		if conn != nil {
+			if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
+				_ = tcpConn.SetLinger(2)
+				_ = tcpConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+				buf := make([]byte, 1024)
+				for {
+					_, err := tcpConn.Read(buf)
+					if err != nil {
+						break
+					}
+				}
+			}
+			_ = conn.Close()
+		}
+		select {
+		case <-wsConn.done:
+		default:
+			close(wsConn.done)
+		}
 	}()
 	// Main binary frame reading and dispatch loop
 	for {
 		msgType, message, error := connection.ReadMessage()
 		if error != nil {
+			if error == websocket.ErrReadLimit || error.Error() == "websocket: read limit exceeded" {
+				closeCode = websocket.CloseMessageTooBig
+				closeText = "Message size limit exceeded"
+			}
 			break
 		}
 		if msgType != websocket.BinaryMessage {
@@ -291,6 +383,13 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 		if len(message) < 4 {
 			wsConn.closeWithCode(websocket.CloseProtocolError, "Frame too short")
 			break
+		}
+		// Discard incoming frames from evicted connections, but continue reading
+		// to process the close acknowledgment.
+		select {
+		case <-wsConn.closed:
+			continue
+		default:
 		}
 		action := binary.BigEndian.Uint16(message[0:2])
 		terminalID := binary.BigEndian.Uint16(message[2:4])

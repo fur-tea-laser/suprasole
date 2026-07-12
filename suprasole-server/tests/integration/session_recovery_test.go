@@ -22,23 +22,19 @@ func TestWorkspaceOrphanStateAndPTYContinuity(t *testing.T) {
 	handler := source.NewHandler(registry)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-
 	token := "orphan-continuity-workspace"
 	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + token
-
 	// 1. First connection
 	connA, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
 		t.Fatalf("failed to connect A: %v", error)
 	}
-
 	// Spawn PTY 1
 	_ = connA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
 	_, _, error = connA.ReadMessage()
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
-
 	// Wait deterministically for the initial shell prompt before writing commands
 	for {
 		_, msg, error := connA.ReadMessage()
@@ -50,14 +46,11 @@ func TestWorkspaceOrphanStateAndPTYContinuity(t *testing.T) {
 			break
 		}
 	}
-
 	// Write input that prints after connection close
 	cmdInput := packStreamIO(1, []byte("sleep 0.3 && echo 'OFFLINE_OUTPUT'\n"))
 	_ = connA.WriteMessage(websocket.BinaryMessage, cmdInput)
-
 	// Close connA forcefully
 	_ = connA.Close()
-
 	// Poll core workspace scrollback buffer deterministically until 'OFFLINE_OUTPUT' is present
 	workspace, error := registry.GetOrCreateWorkspace(token)
 	if error != nil {
@@ -74,7 +67,6 @@ func TestWorkspaceOrphanStateAndPTYContinuity(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	// 2. Reconnect client
 	connB, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
@@ -84,27 +76,22 @@ func TestWorkspaceOrphanStateAndPTYContinuity(t *testing.T) {
 		_ = connB.Close()
 		_ = registry.RemoveWorkspace(token)
 	})
-
 	// Read replayed scrollback stream
 	_ = connB.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, replayData, error := connB.ReadMessage()
 	if error != nil {
 		t.Fatalf("failed to read replay: %v", error)
 	}
-
 	replayAction, replayTermID, replayPayload, error := unpackFrame(replayData)
 	if error != nil {
 		t.Fatalf("unpack failed: %v", error)
 	}
-
 	if replayAction != source.ActionStreamIO || replayTermID != 1 {
 		t.Fatalf("expected replayed stream source.ActionStreamIO for PTY 1, got action %x term %d", replayAction, replayTermID)
 	}
-
 	if !strings.Contains(string(replayPayload), "OFFLINE_OUTPUT") {
 		t.Errorf("expected replayed output to contain 'OFFLINE_OUTPUT', got: %q", string(replayPayload))
 	}
-
 	// Negative assertion: non-evicted buffers must NOT contain the truncation warning
 	warning := []byte("[... Output truncated due to buffer overflow ...]")
 	if bytes.Contains(replayPayload, warning) {
@@ -118,22 +105,18 @@ func TestRingBufferEvictionAndTruncationWarning(t *testing.T) {
 	handler := source.NewHandler(registry)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-
 	token := "eviction-warning-workspace"
 	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + token
-
 	connA, _, dialError := websocket.DefaultDialer.Dial(dialURL, nil)
 	if dialError != nil {
 		t.Fatalf("failed to connect A: %v", dialError)
 	}
-
 	// Spawn PTY 1
 	_ = connA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
 	_, _, readError := connA.ReadMessage()
 	if readError != nil {
 		t.Fatalf("failed to read spawn: %v", readError)
 	}
-
 	// Wait deterministically for the initial shell prompt before writing commands
 	for {
 		_, msg, readError := connA.ReadMessage()
@@ -145,14 +128,11 @@ func TestRingBufferEvictionAndTruncationWarning(t *testing.T) {
 			break
 		}
 	}
-
 	// Output > 256KB of data (we output 600KB to guarantee overflow)
 	cmdInput := packStreamIO(1, []byte("seq 1 200000 | head -c 600000\n"))
 	_ = connA.WriteMessage(websocket.BinaryMessage, cmdInput)
-
 	// Disconnect Client A immediately so that background drainage runs without socket blocking/backpressure
 	_ = connA.Close()
-
 	// Poll core workspace scrollback buffer status deterministically until isTruncated is true
 	workspace, _ := registry.GetOrCreateWorkspace(token)
 	deadline := time.Now().Add(5 * time.Second)
@@ -170,7 +150,6 @@ func TestRingBufferEvictionAndTruncationWarning(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Logf("CORE BUFFER BEFORE RECONNECTION: size=%d, isTruncated=%t, error=%v", len(coreBuf), coreTrunc, coreErr)
-
 	// Reconnect
 	connB, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
@@ -180,23 +159,19 @@ func TestRingBufferEvictionAndTruncationWarning(t *testing.T) {
 		_ = connB.Close()
 		_ = registry.RemoveWorkspace(token)
 	})
-
 	// Read replayed scrollback stream
 	_ = connB.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, replayData, error := connB.ReadMessage()
 	if error != nil {
 		t.Fatalf("failed to read replay: %v", error)
 	}
-
 	action, termID, payload, error := unpackFrame(replayData)
 	if error != nil {
 		t.Fatalf("unpack failed: %v", error)
 	}
-
 	if action != source.ActionStreamIO || termID != 1 {
 		t.Fatalf("expected stream replay, got action %x term %d", action, termID)
 	}
-
 	warning := []byte("\r\n\x1b[33m[... Output truncated due to buffer overflow ...]\x1b[0m\r\n\r\n")
 	safeLen := len(payload)
 	if safeLen > 200 {
@@ -206,7 +181,6 @@ func TestRingBufferEvictionAndTruncationWarning(t *testing.T) {
 	if !bytes.HasPrefix(payload, warning) {
 		t.Fatal("expected replayed payload to start with the truncation warning prefix")
 	}
-
 	// Buffer capacity is 256KB (262144 bytes)
 	expectedLength := len(warning) + 262144
 	if len(payload) != expectedLength {
@@ -221,37 +195,30 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 	handler := source.NewHandler(registry)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-
 	// Set a very short sweeper duration
 	source.DefaultSweeperDuration = 200 * time.Millisecond
 	defer func() {
 		source.DefaultSweeperDuration = 5 * time.Minute
 	}()
-
 	tokenA := "sweeper-workspace-a"
 	dialURLA := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + tokenA
-
 	connA1, _, error := websocket.DefaultDialer.Dial(dialURLA, nil)
 	if error != nil {
 		t.Fatalf("failed to connect A1: %v", error)
 	}
-
 	// Spawn PTY 1
 	_ = connA1.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
 	_, _, error = connA1.ReadMessage()
 	if error != nil {
 		t.Fatalf("failed to read spawn: %v", error)
 	}
-
 	// Write command to dump PIDs to file and start a background sleep process
 	parentFile := fmt.Sprintf("/tmp/parent-%s.processID", tokenA)
 	childFile := fmt.Sprintf("/tmp/child-%s.processID", tokenA)
 	_ = os.Remove(parentFile)
 	_ = os.Remove(childFile)
-
 	cmdInput := packStreamIO(1, []byte(fmt.Sprintf("echo $$ > %s && sleep 100 & echo $! > %s\n", parentFile, childFile)))
 	_ = connA1.WriteMessage(websocket.BinaryMessage, cmdInput)
-
 	// Poll until parent PID and child PID files exist and are not empty
 	deadline := time.Now().Add(5 * time.Second)
 	var parentBytes, childBytes []byte
@@ -266,29 +233,23 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	// Read PIDs
 	parentPid, error := strconv.Atoi(strings.TrimSpace(string(parentBytes)))
 	if error != nil {
 		t.Fatalf("invalid parent processID: %v", error)
 	}
-
 	childProcessID, error := strconv.Atoi(strings.TrimSpace(string(childBytes)))
 	if error != nil {
 		t.Fatalf("invalid child processID: %v", error)
 	}
-
 	// Clean up temp files
 	_ = os.Remove(parentFile)
 	_ = os.Remove(childFile)
-
 	// Disconnect Client A1 (initiating sweeper)
 	_ = connA1.Close()
-
 	// Concurrently connect Client B1 to a different workspace to verify it is non-blocking
 	tokenB := "sweeper-workspace-b"
 	dialURLB := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + tokenB
-	
 	startUpgrade := time.Now()
 	connB1, _, error := websocket.DefaultDialer.Dial(dialURLB, nil)
 	if error != nil {
@@ -298,12 +259,10 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 		_ = connB1.Close()
 		_ = registry.RemoveWorkspace(tokenB)
 	})
-	
 	upgradeDuration := time.Since(startUpgrade)
 	if upgradeDuration > 100*time.Millisecond {
 		t.Errorf("concurrent upgrade was blocked, took %v", upgradeDuration)
 	}
-
 	// Poll registry deterministically until workspace A is removed (sweeper is 200ms)
 	deadline = time.Now().Add(5 * time.Second)
 	for {
@@ -316,7 +275,6 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	// Assert parent shell and background daemon are reaped
 	error = syscall.Kill(parentPid, 0)
 	if error == nil {
@@ -324,32 +282,26 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 	} else if error != syscall.ESRCH {
 		t.Errorf("unexpected kill error for parent: %v", error)
 	}
-
 	error = syscall.Kill(childProcessID, 0)
 	if error == nil {
 		t.Errorf("background daemon PID %d is still alive after sweeper teardown", childProcessID)
 	} else if error != syscall.ESRCH {
 		t.Errorf("unexpected kill error for daemon: %v", error)
 	}
-
 	// Scenario B: Cancellation on Reconnection
 	tokenC := "sweeper-workspace-c"
 	dialURLC := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + tokenC
-
 	connC1, _, error := websocket.DefaultDialer.Dial(dialURLC, nil)
 	if error != nil {
 		t.Fatalf("failed to connect C1: %v", error)
 	}
-
 	// Spawn PTY 2
 	_ = connC1.WriteMessage(websocket.BinaryMessage, packSpawnRequest(2, 80, 24))
 	_, _, _ = connC1.ReadMessage()
-
 	// Poll until parent PID file exists and is not empty
 	parentFileC := fmt.Sprintf("/tmp/parent-%s.processID", tokenC)
 	_ = os.Remove(parentFileC)
 	_ = connC1.WriteMessage(websocket.BinaryMessage, packStreamIO(2, []byte(fmt.Sprintf("echo $$ > %s\n", parentFileC))))
-	
 	deadline = time.Now().Add(5 * time.Second)
 	var parentBytesC []byte
 	for {
@@ -364,13 +316,10 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 	}
 	parentPidC, _ := strconv.Atoi(strings.TrimSpace(string(parentBytesC)))
 	_ = os.Remove(parentFileC)
-
 	// Disconnect client
 	_ = connC1.Close()
-
 	// Wait 50ms (before sweeper expires at 200ms)
 	time.Sleep(50 * time.Millisecond)
-
 	// Reconnect
 	connC2, _, error := websocket.DefaultDialer.Dial(dialURLC, nil)
 	if error != nil {
@@ -380,44 +329,34 @@ func TestCleanupSweeperLifecycle(t *testing.T) {
 		_ = connC2.Close()
 		_ = registry.RemoveWorkspace(tokenC)
 	})
-
 	// Wait 300ms (exceeding original 200ms sweeper duration)
 	time.Sleep(300 * time.Millisecond)
-
 	// Assert workspace and parent PID are still alive
 	error = syscall.Kill(parentPidC, 0)
 	if error != nil {
 		t.Errorf("parent shell C PID %d died, expected it to remain alive: %v", parentPidC, error)
 	}
-
 	// Scenario C: Rescheduling Chain (Disconnect -> Takeover/Reconnect -> Disconnect -> Sweep)
 	tokenD := "sweeper-workspace-d"
 	dialURLD := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + tokenD
-
 	connD1, _, error := websocket.DefaultDialer.Dial(dialURLD, nil)
 	if error != nil {
 		t.Fatalf("failed to connect D1: %v", error)
 	}
-
 	// Spawn PTY 3
 	_ = connD1.WriteMessage(websocket.BinaryMessage, packSpawnRequest(3, 80, 24))
 	_, _, _ = connD1.ReadMessage()
-
 	// Disconnect client D1 (starts first sweeper)
 	_ = connD1.Close()
-
 	// Wait 50ms (timer is 200ms)
 	time.Sleep(50 * time.Millisecond)
-
 	// Reconnect/Takeover D2 (cancels first sweeper)
 	connD2, _, error := websocket.DefaultDialer.Dial(dialURLD, nil)
 	if error != nil {
 		t.Fatalf("failed to reconnect D2: %v", error)
 	}
-
 	// Disconnect client D2 (starts second sweeper)
 	_ = connD2.Close()
-
 	// Poll registry deterministically until workspace D is removed (sweeper is 200ms)
 	deadline = time.Now().Add(5 * time.Second)
 	for {
@@ -438,26 +377,21 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 	handler := source.NewHandler(registry)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-
 	token := "mutex-playback-workspace"
 	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + token
-
 	connA, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
 		t.Fatalf("failed to connect A: %v", error)
 	}
-
 	// Spawn PTY 1
 	_ = connA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
 	_, _, error = connA.ReadMessage()
 	if error != nil {
 		t.Fatalf("failed to read spawn: %v", error)
 	}
-
 	// Write command that outputs part 1, sleeps, then outputs part 2
 	cmdInput := packStreamIO(1, []byte("echo 'PART1' && sleep 0.3 && echo 'PART2'\n"))
 	_ = connA.WriteMessage(websocket.BinaryMessage, cmdInput)
-
 	// Read until PART1 is printed and buffered
 	for {
 		_, msg, error := connA.ReadMessage()
@@ -471,10 +405,8 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 			}
 		}
 	}
-
 	// Disconnect client
 	_ = connA.Close()
-
 	// Reconnect Client B immediately (starts replay of PART1) while shell is sleeping
 	connB, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
@@ -484,11 +416,9 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 		_ = connB.Close()
 		_ = registry.RemoveWorkspace(token)
 	})
-
 	// Concurrently write client inputs (Stream I/O and Resize) during playback phase
 	// Write concurrent input command: "echo 'CONCURRENT' && stty size\n"
 	_ = connB.WriteMessage(websocket.BinaryMessage, packStreamIO(1, []byte("echo 'CONCURRENT' && stty size\n")))
-	
 	// Write concurrent resize command: 100x30
 	resizeFrame := make([]byte, 8)
 	binary.BigEndian.PutUint16(resizeFrame[0:2], source.ActionResize) // Resize Action ID
@@ -496,7 +426,6 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 	binary.BigEndian.PutUint16(resizeFrame[4:6], 100)    // Cols
 	binary.BigEndian.PutUint16(resizeFrame[6:8], 30)     // Rows
 	_ = connB.WriteMessage(websocket.BinaryMessage, resizeFrame)
-
 	// Poll connB until all expected strings are in the output or timeout occurs
 	var received []string
 	deadline := time.Now().Add(5 * time.Second)
@@ -521,9 +450,7 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 			t.Fatal("timeout waiting for expected outputs")
 		}
 	}
-
 	fullText := strings.Join(received, "")
-	
 	// 1. Must contain PART1 (from scrollback)
 	if !strings.Contains(fullText, "PART1") {
 		t.Errorf("missing PART1 in output: %q", fullText)
@@ -540,7 +467,6 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 	if !strings.Contains(fullText, "30 100") {
 		t.Errorf("missing dimension change '30 100' in output: %q", fullText)
 	}
-
 	// 5. Verify chronological order: PART1 (replay) must precede CONCURRENT and PART2
 	idxPart1 := strings.Index(fullText, "PART1")
 	idxConcurrent := strings.Index(fullText, "CONCURRENT")
@@ -559,10 +485,8 @@ func TestValidPrioritySync(t *testing.T) {
 	handler := source.NewHandler(registry)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-
 	token := "visibility-sync-workspace"
 	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + token
-
 	connection, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
 		t.Fatalf("failed to connect: %v", error)
@@ -571,13 +495,11 @@ func TestValidPrioritySync(t *testing.T) {
 		_ = connection.Close()
 		_ = registry.RemoveWorkspace(token)
 	})
-
 	// Spawn PTY 1 and PTY 2
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
 	_, _, _ = connection.ReadMessage()
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(2, 80, 24))
 	_, _, _ = connection.ReadMessage()
-
 	// Wait deterministically for prompts to avoid typeahead issues
 	for {
 		_, msg, error := connection.ReadMessage()
@@ -589,7 +511,6 @@ func TestValidPrioritySync(t *testing.T) {
 			break
 		}
 	}
-
 	// Pack priority sync frame:
 	// Set PTY 1 to High (0x01) and PTY 2 to Low (0x00)
 	// Layout: Action (2B: source.ActionPrioritySync) [ignored Header TermID (2B: 0)] [TermID 1 (2B)] [State 1 (1B)] [TermID 2 (2B)] [State 2 (1B)]
@@ -600,18 +521,14 @@ func TestValidPrioritySync(t *testing.T) {
 	syncFrame[6] = 0x01
 	binary.BigEndian.PutUint16(syncFrame[7:9], 2)
 	syncFrame[9] = 0x00
- 
 	_ = connection.WriteMessage(websocket.BinaryMessage, syncFrame)
- 
 	// Sleep briefly to let server state update
 	time.Sleep(50 * time.Millisecond)
- 
 	// Verify workspace states directly
 	workspace, error := registry.GetOrCreateWorkspace(token)
 	if error != nil {
 		t.Fatalf("failed to resolve workspace: %v", error)
 	}
- 
 	// Get PTY 1 priority (must be High 0x01)
 	priority1, error := workspace.GetPTYPriority(1)
 	if error != nil {
@@ -620,7 +537,6 @@ func TestValidPrioritySync(t *testing.T) {
 	if priority1 != 0x01 {
 		t.Errorf("expected PTY 1 priority to be 0x01, got %x", priority1)
 	}
- 
 	// Get PTY 2 priority (must be Low 0x00)
 	priority2, error := workspace.GetPTYPriority(2)
 	if error != nil {
@@ -629,24 +545,19 @@ func TestValidPrioritySync(t *testing.T) {
 	if priority2 != 0x00 {
 		t.Errorf("expected PTY 2 priority to be 0x00, got %x", priority2)
 	}
- 
 	// Send another sync frame omitting PTY 1 (must default/demote PTY 1 to Low 0x00, and set PTY 2 to High 0x01)
 	syncFrame2 := make([]byte, 7)
 	binary.BigEndian.PutUint16(syncFrame2[0:2], source.ActionPrioritySync)
 	binary.BigEndian.PutUint16(syncFrame2[2:4], 0)
 	binary.BigEndian.PutUint16(syncFrame2[4:6], 2)
 	syncFrame2[6] = 0x01
- 
 	_ = connection.WriteMessage(websocket.BinaryMessage, syncFrame2)
- 
 	// Sleep briefly to let server state update
 	time.Sleep(50 * time.Millisecond)
- 
 	priority1, _ = workspace.GetPTYPriority(1)
 	if priority1 != 0x00 {
 		t.Errorf("expected omitted PTY 1 priority to default to Low 0x00, got %x", priority1)
 	}
- 
 	priority2, _ = workspace.GetPTYPriority(2)
 	if priority2 != 0x01 {
 		t.Errorf("expected PTY 2 priority to update to High 0x01, got %x", priority2)
@@ -662,53 +573,42 @@ func TestSweeperTimerCallbackRaceRegression(t *testing.T) {
 	defer func() {
 		source.DefaultSweeperDuration = oldDuration
 	}()
-
 	registry := source.NewWorkspaceRegistry()
 	handler := source.NewHandler(registry)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
-
 	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=race-token"
-
 	// 1. Connect Client A
 	connA, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
 		t.Fatalf("failed to connect A: %v", error)
 	}
-
 	workspace, error := registry.GetOrCreateWorkspace("race-token")
 	if error != nil {
 		t.Fatalf("failed to get workspace: %v", error)
 	}
-
 	// Spawn a PTY to keep the workspace active
 	if error := workspace.SpawnPTY(1, 80, 24); error != nil {
 		t.Fatalf("failed to spawn PTY: %v", error)
 	}
-
 	// 2. Disconnect Client A (starts the 30ms sweeper timer)
 	_ = connA.Close()
-
 	// Wait exactly 30ms (until the timer fires/expires and the callback goroutine is scheduled)
 	time.Sleep(30 * time.Millisecond)
-
 	// 3. Immediately connect Client B (takeover/reconnect)
 	connB, _, error := websocket.DefaultDialer.Dial(dialURL, nil)
 	if error != nil {
 		t.Fatalf("failed to connect B: %v", error)
 	}
 	defer connB.Close()
-
 	// Wait a moment to allow the sweeper goroutine (which was already scheduled) to execute
 	time.Sleep(100 * time.Millisecond)
-
 	// 4. Verify that:
 	// - The workspace still exists in the registry
 	_, error = registry.GetOrCreateWorkspace("race-token")
 	if error != nil {
 		t.Errorf("workspace was incorrectly reaped by the sweeper callback race: %v", error)
 	}
-
 	// - Client B's connection is still active and has not been closed by the sweeper
 	_ = connB.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 	_, _, error = connB.ReadMessage()
