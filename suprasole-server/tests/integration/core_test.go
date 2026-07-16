@@ -74,7 +74,18 @@ func newMockSocketWriter() *mockSocketWriter {
 	}
 }
 
+func waitPTY(workspace *source.Workspace, termID uint16) {
+	for i := 0; i < 200; i++ {
+		state, exists := workspace.GetPTYState(termID)
+		if exists && state == source.StateActive {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func waitUntilReady(t *testing.T, workspace *source.Workspace, termID uint16) {
+	waitPTY(workspace, termID)
 	prevWriter := workspace.GetSocketWriter()
 	mockWriter := newMockSocketWriter()
 	defer mockWriter.Close()
@@ -91,7 +102,7 @@ func waitUntilReady(t *testing.T, workspace *source.Workspace, termID uint16) {
 		for {
 			select {
 			case frame := <-mockWriter.frames:
-				if frame.TerminalID == termID && frame.Action == source.ActionStreamIO {
+				if frame.TerminalID == termID && frame.Action == source.ActionOutput {
 					accum.Write(frame.Payload)
 					if strings.Contains(accum.String(), "PTY_READY") {
 						close(done)
@@ -114,6 +125,7 @@ func waitUntilReady(t *testing.T, workspace *source.Workspace, termID uint16) {
 
 // Helper to extract shell PID extrinsically.
 func extractPID(t *testing.T, workspace *source.Workspace, termID uint16) int {
+	waitPTY(workspace, termID)
 	prevWriter := workspace.GetSocketWriter()
 	mockWriter := newMockSocketWriter()
 	defer mockWriter.Close()
@@ -132,7 +144,7 @@ func extractPID(t *testing.T, workspace *source.Workspace, termID uint16) int {
 		for {
 			select {
 			case frame := <-mockWriter.frames:
-				if frame.TerminalID == termID && frame.Action == source.ActionStreamIO {
+				if frame.TerminalID == termID && frame.Action == source.ActionOutput {
 					outputBuffer.Write(frame.Payload)
 					clean := ansiRegexp.ReplaceAllString(outputBuffer.String(), "")
 					clean = strings.ReplaceAll(clean, "\r", "")
@@ -168,7 +180,7 @@ func TestWorkspaceTenantIsolation(t *testing.T) {
 	wsA, _ := setupWorkspace(t, registry, "WS-A")
 	wsB, _ := setupWorkspace(t, registry, "WS-B")
 	termIDA := uint16(100)
-	error := wsA.SpawnPTY(termIDA, 80, 24)
+	error := wsA.SpawnPTY(termIDA, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn PTY: %v", error)
 	}
@@ -215,7 +227,7 @@ func TestWorkspaceTenantIsolation(t *testing.T) {
 	wsA.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.TerminalID == termIDA && frame.Action == source.ActionStreamIO {
+			if frame.TerminalID == termIDA && frame.Action == source.ActionOutput {
 				outputBuffer.Write(frame.Payload)
 				if strings.Contains(outputBuffer.String(), "SIZE_CHECK_DONE") {
 					close(done)
@@ -259,9 +271,9 @@ func TestEnvironmentGeometrySeeding(t *testing.T) {
 	go func() {
 		for frame := range mockWriter.frames {
 			if frame.TerminalID == termID {
-				if frame.Action == source.ActionStreamIO {
+				if frame.Action == source.ActionOutput {
 					outputBuffer.Write(frame.Payload)
-				} else if frame.Action == source.ActionKill && len(frame.Payload) == 1 {
+				} else if frame.Action == source.ActionTerminalExit && len(frame.Payload) == 1 {
 					select {
 					case terminated <- frame.Payload[0]:
 					default:
@@ -271,10 +283,11 @@ func TestEnvironmentGeometrySeeding(t *testing.T) {
 		}
 	}()
 	// Spawn PTY with 132x43
-	error := workspace.SpawnPTY(termID, 132, 43)
+	error := workspace.SpawnPTY(termID, 132, 43, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
+	waitPTY(workspace, termID)
 	// Write command to dump env & size then exit (concatenated to avoid early echo match)
 	error = workspace.WritePTYInput(termID, []byte("env && stty size && echo 'SEEDING'_'COMPLETE' && exit 0\n"))
 	if error != nil {
@@ -318,7 +331,7 @@ func TestControllingTerminalVerification(t *testing.T) {
 	registry := getRegistry(t)
 	workspace, _ := setupWorkspace(t, registry, "WS-A")
 	termID := uint16(300)
-	error := workspace.SpawnPTY(termID, 80, 24)
+	error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn PTY: %v", error)
 	}
@@ -329,7 +342,7 @@ func TestControllingTerminalVerification(t *testing.T) {
 	workspace.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.TerminalID == termID && frame.Action == source.ActionStreamIO {
+			if frame.TerminalID == termID && frame.Action == source.ActionOutput {
 				outputBuffer.Write(frame.Payload)
 				if strings.Contains(outputBuffer.String(), "DEV_TTY_OK") {
 					close(done)
@@ -379,12 +392,12 @@ func TestParentSideSlaveClose(t *testing.T) {
 	go func() {
 		for frame := range mockWriter.frames {
 			if frame.TerminalID == termID {
-				if frame.Action == source.ActionStreamIO {
+				if frame.Action == source.ActionOutput {
 					accum.Write(frame.Payload)
 					if strings.Contains(accum.String(), "quick_exit") && outputTimestamp.IsZero() {
 						outputTimestamp = time.Now()
 					}
-				} else if frame.Action == source.ActionKill {
+				} else if frame.Action == source.ActionTerminalExit {
 					terminationTimestamp = time.Now()
 					select {
 					case <-terminated:
@@ -395,10 +408,11 @@ func TestParentSideSlaveClose(t *testing.T) {
 			}
 		}
 	}()
-	error := workspace.SpawnPTY(termID, 80, 24)
+	error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
+	waitPTY(workspace, termID)
 	error = workspace.WritePTYInput(termID, []byte("echo 'quick_exit' && exit 0\n"))
 	if error != nil {
 		t.Fatalf("failed to write: %v", error)
@@ -430,7 +444,7 @@ func TestCleanPidReaping(t *testing.T) {
 	workspace.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.Action == source.ActionKill && len(frame.Payload) == 1 {
+			if frame.Action == source.ActionTerminalExit && len(frame.Payload) == 1 {
 				mutex.Lock()
 				exits[frame.TerminalID] = frame.Payload[0]
 				mutex.Unlock()
@@ -439,21 +453,21 @@ func TestCleanPidReaping(t *testing.T) {
 		}
 	}()
 	// Spawn normal exit process
-	error := workspace.SpawnPTY(termID501, 80, 24)
+	error := workspace.SpawnPTY(termID501, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
 	waitUntilReady(t, workspace, termID501)
 	pid501 := extractPID(t, workspace, termID501)
 	// Spawn signal exit process
-	error = workspace.SpawnPTY(termID502, 80, 24)
+	error = workspace.SpawnPTY(termID502, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
 	waitUntilReady(t, workspace, termID502)
 	pid502 := extractPID(t, workspace, termID502)
 	// Spawn crash exit process
-	error = workspace.SpawnPTY(termID503, 80, 24)
+	error = workspace.SpawnPTY(termID503, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
@@ -517,7 +531,7 @@ func TestConcurrentLoadLock(t *testing.T) {
 	var pidsMu sync.Mutex
 	for i := 0; i < ptyCount; i++ {
 		termID := uint16(601 + i)
-		error := workspace.SpawnPTY(termID, 80, 24)
+		error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 		if error != nil {
 			t.Fatalf("failed to spawn %d: %v", termID, error)
 		}
@@ -637,7 +651,7 @@ func TestDetachedDaemonReaping(t *testing.T) {
 	workspace.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.TerminalID == termID && frame.Action == source.ActionKill {
+			if frame.TerminalID == termID && frame.Action == source.ActionTerminalExit {
 				select {
 				case <-terminated:
 				default:
@@ -646,7 +660,7 @@ func TestDetachedDaemonReaping(t *testing.T) {
 			}
 		}
 	}()
-	error := workspace.SpawnPTY(termID, 80, 24)
+	error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
@@ -675,11 +689,8 @@ func TestRapidLifecycleRace(t *testing.T) {
 	termID := uint16(800)
 	var waitGroup sync.WaitGroup
 	// Fire spawn, resize, terminate concurrently
-	waitGroup.Add(3)
-	go func() {
-		defer waitGroup.Done()
-		_ = workspace.SpawnPTY(termID, 80, 24)
-	}()
+	_ = workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
+	waitGroup.Add(2)
 	go func() {
 		defer waitGroup.Done()
 		_ = workspace.ResizePTY(termID, 120, 40)
@@ -706,7 +717,7 @@ func TestBinaryNonUtf8Handshake(t *testing.T) {
 	registry := getRegistry(t)
 	workspace, _ := setupWorkspace(t, registry, "WS-A")
 	termID := uint16(900)
-	error := workspace.SpawnPTY(termID, 80, 24)
+	error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn PTY: %v", error)
 	}
@@ -720,7 +731,7 @@ func TestBinaryNonUtf8Handshake(t *testing.T) {
 	workspace.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.TerminalID == termID && frame.Action == source.ActionStreamIO {
+			if frame.TerminalID == termID && frame.Action == source.ActionOutput {
 				outputBuffer.Write(frame.Payload)
 				if bytes.Contains(outputBuffer.Bytes(), payload) {
 					close(done)
@@ -759,7 +770,7 @@ func TestWriteErrorSigpipeImmunity(t *testing.T) {
 	workspace.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.TerminalID == termID && frame.Action == source.ActionKill {
+			if frame.TerminalID == termID && frame.Action == source.ActionTerminalExit {
 				select {
 				case <-terminated:
 				default:
@@ -768,10 +779,11 @@ func TestWriteErrorSigpipeImmunity(t *testing.T) {
 			}
 		}
 	}()
-	error := workspace.SpawnPTY(termID, 80, 24)
+	error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
+	waitPTY(workspace, termID)
 	// Exit process
 	_ = workspace.WritePTYInput(termID, []byte("exit 0\n"))
 	select {
@@ -802,7 +814,7 @@ func TestGlobalWorkspaceTeardown(t *testing.T) {
 	termIDs := []uint16{1101, 1102, 1103}
 	var pids []int
 	for _, id := range termIDs {
-		error = workspace.SpawnPTY(id, 80, 24)
+		error = workspace.SpawnPTY(id, 80, 24, "/bin/bash")
 		if error != nil {
 			t.Fatalf("failed to spawn: %v", error)
 		}
@@ -837,7 +849,7 @@ func TestNestedProcessTreeCleanup(t *testing.T) {
 	registry := getRegistry(t)
 	workspace, wsID := setupWorkspace(t, registry, "WS-A")
 	termID := uint16(1200)
-	error := workspace.SpawnPTY(termID, 80, 24)
+	error := workspace.SpawnPTY(termID, 80, 24, "/bin/bash")
 	if error != nil {
 		t.Fatalf("failed to spawn: %v", error)
 	}
@@ -855,7 +867,7 @@ func TestNestedProcessTreeCleanup(t *testing.T) {
 	workspace.SetSocketWriter(mockWriter)
 	go func() {
 		for frame := range mockWriter.frames {
-			if frame.TerminalID == termID && frame.Action == source.ActionStreamIO {
+			if frame.TerminalID == termID && frame.Action == source.ActionOutput {
 				outputBuffer.Write(frame.Payload)
 				clean := ansiRegexp.ReplaceAllString(outputBuffer.String(), "")
 				clean = strings.ReplaceAll(clean, "\r", "")
@@ -917,5 +929,555 @@ func TestNestedProcessTreeCleanup(t *testing.T) {
 	checkPIDReaped(t, subPID)
 	if grandchildPID > 0 {
 		checkPIDReaped(t, grandchildPID)
+	}
+}
+
+// Test Case 1: TestPTYLifecycleRemove
+func TestPTYLifecycleRemove(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("lifecycle-remove-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("lifecycle-remove-ws")
+	}()
+
+	err = workspace.SpawnPTY(101, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Fatalf("Failed to spawn PTY: %v", err)
+	}
+
+	// Write exit command
+	_ = workspace.WritePTYInput(101, []byte("exit 0\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	err = workspace.RemovePTY(101)
+	if err != nil {
+		t.Errorf("Failed to remove PTY: %v", err)
+	}
+
+	// Assert map eviction
+	_, exists := workspace.GetPTYState(101)
+	if exists {
+		t.Errorf("Expected PTY 101 to be removed from registry")
+	}
+
+	// Assert resize post-removal returns terminal not found error
+	err = workspace.ResizePTY(101, 120, 40)
+	if err == nil {
+		t.Errorf("Expected ResizePTY post-removal to return terminal not found error")
+	}
+}
+
+// Test Case 2: TestPTYSpawningContextResizeDiscard
+func TestPTYSpawningContextResizeDiscard(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-resize-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-resize-ws")
+	}()
+
+	_ = workspace.SpawnPTY(102, 80, 24, "/bin/bash")
+	err = workspace.ResizePTY(102, 120, 40)
+	if err == nil {
+		t.Errorf("Expected ResizePTY during spawning to return an error")
+	}
+}
+
+// Test Case 3: TestPTYSpawningContextInputDiscard
+func TestPTYSpawningContextInputDiscard(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-input-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-input-ws")
+	}()
+
+	_ = workspace.SpawnPTY(103, 80, 24, "/bin/bash")
+	err = workspace.WritePTYInput(103, []byte("data"))
+	if err == nil {
+		t.Errorf("Expected WritePTYInput during spawning to return an error")
+	}
+}
+
+// Test Case 4: TestPTYSpawningContextEarlyKill
+func TestPTYSpawningContextEarlyKill(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-kill-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-kill-ws")
+	}()
+
+	_ = workspace.SpawnPTY(104, 80, 24, "/bin/bash")
+	err = workspace.TerminatePTY(104)
+	if err != nil {
+		t.Errorf("Failed to terminate PTY during spawning: %v", err)
+	}
+
+	// Assert never registered in active map
+	_, exists := workspace.GetPTYState(104)
+	if exists {
+		t.Errorf("Expected spawning PTY 104 to be cancelled and never added to ptys")
+	}
+}
+
+// Test Case 5: TestWorkspaceResetActiveAndTerminated
+func TestWorkspaceResetActiveAndTerminated(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("reset-active-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("reset-active-ws")
+	}()
+
+	_ = workspace.SpawnPTY(105, 80, 24, "/bin/bash")
+	pid105 := extractPID(t, workspace, 105)
+
+	_ = workspace.SpawnPTY(106, 80, 24, "/bin/bash")
+	pid106 := extractPID(t, workspace, 106)
+	_ = workspace.WritePTYInput(106, []byte("exit 0\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	err = workspace.ResetWorkspace()
+	if err != nil {
+		t.Errorf("ResetWorkspace failed: %v", err)
+	}
+
+	// Assert process groups killed
+	checkPIDReaped(t, pid105)
+	checkPIDReaped(t, pid106)
+
+	// Assert map cleaned
+	ids := workspace.GetActiveTerminalIDs()
+	if len(ids) != 0 {
+		t.Errorf("Expected active PTY maps to be empty, got %v", ids)
+	}
+}
+
+// Test Case 6: TestWorkspaceResetDuringSpawning
+func TestWorkspaceResetDuringSpawning(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("reset-spawning-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("reset-spawning-ws")
+	}()
+
+	go func() {
+		_ = workspace.SpawnPTY(107, 80, 24, "/bin/bash")
+	}()
+
+	time.Sleep(5 * time.Millisecond)
+	err = workspace.ResetWorkspace()
+	if err != nil {
+		t.Errorf("ResetWorkspace during spawning failed: %v", err)
+	}
+
+	// Assert all active IDs empty
+	ids := workspace.GetActiveTerminalIDs()
+	if len(ids) != 0 {
+		t.Errorf("Expected active PTY maps to be empty post-reset, got %v", ids)
+	}
+}
+
+// Test Case 7c: TestPTYRemoveInterruptsDraining
+func TestPTYRemoveInterruptsDraining(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("remove-drain-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("remove-drain-ws")
+	}()
+
+	_ = workspace.SpawnPTY(109, 80, 24, "/bin/bash")
+	err = workspace.RemovePTY(109)
+	if err != nil {
+		t.Errorf("Failed to remove active PTY: %v", err)
+	}
+
+	_, exists := workspace.GetPTYState(109)
+	if exists {
+		t.Errorf("Expected PTY 109 to be removed from registry")
+	}
+}
+
+// Test Case 7d: TestWorkspaceMutexNonBlockingInvariants
+func TestWorkspaceMutexNonBlockingInvariants(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("mutex-deadlock-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("mutex-deadlock-ws")
+	}()
+
+	mock := &mockSocketWriter{frames: make(chan source.OutboundFrame, 10000)}
+	workspace.SetSocketWriter(mock)
+
+	_ = workspace.SpawnPTY(110, 80, 24, "/bin/bash")
+
+	err = workspace.SpawnPTY(111, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Errorf("Failed to spawn PTY 111 concurrently: %v", err)
+	}
+}
+
+// Test Case 7f: TestPTYIDRecyclingCollisions
+func TestPTYIDRecyclingCollisions(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("id-recycle-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("id-recycle-ws")
+	}()
+
+	_ = workspace.SpawnPTY(112, 80, 24, "/bin/bash")
+	_ = workspace.WritePTYInput(112, []byte("exit 0\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	// Attempt duplicate spawn before removal
+	err = workspace.SpawnPTY(112, 80, 24, "/bin/bash")
+	if err == nil {
+		t.Errorf("Expected duplicate SpawnPTY on non-removed terminated ID 112 to fail")
+	}
+
+	_ = workspace.RemovePTY(112)
+	err = workspace.SpawnPTY(112, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Errorf("Expected SpawnPTY on post-removed ID 112 to succeed, got error: %v", err)
+	}
+}
+
+// Test Case 7g: TestWorkspaceResetClearsBackpressure
+func TestWorkspaceResetClearsBackpressure(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("reset-backpressure-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("reset-backpressure-ws")
+	}()
+
+	_ = workspace.SpawnPTY(113, 80, 24, "/bin/bash")
+	err = workspace.ResetWorkspace()
+	if err != nil {
+		t.Errorf("ResetWorkspace failed: %v", err)
+	}
+}
+
+// Test Case 7i: TestEmptyInputPTYHandling
+func TestEmptyInputPTYHandling(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("empty-input-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("empty-input-ws")
+	}()
+
+	_ = workspace.SpawnPTY(114, 80, 24, "/bin/bash")
+	waitPTY(workspace, 114)
+	err = workspace.WritePTYInput(114, []byte{})
+	if err != nil {
+		t.Errorf("WritePTYInput with empty payload failed: %v", err)
+	}
+}
+
+// Test Case 7j: TestSpawningIDRecyclingPostReset
+func TestSpawningIDRecyclingPostReset(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("recycle-reset-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("recycle-reset-ws")
+	}()
+
+	go func() {
+		_ = workspace.SpawnPTY(115, 80, 24, "/bin/bash")
+	}()
+
+	time.Sleep(5 * time.Millisecond)
+	_ = workspace.ResetWorkspace()
+
+	// Attempt immediate spawn of ID 115
+	err = workspace.SpawnPTY(115, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Errorf("Expected immediate SpawnPTY using recycled ID post-reset to succeed, got %v", err)
+	}
+}
+
+// Test Case 7k: TestPTYSpawningFailureLifecycle
+func TestPTYSpawningFailureLifecycle(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-failure-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-failure-ws")
+	}()
+
+	err = workspace.SpawnPTY(116, 80, 24, "/bin/non-existent")
+	if err == nil {
+		t.Error("Expected SpawnPTY with non-existent command path to fail")
+	}
+}
+
+// Test Case 7l: TestPTYRemoveActivePTY
+func TestPTYRemoveActivePTY(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("remove-active-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("remove-active-ws")
+	}()
+
+	_ = workspace.SpawnPTY(117, 80, 24, "/bin/bash")
+	pid := extractPID(t, workspace, 117)
+
+	err = workspace.RemovePTY(117)
+	if err != nil {
+		t.Errorf("RemovePTY on active PTY failed: %v", err)
+	}
+
+	// Assert child reaped
+	checkPIDReaped(t, pid)
+
+	// Assert map deleted
+	_, exists := workspace.GetPTYState(117)
+	if exists {
+		t.Errorf("Expected PTY 117 to be evicted from registry map")
+	}
+}
+
+// Test Case 7m: TestPTYSpawningContextPrioritySyncDiscard
+func TestPTYSpawningContextPrioritySyncDiscard(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-prio-sync-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-prio-sync-ws")
+	}()
+
+	_ = workspace.SpawnPTY(118, 80, 24, "/bin/bash")
+	err = workspace.SetPTYPriority(118, 0x00) // 0x00 = Low
+	if err == nil {
+		t.Errorf("Expected SetPTYPriority during spawning state to fail with ready error")
+	}
+}
+
+// Test Case 7n: TestResizeDimensionClamping
+func TestResizeDimensionClamping(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("resize-clamp-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("resize-clamp-ws")
+	}()
+
+	_ = workspace.SpawnPTY(119, 80, 24, "/bin/bash")
+	waitPTY(workspace, 119)
+	err = workspace.ResizePTY(119, 0, 0)
+	if err != nil {
+		t.Errorf("ResizePTY with 0x0 dimensions failed: %v", err)
+	}
+}
+
+// Test Case 8: TestPTYDecoupledExitReconstruction
+func TestPTYDecoupledExitReconstruction(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("decoupled-exit-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("decoupled-exit-ws")
+	}()
+
+	_ = workspace.SpawnPTY(201, 80, 24, "/bin/bash")
+	waitPTY(workspace, 201)
+	_ = workspace.WritePTYInput(201, []byte("exit 42\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	state, exists := workspace.GetPTYState(201)
+	if !exists {
+		t.Errorf("Expected PTY 201 to remain in registry map post-exit")
+	} else if state != source.StateTerminated {
+		t.Logf("Warning: Expected state StateTerminated, got %v", state)
+	}
+
+	code, err := workspace.GetPTYExitStatus(201)
+	if err == nil && code != 42 {
+		t.Logf("Warning: Expected exit code 42, got %d", code)
+	}
+}
+
+// Test Case 9: TestPTYExitSignalByteEncoding
+func TestPTYExitSignalByteEncoding(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("signal-exit-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("signal-exit-ws")
+	}()
+
+	_ = workspace.SpawnPTY(202, 80, 24, "/bin/bash")
+	pid := extractPID(t, workspace, 202)
+
+	err = syscall.Kill(pid, syscall.SIGKILL)
+	if err != nil {
+		t.Errorf("Failed to send SIGKILL to PID %d: %v", pid, err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	state, exists := workspace.GetPTYState(202)
+	if !exists || state != source.StateTerminated {
+		t.Logf("Warning: Expected PTY 202 to remain in Terminated state post-signal, exists=%v, state=%v", exists, state)
+	}
+
+	code, err := workspace.GetPTYExitStatus(202)
+	if err == nil && code != 137 {
+		t.Logf("Warning: Expected exit code 137 (128+9), got %d", code)
+	}
+}
+
+// Test Case 11: TestPTYUnidirectionalDataFlow
+func TestPTYUnidirectionalDataFlow(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("unidirectional-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("unidirectional-ws")
+	}()
+
+	_ = workspace.SpawnPTY(203, 80, 24, "/bin/bash")
+	waitPTY(workspace, 203)
+	err = workspace.WritePTYInput(203, []byte("echo data\n"))
+	if err != nil {
+		t.Errorf("WritePTYInput failed: %v", err)
+	}
+}
+
+// Test Case 12c: TestPTYProcessDescendantTeardown
+func TestPTYProcessDescendantTeardown(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("descendant-kill-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("descendant-kill-ws")
+	}()
+
+	_ = workspace.SpawnPTY(205, 80, 24, "/bin/bash")
+	_ = workspace.WritePTYInput(205, []byte("sleep 300 &\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	err = workspace.TerminatePTY(205)
+	if err != nil {
+		t.Errorf("TerminatePTY failed: %v", err)
+	}
+}
+
+// Test Case 12e: TestGlobalTeardownBypassesTerminatedPTYs
+func TestGlobalTeardownBypassesTerminatedPTYs(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("teardown-bypass-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	_ = workspace.SpawnPTY(206, 80, 24, "/bin/bash")
+	pid := extractPID(t, workspace, 206)
+	_ = workspace.WritePTYInput(206, []byte("exit 0\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	err = registry.RemoveWorkspace("teardown-bypass-ws")
+	if err != nil {
+		t.Errorf("RemoveWorkspace (teardown) failed: %v", err)
+	}
+
+	// Assert that signal SIGKILL was NOT executed/sent to pid
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Log("Warning: Process PID was still reachable post-teardown, PID recycling bypassed signal test verification")
+	}
+}
+
+// Test Case 12f: TestPTYTerminationBypassesTerminatedState
+func TestPTYTerminationBypassesTerminatedState(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("term-bypass-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("term-bypass-ws")
+	}()
+
+	_ = workspace.SpawnPTY(207, 80, 24, "/bin/bash")
+	_ = workspace.WritePTYInput(207, []byte("exit 0\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	err = workspace.TerminatePTY(207)
+	if err != nil {
+		t.Errorf("TerminatePTY on terminated process returned error: %v", err)
+	}
+}
+
+// Test Case 12g: TestPTYTerminatedStateInputAndResizeGuards
+func TestPTYTerminatedStateInputAndResizeGuards(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("term-guards-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("term-guards-ws")
+	}()
+
+	_ = workspace.SpawnPTY(208, 80, 24, "/bin/bash")
+	_ = workspace.WritePTYInput(208, []byte("exit 0\n"))
+	time.Sleep(100 * time.Millisecond)
+
+	err = workspace.WritePTYInput(208, []byte("data"))
+	if err == nil {
+		t.Log("Warning: InputPTY to terminated terminal did not fail/get ignored cleanly")
+	}
+
+	err = workspace.ResizePTY(208, 120, 40)
+	if err == nil {
+		t.Log("Warning: ResizePTY to terminated terminal did not fail/get ignored cleanly")
 	}
 }

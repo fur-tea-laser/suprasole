@@ -117,14 +117,14 @@ func TestPeekNextScanningOrder(t *testing.T) {
 	ws.centralizedQueues[QueueIndexHigh] = append(ws.centralizedQueues[QueueIndexHigh], OutboundFrame{Payload: []byte("HIGH")})
 	ws.centralizedQueues[QueueIndexControl] = append(ws.centralizedQueues[QueueIndexControl], OutboundFrame{Payload: []byte("CTRL")})
 	// Peek next frame: Control should take absolute priority
-	frame, qIdx, _, ok := ws.peekNextFrame()
+	frame, qIdx, gen, ok := ws.peekNextFrame()
 	if !ok || qIdx != QueueIndexControl || string(frame.Payload) != "CTRL" {
 		t.Errorf("expected Control frame to be peeked first, got %v, qIdx=%d", frame, qIdx)
 	}
 	// Pop control
-	ws.popNextFrame(QueueIndexControl, ws.queueGeneration)
+	ws.popNextFrame(QueueIndexControl, gen)
 	// High priority should take priority over Low
-	frame, qIdx, _, ok = ws.peekNextFrame()
+	frame, qIdx, gen, ok = ws.peekNextFrame()
 	if !ok || qIdx != QueueIndexHigh || string(frame.Payload) != "HIGH" {
 		t.Errorf("expected High priority frame to be peeked next, got %v, qIdx=%d", frame, qIdx)
 	}
@@ -191,13 +191,13 @@ func TestSchedulerPacingDeadlineFlow(t *testing.T) {
 	ws := &Workspace{
 		pendingCount:    make(map[uint16]int),
 		schedulerSignal: make(chan struct{}, 10),
-		ptys:            make(map[uint16]*ptyInstance),
+		ptys:            newOrderedPTYMap(),
 		spawningPTYs:    make(map[uint16]bool),
 		terminatedPTYs:  make(map[uint16]bool),
 	}
 	ws.backpressureCond = sync.NewCond(&ws.mutex)
-	ws.ptys[1] = &ptyInstance{terminalID: 1, priority: PriorityLow}
-	ws.ptys[2] = &ptyInstance{terminalID: 2, priority: PriorityHigh}
+	ws.ptys.Put(1, &ptyInstance{terminalID: 1, priority: PriorityLow})
+	ws.ptys.Put(2, &ptyInstance{terminalID: 2, priority: PriorityHigh})
 	// Register a mock socket writer that records writes
 	var written []OutboundFrame
 	var writtenMutex sync.Mutex
@@ -213,7 +213,7 @@ func TestSchedulerPacingDeadlineFlow(t *testing.T) {
 	// Start scheduler thread
 	go ws.startScheduler()
 	// 1. Initial State: Enqueue a Low priority frame. It should drain immediately since pacing deadline is not set.
-	ws.EnqueueFrame(OutboundFrame{Action: 5, TerminalID: 1, DrainingPriority: PriorityLow, Payload: []byte("L1")})
+	ws.EnqueueFrame(OutboundFrame{Action: 8, TerminalID: 1, DrainingPriority: PriorityLow, Payload: []byte("L1")})
 	time.Sleep(10 * time.Millisecond) // Give scheduler time to run
 	writtenMutex.Lock()
 	if len(written) != 1 || string(written[0].Payload) != "L1" {
@@ -227,7 +227,7 @@ func TestSchedulerPacingDeadlineFlow(t *testing.T) {
 	ws.pacingDeadline = mockTime.Add(PacingInterval)
 	ws.mutex.Unlock()
 	// Enqueue a Low priority frame.
-	ws.EnqueueFrame(OutboundFrame{Action: 5, TerminalID: 1, DrainingPriority: PriorityLow, Payload: []byte("L2")})
+	ws.EnqueueFrame(OutboundFrame{Action: 8, TerminalID: 1, DrainingPriority: PriorityLow, Payload: []byte("L2")})
 	time.Sleep(10 * time.Millisecond) // Give scheduler time to run
 	// Verify that the frame is NOT drained because pacing deadline is active
 	writtenMutex.Lock()
@@ -237,7 +237,7 @@ func TestSchedulerPacingDeadlineFlow(t *testing.T) {
 	}
 	writtenMutex.Unlock()
 	// 3. Enqueue a High priority frame while paced. It should drain immediately (preemption).
-	ws.EnqueueFrame(OutboundFrame{Action: 5, TerminalID: 2, DrainingPriority: PriorityHigh, Payload: []byte("H1")})
+	ws.EnqueueFrame(OutboundFrame{Action: 8, TerminalID: 2, DrainingPriority: PriorityHigh, Payload: []byte("H1")})
 	time.Sleep(10 * time.Millisecond) // Give scheduler time to run
 	// Verify that H1 is drained, but L2 is still paused.
 	writtenMutex.Lock()
@@ -273,4 +273,3 @@ type mockSocketWriter struct {
 func (m *mockSocketWriter) WriteFrame(action uint16, terminalID uint16, payload []byte) error {
 	return m.writeFunc(action, terminalID, payload)
 }
-

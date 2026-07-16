@@ -6,15 +6,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"time"
 	"suprasole-server/source"
 )
 
 func main() {
 	port := flag.Int("port", 8000, "Port to listen on")
-	sweeper := flag.Duration("sweeper", 5*time.Minute, "Sweeper timeout duration")
 	flag.Parse()
-	source.DefaultSweeperDuration = *sweeper
 	registry := source.NewWorkspaceRegistry()
 	handler := source.NewHandler(registry)
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))

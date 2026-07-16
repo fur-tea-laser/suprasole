@@ -1,16 +1,19 @@
 package source
 
 import (
+	"bytes"
 	"encoding/binary"
+	"io"
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-var DefaultSweeperDuration = 5 * time.Minute
+var connectionSequence uint32
 
 type wsConnection struct {
 	token      string
@@ -19,6 +22,7 @@ type wsConnection struct {
 	closed     chan struct{}
 	done       chan struct{}
 	once       sync.Once
+	sequence   uint32
 }
 
 func (connection *wsConnection) WriteFrame(action uint16, terminalID uint16, payload []byte) error {
@@ -61,13 +65,11 @@ func (connection *wsConnection) closeWithCode(code int, text string) {
 type connectionRegistry struct {
 	mutex       sync.Mutex
 	connections map[string]*wsConnection
-	sweepers    map[string]*time.Timer
 }
 
 func newConnectionRegistry() *connectionRegistry {
 	return &connectionRegistry{
 		connections: make(map[string]*wsConnection),
-		sweepers:    make(map[string]*time.Timer),
 	}
 }
 
@@ -77,8 +79,15 @@ func (registry *connectionRegistry) getActiveConnection(token string) *wsConnect
 	return registry.connections[token]
 }
 
-func (registry *connectionRegistry) evictAndReserve(token string, newConn *wsConnection) *wsConnection {
+func (registry *connectionRegistry) commitConnection(token string, newConn *wsConnection) *wsConnection {
 	registry.mutex.Lock()
+	if active, exists := registry.connections[token]; exists {
+		if active.sequence > newConn.sequence {
+			registry.mutex.Unlock()
+			go newConn.closeWithCode(4000, "Session Taken Over")
+			return nil
+		}
+	}
 	type eviction struct {
 		conn *wsConnection
 		code int
@@ -87,20 +96,12 @@ func (registry *connectionRegistry) evictAndReserve(token string, newConn *wsCon
 	var toEvict []eviction
 	var evictedConn *wsConnection
 	for otherToken, otherConn := range registry.connections {
-		if t, exists := registry.sweepers[otherToken]; exists {
-			t.Stop()
-			delete(registry.sweepers, otherToken)
-		}
 		if otherToken == token {
 			evictedConn = otherConn
 		} else {
 			toEvict = append(toEvict, eviction{conn: otherConn, code: 1000, text: "Singleton connection takeover"})
 		}
 		delete(registry.connections, otherToken)
-	}
-	if t, exists := registry.sweepers[token]; exists {
-		t.Stop()
-		delete(registry.sweepers, token)
 	}
 	registry.connections[token] = newConn
 	registry.mutex.Unlock()
@@ -110,49 +111,17 @@ func (registry *connectionRegistry) evictAndReserve(token string, newConn *wsCon
 	return evictedConn
 }
 
-func (registry *connectionRegistry) cleanupPlaceholder(token string, conn *wsConnection) {
+func (registry *connectionRegistry) unregisterConnection(token string, connection *wsConnection) {
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
-	if existing, exists := registry.connections[token]; exists && existing == conn {
-		delete(registry.connections, token)
-	}
-}
-
-func (registry *connectionRegistry) unregisterAndSweep(token string, connection *wsConnection, sweepDuration time.Duration, sweepAction func()) {
-	registry.mutex.Lock()
 	existing, exists := registry.connections[token]
-	if exists && existing != connection {
-		registry.mutex.Unlock()
-		return
-	}
-	if exists {
+	if exists && existing == connection {
 		delete(registry.connections, token)
 	}
-	if sweepDuration <= 0 {
-		registry.mutex.Unlock()
-		sweepAction()
-		return
-	}
-	timer := time.AfterFunc(sweepDuration, func() {
-		registry.mutex.Lock()
-		if _, exists := registry.connections[token]; !exists {
-			delete(registry.sweepers, token)
-			registry.mutex.Unlock()
-			sweepAction()
-		} else {
-			registry.mutex.Unlock()
-		}
-	})
-	registry.sweepers[token] = timer
-	registry.mutex.Unlock()
 }
 
 func (registry *connectionRegistry) closeAndRemove(token string, code int, text string) {
 	registry.mutex.Lock()
-	if t, exists := registry.sweepers[token]; exists {
-		t.Stop()
-		delete(registry.sweepers, token)
-	}
 	connection, exists := registry.connections[token]
 	if exists {
 		delete(registry.connections, token)
@@ -211,9 +180,10 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 		return
 	}
 	wsConn := &wsConnection{
-		token:  token,
-		closed: make(chan struct{}),
-		done:   make(chan struct{}),
+		token:    token,
+		closed:   make(chan struct{}),
+		done:     make(chan struct{}),
+		sequence: atomic.AddUint32(&connectionSequence, 1),
 	}
 	defer func() {
 		select {
@@ -222,16 +192,9 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			close(wsConn.done)
 		}
 	}()
-	// Register wsConn placeholder and evict any existing connection
-	oldConn := handler.netRegistry.evictAndReserve(token, wsConn)
-	if oldConn != nil {
-		oldConn.closeWithCode(4000, "Session Taken Over")
-	}
-
-	// Upgrade connection to WebSocket (returns 101 Switching Protocols to client, unblocking Dial)
+	// Upgrade connection to WebSocket concurrently (returns 101 Switching Protocols to client, unblocking Dial)
 	connection, upgradeError := handler.upgrader.Upgrade(responseWriter, request, nil)
 	if upgradeError != nil {
-		handler.netRegistry.cleanupPlaceholder(token, wsConn)
 		return
 	}
 	// Set small write buffer to allow write deadline tests to saturate TCP buffers fast
@@ -240,13 +203,15 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 	}
 	// Set maximum message size constraint (64KB payload + 4 bytes header)
 	connection.SetReadLimit(65536 + 4)
-
 	wsConn.mutex.Lock()
 	wsConn.connection = connection
 	wsConn.mutex.Unlock()
-
-	// If we were already evicted/closed during the upgrade process (before connection was set),
-	// we must write the Close frame now and exit so the deferred handler can drain cleanly.
+	// Commit and evict the old connection atomically
+	oldConn := handler.netRegistry.commitConnection(token, wsConn)
+	if oldConn != nil {
+		oldConn.closeWithCode(4000, "Session Taken Over")
+	}
+	// Check if we were immediately evicted during/after the commit process
 	select {
 	case <-wsConn.closed:
 		_ = connection.WriteControl(
@@ -254,18 +219,6 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			websocket.FormatCloseMessage(4000, "Session Taken Over"),
 			time.Now().Add(1*time.Second),
 		)
-		return
-	default:
-	}
-
-	// Wait for the evicted connection to finish its teardown on the network layer
-	if oldConn != nil {
-		<-oldConn.done
-	}
-
-	// Check if we were evicted/closed during the upgrade/eviction wait process
-	select {
-	case <-wsConn.closed:
 		return
 	default:
 	}
@@ -278,43 +231,15 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			time.Now().Add(1*time.Second),
 		)
 		connection.Close()
-		handler.netRegistry.cleanupPlaceholder(token, wsConn)
+		handler.netRegistry.unregisterConnection(token, wsConn)
 		return
 	}
-	// 2. Perform State Replay by enqueuing into the PTY queues atomically
-	var replayFrames []OutboundFrame
-	activeTerminalIDs := workspace.GetActiveTerminalIDs()
-	for _, termID := range activeTerminalIDs {
-		buf, isTruncated, scrollbackError := workspace.GetScrollbackBuffer(termID)
-		if scrollbackError != nil {
-			continue
-		}
-		replayPayload := buf
-		if isTruncated {
-			warning := []byte("\r\n\x1b[33m[... Output truncated due to buffer overflow ...]\x1b[0m\r\n\r\n")
-			replayPayload = make([]byte, len(warning)+len(buf))
-			copy(replayPayload, warning)
-			copy(replayPayload[len(warning):], buf)
-		}
-		replayFrames = append(replayFrames, OutboundFrame{
-			Action:           ActionStreamIO,
-			TerminalID:       termID,
-			Payload:          replayPayload,
-			DrainingPriority: PriorityHigh, // High Priority
-		})
+	// 2. Perform State Replay and bind wsConn atomically under the registry lock
+	handler.netRegistry.mutex.Lock()
+	if handler.netRegistry.connections[token] == wsConn {
+		workspace.PerformReplayTakeover(wsConn)
 	}
-	// Send spawn success status for all active terminals to synchronize client terminal states
-	for _, termID := range activeTerminalIDs {
-		replayFrames = append(replayFrames, OutboundFrame{
-			Action:           ActionSpawnStatus,
-			TerminalID:       termID,
-			Payload:          []byte{0x00},
-			DrainingPriority: PriorityHigh, // High Priority
-		})
-	}
-	workspace.FlushAndEnqueueReplays(replayFrames)
-	// Bind wsConn as the socket writer -> Scheduler starts draining enqueued replays
-	workspace.SetSocketWriter(wsConn)
+	handler.netRegistry.mutex.Unlock()
 	// Configure deadlines and ping tickers
 	_ = connection.SetReadDeadline(time.Now().Add(40 * time.Second))
 	connection.SetPongHandler(func(appData string) error {
@@ -340,9 +265,7 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 	defer func() {
 		wsConn.closeWithCode(closeCode, closeText)
 		workspace.ClearSocketWriter(wsConn)
-		handler.netRegistry.unregisterAndSweep(token, wsConn, DefaultSweeperDuration, func() {
-			_ = handler.registry.RemoveWorkspace(token)
-		})
+		handler.netRegistry.unregisterConnection(token, wsConn)
 		wsConn.mutex.Lock()
 		conn := wsConn.connection
 		wsConn.mutex.Unlock()
@@ -384,42 +307,43 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			wsConn.closeWithCode(websocket.CloseProtocolError, "Frame too short")
 			break
 		}
-		// Discard incoming frames from evicted connections, but continue reading
-		// to process the close acknowledgment.
-		select {
-		case <-wsConn.closed:
-			continue
-		default:
-		}
 		action := binary.BigEndian.Uint16(message[0:2])
 		terminalID := binary.BigEndian.Uint16(message[2:4])
 		payload := message[4:]
 		switch action {
 		case ActionSpawn: // Spawn Request
-			if len(payload) != 4 {
+			reader := bytes.NewReader(payload)
+			columns, err1 := readUint16(reader)
+			rows, err2 := readUint16(reader)
+			command, err3 := readString16(reader)
+			argCount, err4 := readUint8(reader)
+			if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
 				wsConn.closeWithCode(websocket.CloseProtocolError, "Invalid spawn request layout")
 				return
 			}
-			columns := binary.BigEndian.Uint16(payload[0:2])
-			rows := binary.BigEndian.Uint16(payload[2:4])
 			if columns == 0 || rows == 0 {
-				wsConn.closeWithCode(websocket.CloseProtocolError, "Invalid terminal dimensions")
+				wsConn.closeWithCode(websocket.CloseProtocolError, "Dimensions cannot be zero")
 				return
 			}
-			// Spawn asynchronously to keep the main read loop non-blocking
-			go func(terminalID uint16, columns uint16, rows uint16) {
-				spawnError := workspace.SpawnPTY(terminalID, columns, rows)
-				status := byte(0x00)
-				if spawnError != nil {
-					status = byte(0x01)
+			if command == "" {
+				wsConn.closeWithCode(websocket.CloseProtocolError, "Command path cannot be empty")
+				return
+			}
+			var args []string
+			for i := 0; i < int(argCount); i++ {
+				argVal, err := readString16(reader)
+				if err != nil {
+					wsConn.closeWithCode(websocket.CloseProtocolError, "Spawn request payload truncated before argument value")
+					return
 				}
-				workspace.EnqueueControlFrame(OutboundFrame{
-					Action:           ActionSpawnStatus,
-					TerminalID:       terminalID,
-					Payload:          []byte{status},
-					DrainingPriority: PriorityHigh, // High Priority
-				})
-			}(terminalID, columns, rows)
+				args = append(args, argVal)
+			}
+			if reader.Len() > 0 {
+				wsConn.closeWithCode(websocket.CloseProtocolError, "Malformed spawn request payload (trailing bytes)")
+				return
+			}
+			// Dispatch to core SpawnPTY. The core handles all synchronous/asynchronous error framing internally.
+			_ = workspace.SpawnPTY(terminalID, columns, rows, command, args...)
 		case ActionResize: // Resize Request
 			if len(payload) != 4 {
 				wsConn.closeWithCode(websocket.CloseProtocolError, "Invalid resize request layout")
@@ -428,7 +352,7 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			columns := binary.BigEndian.Uint16(payload[0:2])
 			rows := binary.BigEndian.Uint16(payload[2:4])
 			if columns == 0 || rows == 0 {
-				wsConn.closeWithCode(websocket.CloseProtocolError, "Invalid terminal dimensions")
+				wsConn.closeWithCode(websocket.CloseProtocolError, "Dimensions cannot be zero")
 				return
 			}
 			_ = workspace.ResizePTY(terminalID, columns, rows)
@@ -438,7 +362,13 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 				return
 			}
 			_ = workspace.TerminatePTY(terminalID)
-		case ActionStreamIO: // Stream I/O
+		case ActionRemove: // Remove Request
+			if len(payload) != 0 {
+				wsConn.closeWithCode(websocket.CloseProtocolError, "Invalid remove request layout")
+				return
+			}
+			_ = workspace.RemovePTY(terminalID)
+		case ActionInput: // Input (0x0007)
 			_ = workspace.WritePTYInput(terminalID, payload)
 		case ActionPrioritySync: // Priority Sync (Whole set of terminals)
 			if len(payload)%3 != 0 {
@@ -456,15 +386,44 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 				}
 				specified[termID] = state
 			}
-			// Update all active terminals in the workspace
-			activeIDs := workspace.GetActiveTerminalIDs()
-			for _, termID := range activeIDs {
-				state := specified[termID]
-				_ = workspace.SetPTYPriority(termID, state)
+			_ = workspace.SyncPTYPriorities(specified)
+		case ActionReset: // Reset Request
+			if len(payload) != 0 {
+				wsConn.closeWithCode(websocket.CloseProtocolError, "Invalid reset request layout")
+				return
 			}
+			_ = workspace.ResetWorkspace()
 		default:
 			wsConn.closeWithCode(websocket.CloseProtocolError, "Unrecognized Action ID")
 			return
 		}
 	}
+}
+
+func readUint16(reader *bytes.Reader) (uint16, error) {
+	var b [2]byte
+	if _, err := io.ReadFull(reader, b[:]); err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint16(b[:]), nil
+}
+
+func readUint8(reader *bytes.Reader) (uint8, error) {
+	var b [1]byte
+	if _, err := io.ReadFull(reader, b[:]); err != nil {
+		return 0, err
+	}
+	return b[0], nil
+}
+
+func readString16(reader *bytes.Reader) (string, error) {
+	length, err := readUint16(reader)
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(reader, buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
 }

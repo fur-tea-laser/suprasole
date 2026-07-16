@@ -1,225 +1,245 @@
-import { assertEquals, assert } from '@std/assert'
-import { ServerOrchestrator } from './ServerOrchestrator.ts'
-import { WebSocketClient } from './WebSocketClient.ts'
+import { assert, assertEquals } from "@std/assert";
+import { ServerOrchestrator } from "./ServerOrchestrator.ts";
+import { WebSocketClient } from "./WebSocketClient.ts";
 
 Deno.test({
-  name: '{h6e2et} [E2E Infrastructure] Scheduler Suite: Strict Scheduling Priority Invariants',
+  name:
+    "{h6e2et} [E2E Infrastructure] Scheduler Suite: Strict Scheduling Priority Invariants",
   async fn(t) {
     const orchestrator = new ServerOrchestrator();
     await t.step(
-      '{psch01} [Priority Scheduling] Strict Priority Draining (Draining): Asserts high-priority queues drain first',
+      "{psch01} [Priority Scheduling] Strict Priority Draining (Draining): Asserts high-priority queues drain first",
       async () => {
         const session = await orchestrator.spawnRuntime();
-        const client = new WebSocketClient(session.port, 'token-drain');
+        const client = new WebSocketClient(session.port, "token-drain");
         try {
           await client.connect();
-          client.sendFrame(0x0001, 1, new Uint8Array([0, 80, 0, 24])); // T1
+          client.sendSpawn(1, 80, 24, "bash"); // T1
           await client.readSpawnStatus(1);
-          client.sendFrame(0x0001, 2, new Uint8Array([0, 80, 0, 24])); // T2
+          client.sendSpawn(2, 80, 24, "bash"); // T2
           await client.readSpawnStatus(2);
-          // Set T1 to High Priority, T2 to Low Priority
           const syncPayload = new Uint8Array([0, 1, 1, 0, 2, 0]);
-          client.sendFrame(0x0006, 0, syncPayload);
-          // Assert High Priority T1 preemption over Low Priority T2
-          client.sendFrame(0x0005, 2, new TextEncoder().encode("for i in $(seq 1 100); do echo \"LOW_$i\"; sleep 0.01; done\n"));
-          client.sendFrame(0x0005, 1, new TextEncoder().encode("echo 'PREEMPT'\n"));
+          client.sendFrame(0x0009, 0, syncPayload); // ActionPrioritySync = 9
+          client.sendFrame(
+            0x0007,
+            2,
+            new TextEncoder().encode(
+              'for i in $(seq 1 100); do echo "LOW_$i"; sleep 0.01; done\n',
+            ),
+          );
+          client.sendFrame(
+            0x0007,
+            1,
+            new TextEncoder().encode("echo 'PREEMPT'\n"),
+          );
           let receivedPreempt = false;
           let finishedT2 = false;
           let preemptedSuccessful = false;
-          const deadline = Date.now() + 3000;
-          while (Date.now() < deadline) {
-            try {
-              const frame = await client.readFrame(500);
-              const unpacked = WebSocketClient.unpackFrame(frame);
-              if (unpacked.action === 5) {
-                const text = new TextDecoder().decode(unpacked.payload);
-                if (unpacked.terminalID === 1 && text.includes('PREEMPT')) {
-                  receivedPreempt = true;
-                  if (!finishedT2) {
-                    preemptedSuccessful = true;
-                  }
-                }
-                if (unpacked.terminalID === 2 && text.includes('LOW_100')) {
-                  finishedT2 = true;
+          while (true) {
+            const frame = await client.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.action === 8) {
+              const text = new TextDecoder().decode(unpacked.payload);
+              if (unpacked.terminalID === 1 && text.includes("PREEMPT")) {
+                receivedPreempt = true;
+                if (!finishedT2) {
+                  preemptedSuccessful = true;
                 }
               }
-            } catch {
-              break;
+              if (unpacked.terminalID === 2 && text.includes("LOW_100")) {
+                finishedT2 = true;
+              }
+              if (receivedPreempt && finishedT2) {
+                break;
+              }
             }
           }
-          assert(receivedPreempt, 'Should receive T1 preempt output');
-          assert(preemptedSuccessful, 'High priority T1 output should preempt Low priority T2 queue draining');
+          assert(receivedPreempt, "Should receive T1 preempt output");
+          assert(
+            preemptedSuccessful,
+            "High priority T1 output should preempt Low priority T2 queue draining",
+          );
         } finally {
           client.close();
           await session.shutdown();
         }
-      }
+      },
     );
     await t.step(
-      '{psch02} [Priority Scheduling] Whole-State Layout Synchronization (PrioritySync): Shift priority mappings dynamically',
+      "{psch02} [Priority Scheduling] Whole-State Layout Synchronization (PrioritySync): Shift priority mappings dynamically",
       async () => {
         const session = await orchestrator.spawnRuntime();
-        const client = new WebSocketClient(session.port, 'token-priority-sync');
+        const client = new WebSocketClient(session.port, "token-priority-sync");
         try {
           await client.connect();
-          client.sendFrame(0x0001, 1, new Uint8Array([0, 80, 0, 24])); // T1
+          client.sendSpawn(1, 80, 24, "bash"); // T1
           await client.readSpawnStatus(1);
-          client.sendFrame(0x0001, 2, new Uint8Array([0, 80, 0, 24])); // T2
+          client.sendSpawn(2, 80, 24, "bash"); // T2
           await client.readSpawnStatus(2);
-          // Input A: Shift mapping -> Set T1 to Low, T2 to High
           const syncPayload = new Uint8Array([0, 1, 0, 0, 2, 1]);
-          client.sendFrame(0x0006, 0, syncPayload);
-          // Assert High Priority T2 preemption over Low Priority T1
-          client.sendFrame(0x0005, 1, new TextEncoder().encode("for i in {1..2000}; do echo \"T1_DATA_$i\"; done\n"));
-          client.sendFrame(0x0005, 2, new TextEncoder().encode("echo 'PREEMPT_FLIP'\n"));
+          client.sendFrame(0x0009, 0, syncPayload); // ActionPrioritySync = 9
+          client.sendFrame(
+            0x0007,
+            1,
+            new TextEncoder().encode(
+              'for i in {1..2000}; do echo "T1_DATA_$i"; done\n',
+            ),
+          );
+          client.sendFrame(
+            0x0007,
+            2,
+            new TextEncoder().encode("echo 'PREEMPT_FLIP'\n"),
+          );
           let receivedPreempt = false;
           let finishedT1 = false;
           let preemptedSuccessful = false;
-          const deadline = Date.now() + 3000;
-          while (Date.now() < deadline) {
-            try {
-              const frame = await client.readFrame(500);
-              const unpacked = WebSocketClient.unpackFrame(frame);
-              if (unpacked.action === 5) {
-                const text = new TextDecoder().decode(unpacked.payload);
-                if (unpacked.terminalID === 2 && text.includes('PREEMPT_FLIP')) {
-                  receivedPreempt = true;
-                  if (!finishedT1) {
-                    preemptedSuccessful = true;
-                  }
-                }
-                if (unpacked.terminalID === 1 && text.includes('T1_DATA_2000')) {
-                  finishedT1 = true;
+          while (true) {
+            const frame = await client.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.action === 8) {
+              const text = new TextDecoder().decode(unpacked.payload);
+              if (unpacked.terminalID === 2 && text.includes("PREEMPT_FLIP")) {
+                receivedPreempt = true;
+                if (!finishedT1) {
+                  preemptedSuccessful = true;
                 }
               }
-            } catch {
-              break;
+              if (unpacked.terminalID === 1 && text.includes("T1_DATA_2000")) {
+                finishedT1 = true;
+              }
+              if (receivedPreempt && finishedT1) {
+                break;
+              }
             }
           }
-          assert(receivedPreempt, 'Should receive T2 preempt output');
-          assert(preemptedSuccessful, 'Dynamic PrioritySync should shift preemption priority to T2');
-          // Input B: Unspawned TerminalID sync
+          assert(receivedPreempt, "Should receive T2 preempt output");
+          assert(
+            preemptedSuccessful,
+            "Dynamic PrioritySync should shift preemption priority to T2",
+          );
           const invalidSync = new Uint8Array([0, 99, 1]);
-          client.sendFrame(0x0006, 0, invalidSync);
-          assert(true, 'Invalid PrioritySync tuple ignored cleanly');
+          client.sendFrame(0x0009, 0, invalidSync);
+          assert(true, "Invalid PrioritySync tuple ignored cleanly");
         } finally {
           client.close();
           await session.shutdown();
         }
-      }
+      },
     );
     await t.step(
-      '{psch03} [Priority Scheduling] Workspace-Wide Replay Starvation Prevention (Starvation): Starvation lockout checks',
+      "{psch03} [Priority Scheduling] Workspace-Wide Replay Starvation Prevention (Starvation): Starvation lockout checks",
       async () => {
         const session = await orchestrator.spawnRuntime();
-        const token = 'token-starvation';
+        const token = "token-starvation";
         const client1 = new WebSocketClient(session.port, token);
         try {
           await client1.connect();
-          client1.sendFrame(0x0001, 1, new Uint8Array([0, 80, 0, 24])); // T1 (High)
+          client1.sendSpawn(1, 80, 24, "bash"); // T1 (High)
           await client1.readSpawnStatus(1);
-          client1.sendFrame(0x0001, 2, new Uint8Array([0, 80, 0, 24])); // T2 (Low)
+          client1.sendSpawn(2, 80, 24, "bash"); // T2 (Low)
           await client1.readSpawnStatus(2);
-          // Write data to T2 to trigger scrollback
-          client1.sendFrame(0x0005, 2, new TextEncoder().encode("echo 'T2_REPLAY'\n"));
+          client1.sendFrame(
+            0x0007,
+            2,
+            new TextEncoder().encode("echo 'T2_REPLAY'\n"),
+          );
           let receivedT2Replay = false;
-          const t2Deadline = Date.now() + 4000;
-          while (Date.now() < t2Deadline) {
+          while (true) {
             const frame = await client1.readFrame();
             const unpacked = WebSocketClient.unpackFrame(frame);
-            if (unpacked.action === 5 && unpacked.terminalID === 2) {
+            if (unpacked.action === 8 && unpacked.terminalID === 2) {
               const text = new TextDecoder().decode(unpacked.payload);
-              if (text.includes('T2_REPLAY')) {
+              if (text.includes("T2_REPLAY")) {
                 receivedT2Replay = true;
                 break;
               }
             }
           }
-          assert(receivedT2Replay, "T2_REPLAY output not received before close");
+          assert(
+            receivedT2Replay,
+            "T2_REPLAY output not received before close",
+          );
           client1.close();
-          // Client 2 connects. On connection, T2 scrollback will replay.
           const client2 = new WebSocketClient(session.port, token);
           try {
             await client2.connect();
-            // Concurrently flood T1 with live output
-            client2.sendFrame(0x0005, 1, new TextEncoder().encode("echo 'T1_LIVE'\n"));
+            client2.sendFrame(
+              0x0007,
+              1,
+              new TextEncoder().encode("echo 'T1_LIVE'\n"),
+            );
             let receivedReplay = false;
             let receivedLiveAfterReplay = false;
-            const deadline = Date.now() + 3000;
-            while (Date.now() < deadline) {
-              try {
-                const frame = await client2.readFrame(500);
-                const unpacked = WebSocketClient.unpackFrame(frame);
-                if (unpacked.action === 5) {
-                  const text = new TextDecoder().decode(unpacked.payload);
-                  if (text.includes('T2_REPLAY')) {
-                    receivedReplay = true;
-                  }
-                  if (receivedReplay && text.includes('T1_LIVE')) {
-                    receivedLiveAfterReplay = true;
-                    break;
-                  }
+            while (true) {
+              const frame = await client2.readFrame();
+              const unpacked = WebSocketClient.unpackFrame(frame);
+              if (unpacked.action === 8) {
+                const text = new TextDecoder().decode(unpacked.payload);
+                if (text.includes("T2_REPLAY")) {
+                  receivedReplay = true;
                 }
-              } catch {
-                break;
+                if (receivedReplay && text.includes("T1_LIVE")) {
+                  receivedLiveAfterReplay = true;
+                  break;
+                }
               }
             }
-            assert(receivedReplay, 'Should receive T2 historical replay first');
+            assert(receivedReplay, "Should receive T2 historical replay first");
           } finally {
             client2.close();
           }
         } finally {
           await session.shutdown();
         }
-      }
+      },
     );
     await t.step(
-      '{psch04} [Priority Scheduling] Offline Low-Priority Fallback (Reversion): Demotes active priorities when detached',
+      "{psch04} [Priority Scheduling] Offline Low-Priority Fallback (Reversion): Demotes active priorities when detached",
       async () => {
         const session = await orchestrator.spawnRuntime();
-        const token = 'token-reversion';
+        const token = "token-reversion";
         const client1 = new WebSocketClient(session.port, token);
         try {
           await client1.connect();
-          client1.sendFrame(0x0001, 1, new Uint8Array([0, 80, 0, 24])); // T1 (High)
+          client1.sendSpawn(1, 80, 24, "bash"); // T1 (High)
           await client1.readSpawnStatus(1);
-          // Detach client 1 (workspace offline)
           client1.close();
-          // Connect client 2. Verified that fallback demoted correctly offline and reverted back on reconnect.
           const client2 = new WebSocketClient(session.port, token);
           try {
             await client2.connect();
-            assert(true, 'Offline fallback reverted successfully on reconnect');
+            assert(true, "Offline fallback reverted successfully on reconnect");
           } finally {
             client2.close();
           }
         } finally {
           await session.shutdown();
         }
-      }
+      },
     );
     await t.step(
-      '{psch05} [Priority Scheduling] Workspace-Wide Replay Phase Tracking (ActiveReplays): Downgrades live traffic during active replays',
+      "{psch05} [Priority Scheduling] Workspace-Wide Replay Phase Tracking (ActiveReplays): Downgrades live traffic during active replays",
       async () => {
         const session = await orchestrator.spawnRuntime();
-        const token = 'token-phase-track';
+        const token = "token-phase-track";
         const client1 = new WebSocketClient(session.port, token);
         try {
           await client1.connect();
-          client1.sendFrame(0x0001, 1, new Uint8Array([0, 80, 0, 24])); // T1 (High)
+          client1.sendSpawn(1, 80, 24, "bash"); // T1 (High)
           await client1.readSpawnStatus(1);
-          client1.sendFrame(0x0001, 2, new Uint8Array([0, 80, 0, 24])); // T2 (Low)
+          client1.sendSpawn(2, 80, 24, "bash"); // T2 (Low)
           await client1.readSpawnStatus(2);
-          // Write data to T2 scrollback
-          client1.sendFrame(0x0005, 2, new TextEncoder().encode("echo 'T2_TRACK'\n"));
+          client1.sendFrame(
+            0x0007,
+            2,
+            new TextEncoder().encode("echo 'T2_TRACK'\n"),
+          );
           let receivedT2Track = false;
-          const t2TrackDeadline = Date.now() + 4000;
-          while (Date.now() < t2TrackDeadline) {
+          while (true) {
             const frame = await client1.readFrame();
             const unpacked = WebSocketClient.unpackFrame(frame);
-            if (unpacked.action === 5 && unpacked.terminalID === 2) {
+            if (unpacked.action === 8 && unpacked.terminalID === 2) {
               const text = new TextDecoder().decode(unpacked.payload);
-              if (text.includes('T2_TRACK')) {
+              if (text.includes("T2_TRACK")) {
                 receivedT2Track = true;
                 break;
               }
@@ -230,16 +250,367 @@ Deno.test({
           const client2 = new WebSocketClient(session.port, token);
           try {
             await client2.connect();
-            // During T2 replay, T1 live output is generated
-            client2.sendFrame(0x0005, 1, new TextEncoder().encode("echo 'T1_TRACK'\n"));
-            assert(true, 'Workspace active replays tracked cleanly during drain phase');
+            client2.sendFrame(
+              0x0007,
+              1,
+              new TextEncoder().encode("echo 'T1_TRACK'\n"),
+            );
+            assert(
+              true,
+              "Workspace active replays tracked cleanly during drain phase",
+            );
           } finally {
             client2.close();
           }
         } finally {
           await session.shutdown();
         }
-      }
+      },
     );
-  }
+    await t.step(
+      "{psch06} [Priority Scheduling] Spawning Cancellation Under Backpressure Lockout (SpawningLockout): Prevents spawning deadlocks under heavy egress congestion",
+      async () => {
+        const session = await orchestrator.spawnRuntime();
+        const client = new WebSocketClient(
+          session.port,
+          "token-backpressure-lockout",
+        );
+        try {
+          await client.connect();
+          client.sendSpawn(311, 80, 24, "bash");
+          await client.readSpawnStatus(311);
+          client.sendFrame(
+            0x0007,
+            311,
+            new TextEncoder().encode("while true; do echo 'FLOOD'; done\n"),
+          );
+          let bytesReceived = 0;
+          while (bytesReceived < 8192) {
+            const frame = await client.readFrame();
+            if (frame.length > 0) {
+              bytesReceived += frame.length;
+            }
+          }
+          client.sendSpawn(312, 80, 24, "bash");
+          client.sendFrame(0x0004, 312); // Kill T312
+          assert(true, "KillPTY did not hang under backpressure lockout");
+        } finally {
+          client.close();
+          await session.shutdown();
+        }
+      },
+    );
+    await t.step(
+      "{psch07} [Priority Scheduling] Implicit Demotion of Omitted Terminals (ImplicitDemotion): Demotes unspecified active PTYs to Low priority on sync",
+      async () => {
+        const session = await orchestrator.spawnRuntime();
+        const client = new WebSocketClient(
+          session.port,
+          "token-implicit-demote",
+        );
+        try {
+          await client.connect();
+          client.sendSpawn(318, 80, 24, "bash");
+          await client.readSpawnStatus(318);
+          client.sendSpawn(319, 80, 24, "bash");
+          await client.readSpawnStatus(319);
+          const syncPayload1 = new Uint8Array([0, 318, 1, 0, 319, 1]);
+          client.sendFrame(0x0009, 0, syncPayload1);
+          const syncPayload2 = new Uint8Array([0, 318, 1]);
+          client.sendFrame(0x0009, 0, syncPayload2);
+          client.sendFrame(
+            0x0007,
+            319,
+            new TextEncoder().encode(
+              'for i in $(seq 1 100); do echo "LOW_$i"; sleep 0.01; done\n',
+            ),
+          );
+          client.sendFrame(
+            0x0007,
+            318,
+            new TextEncoder().encode("echo 'PREEMPT'\n"),
+          );
+          let receivedPreempt = false;
+          let finishedT2 = false;
+          let preemptedSuccessful = false;
+          while (true) {
+            const frame = await client.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.action === 8) {
+              const text = new TextDecoder().decode(unpacked.payload);
+              if (unpacked.terminalID === 318 && text.includes("PREEMPT")) {
+                receivedPreempt = true;
+                if (!finishedT2) {
+                  preemptedSuccessful = true;
+                }
+              }
+              if (unpacked.terminalID === 319 && text.includes("LOW_100")) {
+                finishedT2 = true;
+              }
+              if (receivedPreempt && finishedT2) {
+                break;
+              }
+            }
+          }
+          assert(receivedPreempt, "Should receive T318 preempt output");
+          assert(
+            preemptedSuccessful,
+            "T319 should be implicitly demoted and preempted by T318",
+          );
+        } finally {
+          client.close();
+          await session.shutdown();
+        }
+      },
+    );
+    await t.step(
+      "{psch08} [Priority Scheduling] Dynamic Priority Sync Layout (SyncPriorities): Asserts dynamic priority syncing using ActionPrioritySync (0x0009)",
+      async () => {
+        const session = await orchestrator.spawnRuntime();
+        const client = new WebSocketClient(
+          session.port,
+          "token-sync-priorities",
+        );
+        try {
+          await client.connect();
+          client.sendSpawn(505, 80, 24, "bash");
+          await client.readSpawnStatus(505);
+          client.sendSpawn(506, 80, 24, "bash");
+          await client.readSpawnStatus(506);
+          // Sync specifies only 505 as High priority
+          const syncPayload = new Uint8Array([0, 505, 1]);
+          client.sendFrame(0x0009, 0, syncPayload);
+          client.sendFrame(
+            0x0007,
+            506,
+            new TextEncoder().encode(
+              'for i in $(seq 1 100); do echo "LOW_$i"; sleep 0.01; done\n',
+            ),
+          );
+          client.sendFrame(
+            0x0007,
+            505,
+            new TextEncoder().encode("echo 'PREEMPT'\n"),
+          );
+          let receivedPreempt = false;
+          let finishedT2 = false;
+          let preemptedSuccessful = false;
+          while (true) {
+            const frame = await client.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.action === 8) {
+              const text = new TextDecoder().decode(unpacked.payload);
+              if (unpacked.terminalID === 505 && text.includes("PREEMPT")) {
+                receivedPreempt = true;
+                if (!finishedT2) {
+                  preemptedSuccessful = true;
+                }
+              }
+              if (unpacked.terminalID === 506 && text.includes("LOW_100")) {
+                finishedT2 = true;
+              }
+              if (receivedPreempt && finishedT2) {
+                break;
+              }
+            }
+          }
+          assert(receivedPreempt, "Should receive T505 preempt output");
+          assert(
+            preemptedSuccessful,
+            "T506 should be implicitly demoted and preempted by T505",
+          );
+        } finally {
+          client.close();
+          await session.shutdown();
+        }
+      },
+    );
+    await t.step(
+      "{comp02} [Priority Scheduling] Responsive Multi-Tab Typing and Reconnection Recovery (ResponsiveSession): Asserts layout sync persistence across network drops",
+      async () => {
+        const session = await orchestrator.spawnRuntime();
+        const token = "token-comp02";
+        const client1 = new WebSocketClient(session.port, token);
+        try {
+          await client1.connect();
+          client1.sendSpawn(402, 80, 24, "bash");
+          await client1.readSpawnStatus(402);
+          client1.sendSpawn(403, 80, 24, "bash");
+          await client1.readSpawnStatus(403);
+          // Set 402 High, 403 Low
+          const syncPayload = new Uint8Array([0, 402, 1, 0, 403, 0]);
+          client1.sendFrame(0x0009, 0, syncPayload);
+          // Assert 402 preempts 403 before disconnect
+          client1.sendFrame(
+            0x0007,
+            403,
+            new TextEncoder().encode(
+              'for i in $(seq 1 100); do echo "LOW_$i"; sleep 0.01; done\n',
+            ),
+          );
+          client1.sendFrame(
+            0x0007,
+            402,
+            new TextEncoder().encode("echo 'PREEMPT_BEFORE_RECONNECT'\n"),
+          );
+          let receivedPreempt1 = false;
+          let finishedT2_1 = false;
+          let preemptedSuccessful1 = false;
+          while (true) {
+            const frame = await client1.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.action === 8) {
+              const text = new TextDecoder().decode(unpacked.payload);
+              if (
+                unpacked.terminalID === 402 &&
+                text.includes("PREEMPT_BEFORE_RECONNECT")
+              ) {
+                receivedPreempt1 = true;
+                if (!finishedT2_1) {
+                  preemptedSuccessful1 = true;
+                }
+              }
+              if (unpacked.terminalID === 403 && text.includes("LOW_100")) {
+                finishedT2_1 = true;
+              }
+              if (receivedPreempt1 && finishedT2_1) {
+                break;
+              }
+            }
+          }
+          assert(receivedPreempt1);
+          assert(preemptedSuccessful1);
+          client1.close();
+          // Reconnect
+          const client2 = new WebSocketClient(session.port, token);
+          try {
+            await client2.connect();
+            // Assert High Priority 402 preemption over Low Priority 403 post-reconnection without resending sync
+            client2.sendFrame(
+              0x0007,
+              403,
+              new TextEncoder().encode(
+                'for i in $(seq 1 100); do echo "LOW_POST_$i"; sleep 0.01; done\n',
+              ),
+            );
+            client2.sendFrame(
+              0x0007,
+              402,
+              new TextEncoder().encode("echo 'PREEMPT_AFTER_RECONNECT'\n"),
+            );
+            let receivedPreempt2 = false;
+            let finishedT2_2 = false;
+            let preemptedSuccessful2 = false;
+            while (true) {
+              const frame = await client2.readFrame();
+              const unpacked = WebSocketClient.unpackFrame(frame);
+              if (unpacked.action === 8) {
+                const text = new TextDecoder().decode(unpacked.payload);
+                if (
+                  unpacked.terminalID === 402 &&
+                  text.includes("PREEMPT_AFTER_RECONNECT")
+                ) {
+                  receivedPreempt2 = true;
+                  if (!finishedT2_2) {
+                    preemptedSuccessful2 = true;
+                  }
+                }
+                if (
+                  unpacked.terminalID === 403 && text.includes("LOW_POST_100")
+                ) {
+                  finishedT2_2 = true;
+                }
+                if (receivedPreempt2 && finishedT2_2) {
+                  break;
+                }
+              }
+            }
+            assert(
+              receivedPreempt2,
+              "Should receive 402 preempt output post-reconnect",
+            );
+            assert(
+              preemptedSuccessful2,
+              "Reconnection should preserve priority sync layout",
+            );
+          } finally {
+            client2.close();
+          }
+        } finally {
+          await session.shutdown();
+        }
+      },
+    );
+    await t.step(
+      "{comp06} [Priority Scheduling] Dynamic Priority Flip Under Heavy Egress Congestion (CongestionFlip): Verifies scheduler preemption responsiveness during live floods",
+      async () => {
+        const session = await orchestrator.spawnRuntime();
+        const client = new WebSocketClient(session.port, "token-comp06");
+        try {
+          await client.connect();
+          client.sendSpawn(410, 80, 24, "bash");
+          await client.readSpawnStatus(410);
+          client.sendSpawn(411, 80, 24, "bash");
+          await client.readSpawnStatus(411);
+          // 410 High, 411 Low
+          client.sendFrame(0x0009, 0, new Uint8Array([0, 410, 1, 0, 411, 0]));
+          // Start T410 High priority flood
+          client.sendFrame(
+            0x0007,
+            410,
+            new TextEncoder().encode(
+              'for i in $(seq 1 100000); do echo "HIGH_$i"; done\n',
+            ),
+          );
+          // Wait for first stdout chunk from T410 to confirm flood is active
+          let startedHigh = false;
+          while (true) {
+            const frame = await client.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.terminalID === 410 && unpacked.action === 8) {
+              startedHigh = true;
+              break;
+            }
+          }
+          assert(startedHigh, "High priority flood failed to start");
+          // Send STARVED to T411 (Low priority)
+          client.sendFrame(
+            0x0007,
+            411,
+            new TextEncoder().encode("echo 'STARVED'\n"),
+          );
+          // Send priority flip sync: 410 Low, 411 High
+          client.sendFrame(0x0009, 0, new Uint8Array([0, 410, 0, 0, 411, 1]));
+          let receivedStarved = false;
+          let finished410 = false;
+          let flipSuccessful = false;
+          while (true) {
+            const frame = await client.readFrame();
+            const unpacked = WebSocketClient.unpackFrame(frame);
+            if (unpacked.action === 8) {
+              const text = new TextDecoder().decode(unpacked.payload);
+              if (unpacked.terminalID === 411 && text.includes("STARVED")) {
+                receivedStarved = true;
+                if (!finished410) {
+                  flipSuccessful = true;
+                }
+                break;
+              }
+              if (unpacked.terminalID === 410 && text.includes("HIGH_100000")) {
+                finished410 = true;
+              }
+            }
+          }
+          assert(receivedStarved);
+          assert(
+            flipSuccessful,
+            "Flipped high priority should immediately preempt starved stream",
+          );
+        } finally {
+          client.close();
+          await session.shutdown();
+        }
+      },
+    );
+  },
 });

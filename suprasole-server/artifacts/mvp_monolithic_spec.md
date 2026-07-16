@@ -3958,3 +3958,1709 @@ func (registry *defaultRegistry) RemoveWorkspace(workspaceID string) error {
 }
 ```
 `workspace.teardown()` calls blocking processes or waits for shell processes to clean up. If this teardown overlaps with a new connection handshake, `GetOrCreateWorkspace` retrieves the old workspace while it is still locked/deleting. Spawns sent to a terminating workspace scheduler are lost, causing client-side connection hangs.
+
+# Server Redesign Specification: Process Lifecycle & Registry Separation
+
+## 1. Objective & Scope
+
+This document details the refactoring specification for the `suprasole-server` to support a persistent process registry. The goal is to decouple **process-level termination** (killing a shell process) from **resource-level lifecycle eviction** (removing a terminal slot and its buffer from memory). 
+
+This separation allows the client UI to cleanly display process exit codes and final scrollback buffers after a crash or manual exit, even across connection drops, while ensuring that server memory and operating system resources are reclaimed reliably.
+
+---
+
+## 2. The Lifecycle Duality: Process Kill vs. Resource Remove
+
+To maintain clean boundaries between process execution and memory management, the server split commands into two tailored operations:
+
+### A. Process Kill Command (`KillPTY` - `0x0004`)
+* **Responsibility:** Terminate the running OS shell process inside the PTY master.
+* **Payload:** Empty.
+* **Server Action:**
+  1. Sends a `SIGKILL` (or hangups/kill signals) to the shell's process group.
+  2. Closes the slave PTY file descriptor.
+  3. Transitions the internal PTY instance state to `Terminated` and records the shell's exit status code.
+  4. **Keeps** the `ptyInstance` struct, its accumulated scrollback buffer, and the exit status code in the workspace registry.
+* **UI Use Case:** The user terminates a runaway shell program or exits a shell session manually, but keeps the terminal tab open. The tab remains visible, showing the final command logs and displaying the exit status (e.g., `Process exited with code 137`).
+
+### B. Resource Remove Command (`RemovePTY` - `0x0006`)
+* **Responsibility:** Evict/purge the PTY instance completely from Go memory and release all OS resources.
+* **Payload:** Empty.
+* **Server Action:**
+  1. If the shell process is still active, terminates it immediately (sending `SIGKILL`).
+  2. Closes the master PTY file descriptor to release the Linux terminal device.
+  3. Deletes the terminal ID entry from the workspace registry map.
+  4. Purges the 256KB scrollback ring buffer, freeing the memory.
+* **UI Use Case:** The user closes a tab or split pane in the UI layout. The client core tells the server to completely remove the terminal instance since its container no longer exists.
+
+---
+
+### 3. Protocol Extensions & Refactored Action Registry
+
+To support the removal and reset lifecycles, and to establish a clean protocol layout, all actions are grouped semantically and numbered sequentially. Every command is strictly unidirectional:
+* **PTY Process Lifecycle & Geometry (`0x0001` - `0x0006`):** Coordinates allocation, status checks, resize operations, process kills, exit signals, and memory removals.
+* **PTY Data Streaming (`0x0007` - `0x0008`):** Manages raw stdin input and stdout/stderr output piping in separate unidirectional frames.
+* **Workspace-Level Control (`0x0009` - `0x000a`):** Governs background priority syncs and workspace resets.
+
+| Action ID | Name | Direction | Payload Details | Description |
+| --- | --- | --- | --- | --- |
+| **PTY Lifecycle & Geometry** | | | | |
+| `0x0001` | `SpawnPTY` | Client → Server | `[columns: 2B][rows: 2B]` (Big-Endian) | Requests spawning a shell process with the specified geometry. |
+| `0x0002` | `SpawnPTYStatus` | Server → Client | `[statusByte: 1B]` (`0x00`=success, `0x01`=fail) | Broadcasts success or failure status for a spawning PTY. |
+| `0x0003` | `ResizePTY` | Client → Server | `[columns: 2B][rows: 2B]` (Big-Endian) | Resizes PTY columns and rows dimensions. |
+| `0x0004` | `KillPTY` | Client → Server | None (Empty payload) | Reaps process, closes slave FDs, but retains buffer in registry. |
+| `0x0005` | `PTYTerminalExit` | Server → Client | `[exitStatusByte: 1B]` | Broadcasts process exit status code when terminated. |
+| `0x0006` | `RemovePTY` | Client → Server | None (Empty payload) | Wipes PTY registry entry, closing files and freeing buffer memory. |
+| **PTY Data Streaming** | | | | |
+| `0x0007` | `InputPTY` | Client → Server | `[binaryInputBytes: NB]` | Writes stdin keystrokes/pasted input bytes to the PTY. |
+| `0x0008` | `OutputPTY` | Server → Client | `[binaryOutputBytes: NB]` | Streams stdout/stderr terminal output chunks to the client. |
+| **Workspace Control** | | | | |
+| `0x0009` | `SyncPTYPriorities` | Client → Server | Array of `[termID: 2B][priority: 1B]` | Synchronizes priority scheduling pacing values for active PTYs. |
+| `0x000a` | `ResetWorkspace` | Client → Server | None (Empty payload) | Forcefully reaps all PTYs, deletes entries, and resets session state. |
+
+---
+
+## 4. Server State Machine & Race-Free Spawning Refactoring
+
+We update the internal structs in `core.go` to support explicit lifecycle states and implement the **Context-Bound Spawning Pattern** to resolve concurrent command race conditions.
+
+### A. Terminal Instance States
+Each PTY instance in the `Workspace.ptys` registry maintains one of the following states:
+* **`Spawning`:** The PTY is currently being allocated, and the shell process is starting.
+* **`Active`:** The shell process is running, and the read loops are piping bytes from stdout to the outbound queue.
+* **`Terminated`:** The shell process has exited. The master PTY read loops are closed, but the struct, its exit status, and the scrollback buffer remain in memory.
+
+### B. The Context-Bound Spawning Pattern
+To resolve spawning race conditions without introducing custom in-memory buffer arrays or temporary grid dimension fields, the server adopts a standard Go context-cancellation pattern:
+1. **Client-Side Input Locking:** The client core guarantees that the user-facing UI terminal view and layout mutations are locked/disabled while a terminal ID is in the `Spawning` state. Consequently, the client will not send `InputPTY` or `ResizePTY` requests for spawning terminals during this short allocation phase.
+2. **Context-Bound Goroutines:** When the server receives a `SpawnPTY` request, it creates a cancelable context (`context.WithCancel`) and registers the cancellation function in a simple map: `spawning map[uint16]context.CancelFunc` guarded by the workspace mutex. The actual process fork-exec runs asynchronously within this context.
+3. **Late Command Routing:**
+   * **`InputPTY` and `ResizePTY`:** If these requests arrive while a PTY is spawning (existing only in the `spawning` map), the server discards them immediately, returning a "terminal not ready" status.
+   * **`KillPTY` / `RemovePTY` / `ResetWorkspace`:** The server immediately looks up the PTY ID in the `spawning` map, invokes the associated `CancelFunc`, and removes the ID from the map. The background spawn thread intercepts the context cancellation, terminates any partially allocated shell process (`SIGKILL`), closes PTY devices, and exits cleanly.
+4. **Spawn Completion Handshake:**
+    * **Failure Handling:** If the OS process allocation fails (e.g., shell executable not found, context cancelled early, resource exhaustion), the setup routine:
+      1. Clears the PTY ID from the `spawning` map.
+      2. Creates a PTY instance in `Workspace.ptys` in the `Terminated` state with exit status set to `255`.
+      3. Enqueues a `SpawnPTYStatus` (`0x0002`) failure frame (status `0x01`) and a `PTYTerminalExit` (`0x0005`) frame with exit code `255` into the scheduler's Control queue.
+      4. Retains this terminated record in memory so that the failure state is preserved and replayed on reconnection, until explicitly removed.
+   * **Success Activation:** Upon successful setup, the thread removes the ID from `spawning`, adds the active `ptyInstance` to `Workspace.ptys` (state: `Active`), and transmits a `SpawnPTYStatus` (`0x0002`) success frame (status `0x00`).
+
+### C. Refactored Process Exit Handler
+When a shell process exits (whether naturally via typing `exit`, crashing, or as a result of a `SIGKILL` sent by `KillPTY`):
+1. The server reaps the child process using `Wait()` and captures its exit status code.
+2. The server transitions the PTY state from `Active` to `Terminated` and writes the exit code to the instance's exit registry.
+3. The server closes the master file descriptor to release the OS terminal resource.
+4. **Registry Invariant:** The exit handler **does not** delete the terminal entry from the workspace's `ptys` map. It remains in the registry until a `RemovePTY` or `ResetWorkspace` command is received.
+5. The server enqueues a process exit frame (`0x0005` containing the exit status code) to notify the currently connected client.
+
+---
+
+## 5. Reconnection & Replay Handshake Refactoring
+
+Upon client connection or reconnection, the server must synchronize the entire registry state (both active, spawning, and terminated sessions) to the client:
+
+1. **Flush Queues:** The server calls `FlushAndEnqueueReplays`, clearing out any pending real-time stream frames.
+2. **Compile Replays:** The server iterates through all PTY instances in the workspace registry:
+   * **For `Active` PTYs:**
+     * Enqueues an `OutputPTY` frame (`0x0008`) containing the PTY's current ring buffer scrollback.
+     * Enqueues a spawn status frame (`0x0002` with status `0x00`).
+   * **For `Spawning` PTYs:**
+     * No replay frames are enqueued during the handshake phase. Once the background process setup completes, the spawn thread will naturally transmit the `SpawnPTYStatus` (`0x0002`) frame over the newly active socket connection.
+   * **For `Terminated` PTYs:**
+     * Enqueues the process exit frame (`0x0005` containing the recorded exit status code).
+2. **Queue Draining:** These replay frames are enqueued into the low-priority queue (`QueueIndexLow`) and drained sequentially to the client to establish a clean state checkpoint.
+
+---
+
+## 6. Resource Safety & Manual Lifecycle Control
+
+To facilitate long-term persistence (allowing users to disconnect, close laptops overnight, and resume active shells the next morning), the server does not implement any automatic background sweeper timers or session timeouts. 
+
+### A. Manual Lifecycle Authority
+The workspace session, its active shell processes, and its terminated PTY registers are held in memory indefinitely until a client explicitly requests their deletion. Operating system resources and memory are managed strictly through client-driven actions:
+1. **Closing Tabs/Panes:** When the user closes a tab or split pane in the UI, the client sends `RemovePTY (0x0006)`, which immediately kills the process (if active), closes all PTY file descriptors, and purges the buffer from server memory.
+2. **Tab Reuse & Process Control:** If a shell exits naturally or is killed via `KillPTY (0x0004)`, the UI retains the tab wrapper and exit logs. The PTY memory remains in the server registry until the user explicitly closes the tab container.
+
+### B. Workspace-Level Reset
+The client can trigger a manual workspace-level reset by sending `ResetWorkspace (0x000a)`. Upon receipt, the server:
+1. Forcefully terminates all active process groups in the workspace.
+2. Closes all master file descriptors, releases all terminal devices, and purges all PTY buffers.
+3. Deletes all PTY entries, resetting the workspace's internal registries to a clean, empty state.
+4. Flushes all outbound queues and enqueues an empty state replay sequence over the active connection.
+
+This re-initializes the session without closing the WebSocket connection, allowing the client to reset its visual UI layout seamlessly while maintaining a green connection status.
+
+### C. Fallback Cleanup
+Since the server runs as a developer daemon, the lifecycle model behaves similarly to `tmux` or `screen`. If a user terminates the daemon or restarts the server process, all workspace sessions and underlying PTYs are forcefully cleaned up by the operating system.
+
+### D. PID Recycling & Accidental Kill Protection Invariant
+Because the server retains terminated PTY instances in `Workspace.ptys` to preserve scrollbacks and exit status codes, the underlying OS process IDs (PIDs) can be recycled by the operating system kernel for unrelated system processes. To prevent the server from accidentally sending signals to recycled PIDs, the following safety constraints are enforced:
+1. **`KillPTY` and `RemovePTY` Bypass:** If `KillPTY` or `RemovePTY` is invoked on a terminal ID whose process state is already `Terminated`, the server must skip all process signaling operations (`syscall.Kill` or `SIGKILL`). It must immediately return success (for `KillPTY`) or proceed directly to map eviction and buffer cleanup (for `RemovePTY`) without issuing OS-level signals.
+2. **`ResetWorkspace` Skip:** The reset routine must only deliver `SIGKILL` signals to processes that are in `Active` or `Spawning` states. Any PTY instance in `Terminated` state must be skipped from signal delivery, and simply have its maps purged.
+3. **Daemon `teardown()` Skip:** During global daemon shutdown, the cleanup loop must only issue `SIGKILL` and close FDs on active or spawning PTY instances. Terminated PTY entries in the map must be skipped from signaling.
+
+---
+
+## 7. Feature Propagation & Behavioral Impact Assessment
+
+This section details how the registry separation and protocol refactoring propagate through the existing server codebase, explaining the behavior changes, processing paths, and system invariants.
+
+### A. Centralized Scheduler Queue Dynamics
+The server's centralized scheduler (`Workspace.startScheduler`) is responsible for pacing and draining outbound server-to-client traffic to prevent Head-of-Line blocking. 
+* **Outbound Egress Only:** The scheduler queues (Control, High, Low) now exclusively process outbound messages: `SpawnPTYStatus` (`0x0002`), `PTYTerminalExit` (`0x0005`), and `OutputPTY` (`0x0008`).
+* **Control Queue Routing for Lifecycle Events:** All outbound `SpawnPTYStatus` (`0x0002`) and `PTYTerminalExit` (`0x0005`) frames must be enqueued in the Control queue (`QueueIndexControl = 0`). This ensures that critical process lifecycle updates bypass priority lanes and are dispatched immediately, never starved by heavy data output streams on other active shell sessions.
+* **Input Pacing Bypass:** Incoming client-to-server keyboard and paste data (`InputPTY` - `0x0007`) bypasses the centralized scheduler queues entirely. When the WebSocket read pump receives an `InputPTY` packet, it writes the payload directly to the corresponding master PTY file descriptor (`ptyInstance.master.Write()`). This ensures zero-latency responsiveness for typed keys, completely isolated from congested outbound screen streams.
+* **Terminated PTY Silencing:** Once a PTY transitions to the `Terminated` state, the scheduler no longer enqueues or processes `OutputPTY` frames for it. The only frame processed is the one-time `PTYTerminalExit` frame enqueued during process teardown or connection replay.
+
+### B. Unix Master PTY Read Loop & Drain Signaling
+In the existing codebase, each active PTY runs a non-blocking read loop (`ptyInstance.readLoop`) that continuously reads bytes from the master file descriptor and enqueues them into the scheduler's low-priority queue.
+* **EOF Detection and Loop Exit:** When the shell process terminates, the master file descriptor returns an `EOF` (or read error). The read loop catches this error, breaks its execution loop, and exits. 
+* **FD Release:** In the refactored exit handler, the server immediately closes the master PTY file descriptor. This guarantees that the read loop terminates and releases its underlying OS thread, even though the `ptyInstance` struct itself remains in the workspace registry.
+* **Preserving the Drain Signal Invariant:** To prevent dropping final shell output when a process exits naturally:
+  1. The exit routine (`handleProcessExit`) enqueues the `PTYTerminalExit` (`0x0005`) frame.
+  2. If there are pending output frames and an active socket writer, the exit handler blocks on `<-terminal.drainSignal` until the scheduler has successfully flushed all final stdout bytes over the WebSocket.
+  3. Once the queue is drained and `drainSignal` is closed by the scheduler, the handler completes.
+* **Unblocking during RemovePTY:** If the client sends a `RemovePTY` command before the process has finished draining, the removal routine must immediately close the `drainSignal` channel to unblock the exit handler goroutine, allowing it to complete its teardown cleanly.
+
+### C. OS Process Reaping vs. Go Heap Retention
+To prevent zombie processes, the Go server must wait on dead child processes.
+* **Immediate Reaping:** When a shell process exits (or is killed via `KillPTY`), the server immediately reaps it using `process.Wait()`. The OS process table is cleared, preventing any system-level zombie leak.
+* **Master FD Closure:** The server closes the master file descriptor, returning the PTY device back to the Linux kernel pool. 
+* **Memory Invariant:** The only resource retained in the Go heap is the `ptyInstance` struct and its 256KB ring buffer. OS resources (processes, threads, file descriptors, terminal devices) are freed instantly upon process exit. The remaining Go memory is held until pruned via `RemovePTY` (`0x0006`) or `ResetWorkspace` (`0x000a`).
+
+### D. WebSocket Connection Takeovers & Handshake Timeline
+When a client reconnects, the server executes a connection takeover to hijack the workspace session:
+1. **Clear Socket Writer:** The server sets the workspace's active `socketWriter` to `nil`. The scheduler immediately pauses draining, buffering any new outbound frames in the queues.
+2. **Evict Old Connection:** The server closes the previous WebSocket connection and registers the new `wsConn`.
+3. **Queue Purge:** The server calls `FlushAndEnqueueReplays`, which wipes out any queued `OutputPTY` frames in `QueueIndexLow` and `QueueIndexHigh`. This prevents sending outdated streaming data.
+4. **Compile Handshake Replays:** The server compiles active PTY histories (`OutputPTY` scrollbacks followed by `SpawnPTYStatus` success frames) and dead PTY notifications (`PTYTerminalExit` frames) into `QueueIndexLow`.
+5. **Bind Socket Writer:** The server binds the new `wsConn` as the workspace's `socketWriter`. The scheduler wakes up and drains the compiled handshake replays sequentially, followed by buffered real-time stream frames.
+
+### E. Mutex Lock Coordination & Race Prevention
+The server registry (`Workspace.ptys` map) is accessed concurrently by the WebSocket read pump, process exit handlers, and scheduler loops.
+* **State Mutation Locks:** Every PTY allocation (`SpawnPTY`), process reaping (`handleProcessExit`), slot eviction (`RemovePTY`), and workspace teardown (`ResetWorkspace`) must acquire `Workspace.mutex.Lock()`.
+* **State Read Locks:** Handshake serialization and status checks must acquire `Workspace.mutex.Lock()` (or RLock) to prevent concurrent map read/write panic crashes in Go.
+* **Non-Blocking Invariant:** To prevent deadlock, the server must never perform blocking writes to the WebSocket or master PTY file descriptor while holding the workspace mutex. Mutexes must only be held during quick map mutations, state transitions, and buffer copying.
+
+### F. Flow Control & Backpressure Invariants
+* **Backpressure Condition:** If the outbound WebSocket becomes congested, the scheduler queue size will increase. If it hits backpressure limits, the active read loops will block on queue insertion, forcing the master PTY buffers to fill and naturally slowing down the remote shell processes.
+* **Reset Queue Recovery:** When `ResetWorkspace` is called, the server clears the backpressure condition variables and wakes up any blocked loops, ensuring a clean memory flush and thread release.
+
+### G. Priority Sync Pacing for Terminated PTYs
+* **Exclusion Invariant:** When a PTY transitions to the `Terminated` state, its stdout descriptors are closed, and it is silenced. The client's priority sync loop does not need to transmit priority states (`0x00` or `0x01`) for terminated or removed PTYs in its `SyncPTYPriorities (0x0009)` frames.
+* **Registry Safeguard:** If the client does include a terminated or invalid PTY ID in a priority sync block, the server's priority handler must skip and ignore that ID, executing no queue reconfigurations or pacing changes for inactive shell instances.
+
+---
+
+## 8. Invariants, Boundary Conditions & Edge Cases
+
+To ensure a bug-free implementation, the following edge cases, byte mappings, and registry behaviors are formally defined:
+
+### A. PTY ID Allocation & Recycling Rules
+* **Client-Side Allocation Authority:** To achieve zero-latency UI rendering, the client core is the primary authority for PTY ID generation (typically allocating monotonically increasing IDs starting at `1`). The server accepts any client-provided ID as long as it does not collide with an active or non-removed terminated process.
+* **Fallback Server Allocation:** If the client requests a spawn with an ID of `0`, the server assigns the next available sequential ID from its internal counter and returns this ID in the `SpawnPTYStatus` response.
+* **Collision Invariant:** Attempting to spawn a terminal with an ID that matches an existing active or terminated (but not yet removed) PTY will cause the server to reject the command immediately, returning a `SpawnPTYStatus` failure code (`0x01`).
+* **Recycling Index:** A PTY ID is eligible for reuse/recycling only after the client has sent an explicit `RemovePTY` command for that ID or executed a `ResetWorkspace`. Once removed, all records are erased, and the ID becomes available for new allocations.
+
+### B. Wait Status & Process Exit Signal Byte Mapping
+Process exit status codes are packed into a single unsigned byte (`uint8`) inside `PTYTerminalExit` (`0x0005`) payloads. The server translates Unix wait statuses according to standard shell conventions:
+* **Normal Terminations:** If the process exited normally (e.g. typing `exit`), the exit status is the exact integer returned by the process (ranging from `0` to `127`).
+* **Signaled Terminations:** If the process was terminated by an unhandled OS signal (e.g., `SIGKILL`, `SIGSEGV`), the exit status is calculated as:
+  `exitCode = 128 + SignalNumber`
+  For example, a process killed by `SIGKILL` (signal `9`) is reported as `137` (`128 + 9`). A process crashing via `SIGSEGV` (signal `11`) is reported as `139` (`128 + 11`).
+
+### C. Scrollback Truncation & UTF-8 Replay Alignment (Holistic Sanitization)
+The server's scrollback ring buffer holds a maximum of 256KB of output. When this limit is exceeded, older bytes are evicted. If eviction truncates mid-character, continuation bytes (prefixed with binary `10xxxxxx` or `byte & 0xC0 == 0x80`) are left at the front of the scrollback buffer slice.
+* **Server-Side Alignment Loop:** To prevent the client from receiving corrupted UTF-8 fragments, the server automatically aligns the front of the replayed scrollback stream ($R$) during connections:
+  1. The server checks the byte at the beginning of the scrollback slice.
+  2. If the byte matches the continuation pattern (`byte & 0xC0 == 0x80`), the server discards it.
+  3. This check repeats (skipping at most 3 bytes) until the server encounters an ASCII byte (`< 0x80`) or a valid UTF-8 leading byte (`>= 0xC0`).
+* **Client Benefit:** Discarding these trailing fragments ensures the client's terminal parser receives a perfectly aligned UTF-8 stream, avoiding the rendering of corrupted characters or replacement symbols (``) at the top of the terminal screen.
+
+### D. Race Conditions during Asynchronous Spawning
+Because process spawning is asynchronous, a client could send commands targeting a PTY ID that is still spawning. The **Context-Bound Spawning Pattern** (defined in Section 4) fundamentally resolves these races:
+* **Early Resizes and Inputs:** Since the client UI locks user interaction during the spawn, any premature `ResizePTY` or `InputPTY` commands reaching the server are discarded with a "terminal not ready" error, avoiding mutations on non-existent descriptors.
+* **Orphan Self-Reaping:** If the client sends `KillPTY`, `RemovePTY`, or `ResetWorkspace` while process setup is pending, the server invokes the associated context `CancelFunc` and deletes the spawning record. 
+* **The Handshake:** The background thread intercepts the context cancellation, terminates any partially allocated child process group using `SIGKILL`, and releases PTY devices immediately to guarantee no leaked processes remain.
+
+### E. Terminated PTY Command Routing Safeguards & Dimension Guards
+Because PTY instances in the `Terminated` state are retained in the registry map (with closed master file descriptors and reaped processes), the server must prevent operations that attempt to write to or modify these dead descriptors:
+1. **`InputPTY` Discard:** If the server receives an `InputPTY` (`0x0007`) command for a terminal ID whose state is `Terminated`, it must discard the payload immediately and return no error, preventing invalid write operations on a closed file.
+2. **`ResizePTY` Discard:** If the server receives a `ResizePTY` (`0x0003`) command for a terminal ID whose state is `Terminated`, it must discard the dimensions and return success, bypassing the winsize ioctl call which would otherwise return an `EBADF` (bad file descriptor) error.
+3. **Resize Dimension Clamping Guard:** If a `ResizePTY` (`0x0003`) command is received with rows or columns set to `0`, the server must clamp the value to at least `1` before issuing the OS `TIOCSWINSZ` ioctl, protecting shell layouts and text editors against division-by-zero crashes.
+
+# Go Test Specification: Decoupled PTY Lifecycle & Unidirectional Protocols
+
+This document defines the black-box integration test cases and internal unit tests to validate the redesigned `suprasole-server` core. It outlines exactly what behavior is asserted, the precise input parameters, the step-by-step execution sequence, and the expected predicates.
+
+---
+
+## SECTION 1: New Test Cases
+
+### Test Case 1: TestPTYLifecycleRemove
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `RemovePTY` on a terminated PTY successfully purges the entry from the workspace registry and frees all allocated ring buffer memory.
+* **Precise Input Parameters:**
+  * Workspace ID: `lifecycle-remove-ws`
+  * Terminal ID: `101`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `101`.
+  * Send input `exit 0\n` via `InputPTY` and wait for the process to exit naturally.
+  * Assert that PTY ID `101` transitioned to `Terminated` and remains in the `Workspace.ptys` registry.
+  * Invoke `RemovePTY(101)` via the socket command router.
+* **Assertions & Expected Predicates:**
+  * Assert that PTY ID `101` is deleted from the `Workspace.ptys` map.
+  * Assert that pending queues and `Workspace.pendingCount[101]` are completely purged and deleted.
+  * Assert that attempting to resize PTY ID `101` post-removal returns a "terminal not found" error.
+
+---
+
+### Test Case 2: TestPTYSpawningContextResizeDiscard
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending a `ResizePTY` command to a PTY that is currently in the `Spawning` state is safely discarded by the server and returns a "terminal not ready" error.
+* **Precise Input Parameters:**
+  * Workspace ID: `spawn-resize-ws`
+  * Terminal ID: `102`
+  * Initial Dimensions: `80x24`
+  * Target Dimensions: `120x40`
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(102, 80, 24)` to start background spawning.
+  * Before process setup completes, send a `ResizePTY(102, 120, 40)` command.
+* **Assertions & Expected Predicates:**
+  * Assert that the `ResizePTY` command is rejected with a "terminal not ready" error.
+  * Assert that the server did not execute winsize ioctls or throw descriptor faults.
+
+---
+
+### Test Case 3: TestPTYSpawningContextInputDiscard
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending `InputPTY` keystrokes to a terminal currently in `Spawning` state is safely discarded by the server.
+* **Precise Input Parameters:**
+  * Workspace ID: `spawn-input-ws`
+  * Terminal ID: `103`
+  * Input: `data`
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(103)` to start background spawning.
+  * Before process setup completes, send an `InputPTY(103, "data")` command.
+* **Assertions & Expected Predicates:**
+  * Assert that the `InputPTY` command is discarded, returning a "terminal not ready" status.
+  * Assert that no write attempts are made to the pending master file descriptor.
+
+---
+
+### Test Case 4: TestPTYSpawningContextEarlyKill
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending `KillPTY` to a spawning terminal invokes its registered context `CancelFunc`, aborting process setup and freeing all allocated resources.
+* **Precise Input Parameters:**
+  * Workspace ID: `spawn-kill-ws`
+  * Terminal ID: `104`
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(104)` to start background spawning.
+  * Before process setup completes, send a `KillPTY(104)` command.
+  * The server invokes the registered `CancelFunc` and deletes the ID from the spawning map.
+* **Assertions & Expected Predicates:**
+  * Assert that the background thread intercepts the context cancellation.
+  * Assert that any partially spawned child process group is reaped (`SIGKILL`) and descriptors are closed.
+  * Assert that the PTY ID is never registered in `Workspace.ptys`, leaving the registry clean.
+
+---
+
+### Test Case 5: TestWorkspaceResetActiveAndTerminated
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `ResetWorkspace` forcefully terminates all active processes, closes all master FDs, purges all registry maps, and broadcasts a clean empty state.
+* **Precise Input Parameters:**
+  * Workspace ID: `reset-active-ws`
+* **Step-by-Step Execution Sequence:**
+  * Spawn active PTY ID `105`.
+  * Spawn PTY ID `106` and send `exit 0\n` so it transitions to `Terminated` (but is not removed).
+  * Call `ResetWorkspace()`.
+* **Assertions & Expected Predicates:**
+  * Assert that the shell process groups for both `105` and `106` are killed.
+  * Assert that the registry maps `Workspace.ptys` and `Workspace.pendingCount` are completely empty.
+  * Assert that all backpressure conditions are cleared and any waiting read loop threads are safely released.
+  * Assert that an empty state replay sequence is enqueued over the active WebSocket writer.
+
+---
+
+### Test Case 6: TestWorkspaceResetDuringSpawning
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `ResetWorkspace` while PTYs are spawning cancels their context routines, forcing them to clean up and self-reap upon completion.
+* **Precise Input Parameters:**
+  * Workspace ID: `reset-spawning-ws`
+  * Terminal ID: `107`
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(107)` to start background spawning.
+  * Call `ResetWorkspace()` before the spawn finishes.
+  * Wait for the background thread to finish process setup.
+* **Assertions & Expected Predicates:**
+  * Assert that the spawning context is cancelled during the reset.
+  * Assert that the thread reaps any allocated process instantly and exits.
+  * Assert that `Workspace.ptys` remains completely empty.
+
+---
+
+### Test Case 7: TestReplayUTF8BoundaryAlignment
+* **Scope:** Internal (`package source`)
+* **Objective:** Verify that the server's scrollback replay sanitization loop correctly identifies and discards leading continuation bytes (`byte & 0xC0 == 0x80`) resulting from ring buffer eviction truncation.
+* **Precise Input Parameters:**
+  * Input Scrollback Byte Slice: `[0x82, 0xBF, 0x41, 0x42, 0x43]` (where `0x82` and `0xBF` are continuation bytes, followed by ASCII `A`, `B`, `C`).
+* **Step-by-Step Execution Sequence:**
+  * Instantiate a workspace and populate a mock ring buffer with the input byte slice (simulating an eviction cut).
+  * Invoke the server-side UTF-8 replay alignment routine to retrieve the sanitized replay slice.
+* **Assertions & Expected Predicates:**
+  * Assert that the returned slice is exactly `[0x41, 0x42, 0x43]` (ASCII `A`, `B`, `C`).
+  * Assert that the leading continuation bytes `0x82` and `0xBF` were discarded, proving the boundary alignment logic is correct.
+
+---
+
+### Test Case 7b: TestWebSocketSessionHijackDuringSpawning
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that if a new WebSocket connection takes over a workspace while a PTY is actively in `Spawning` state, the server binds the socket. When spawning completes, the `SpawnPTYStatus` is routed to the new writer, and no frames leak to the old closed connection.
+* **Precise Input Parameters:**
+  * Workspace ID: `hijack-spawn-ws`
+  * Terminal ID: `108`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket Client A.
+  * Send `SpawnPTY(108)` to start background spawning.
+  * Connect WebSocket Client B (hijacking the session) before the spawn completes. Client A's connection is closed.
+  * Wait for the background OS process setup to complete for ID `108`.
+* **Assertions & Expected Predicates:**
+  * Assert that Client B successfully upgrades and receives the initial workspace connection handshakes.
+  * Assert that when spawning finishes, the `SpawnPTYStatus` (`0x0002`) frame is received exclusively by Client B.
+  * Assert that Client A receives absolutely no further frames after eviction.
+
+---
+
+### Test Case 7c: TestPTYRemoveInterruptsDraining
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when a PTY exit handler is blocked on `drainSignal` due to queue congestion, invoking `RemovePTY` immediately closes the channel, releasing the blocked thread.
+* **Precise Input Parameters:**
+  * Workspace ID: `remove-drain-ws`
+  * Terminal ID: `109`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `109`.
+  * Congest the outbound queue (e.g. set queue write speed to blocked, filling buffers) to cause backpressure.
+  * Write `exit 0\n` so the process terminates and the exit handler blocks on `<-terminal.drainSignal`.
+  * Call `RemovePTY(109)` via the socket command router.
+* **Assertions & Expected Predicates:**
+  * Assert that the blocked `handleProcessExit` routine immediately unblocks, reaps the process, closes file descriptors, and terminates cleanly.
+  * Assert that PTY ID `109` is completely removed from the registry map.
+
+---
+
+### Test Case 7d: TestWorkspaceMutexNonBlockingInvariants
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that blocking socket writes or blocked write loops do not cause a deadlock on `Workspace.mutex`, leaving other operations functional.
+* **Precise Input Parameters:**
+  * Workspace ID: `mutex-deadlock-ws`
+* **Step-by-Step Execution Sequence:**
+  * Register a mock `SocketWriter` designed to block indefinitely on `WriteFrame` calls.
+  * Spawn PTY `110` and write continuous stdout data to it to force a write to the blocked writer, causing the scheduler loop to block.
+  * While the writer is blocked, send a `SpawnPTY` command for PTY `111` over the control queue path.
+* **Assertions & Expected Predicates:**
+  * Assert that the workspace mutex is not held during the blocking socket write.
+  * Assert that PTY `111` is spawned successfully and is registered in the workspace, proving that the blocked write did not deadlock the workspace mutex.
+
+---
+
+### Test Case 7e: TestReplayUTF8BoundaryAlignmentCorruptLimit
+* **Scope:** Internal (`package source`)
+* **Objective:** Verify that the server's scrollback replay sanitization loop skips a maximum of 3 consecutive continuation bytes, preventing infinite loops or over-stripping if the buffer starts with corrupt bytes.
+* **Precise Input Parameters:**
+  * Input Scrollback Byte Slice: `[0x82, 0x82, 0x82, 0x82, 0x41]` (4 continuation bytes followed by ASCII `A`).
+* **Step-by-Step Execution Sequence:**
+  * Populate a mock ring buffer with the input byte slice.
+  * Invoke the server-side UTF-8 replay alignment routine.
+* **Assertions & Expected Predicates:**
+  * Assert that the returned slice is exactly `[0x82, 0x41]` (exactly 3 continuation bytes are skipped, and the 4th is retained).
+  * Assert that the alignment loop completes instantly without infinite loops or memory faults.
+
+---
+
+### Test Case 7f: TestPTYIDRecyclingCollisions
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that spawning a PTY with an ID that matches a terminated (but not removed) PTY fails, and that it succeeds only after `RemovePTY` or `ResetWorkspace` is executed.
+* **Precise Input Parameters:**
+  * Workspace ID: `id-recycle-ws`
+  * Terminal ID: `112`
+* **Step-by-Step Execution Sequence:**
+  * Spawn PTY ID `112`.
+  * Trigger exit status `exit 0\n` so it transitions to `Terminated`.
+  * Attempt to call `SpawnPTY(112)` again.
+  * Call `RemovePTY(112)`.
+  * Attempt to call `SpawnPTY(112)` once more.
+* **Assertions & Expected Predicates:**
+  * Assert that the first duplicate spawn attempt fails immediately, returning `SpawnPTYStatus` code `0x01` (failure).
+  * Assert that the second spawn attempt (after `RemovePTY`) succeeds, allocating a new active PTY on ID `112`.
+
+---
+
+### Test Case 7g: TestWorkspaceResetClearsBackpressure
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `ResetWorkspace` wakes up and releases any active PTY read loop threads that are currently blocked on backpressure condition variables.
+* **Precise Input Parameters:**
+  * Workspace ID: `reset-backpressure-ws`
+  * Terminal ID: `113`
+* **Step-by-Step Execution Sequence:**
+  * Spawn active PTY `113`.
+  * Simulate a congested socket to block the PTY read loop on `backpressureCond.Wait()`.
+  * Call `ResetWorkspace()`.
+* **Assertions & Expected Predicates:**
+  * Assert that the blocked read loop thread receives the broadcast signal and terminates cleanly without leaking resources.
+  * Assert that the workspace maps are completely wiped.
+
+---
+
+### Test Case 7h: TestProtocolWriteLimitConstraint
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending a binary frame exceeding the 64KB read limit triggers a protocol error and immediately closes the socket connection.
+* **Precise Input Parameters:**
+  * Workspace ID: `write-limit-ws`
+  * Payload Size: `66000` bytes (64.45KB)
+* **Step-by-Step Execution Sequence:**
+  * Establish a WebSocket connection.
+  * Construct an `InputPTY` (`0x0007`) frame with a `66000` byte payload.
+  * Send the frame over the socket.
+* **Assertions & Expected Predicates:**
+  * Assert that the server closes the WebSocket connection immediately (or returns a protocol error) due to exceeding the 64KB write limit constraint.
+
+---
+
+### Test Case 7i: TestEmptyInputPTYHandling
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending an `InputPTY` command with a 0-byte payload is handled safely by the server without crashing or blocking.
+* **Precise Input Parameters:**
+  * Workspace ID: `empty-input-ws`
+  * Terminal ID: `114`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `114`.
+  * Send an `InputPTY` (`0x0007`) command with an empty/0-byte payload.
+* **Assertions & Expected Predicates:**
+  * Assert that the server processes the message successfully with zero errors.
+  * Assert that no write attempts are made to the master PTY descriptor that could block.
+
+---
+
+### Test Case 7j: TestSpawningIDRecyclingPostReset
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `ResetWorkspace` immediately clears spawning PTY IDs from the `spawning` map, allowing the client to immediately spawn new terminals using the same IDs.
+* **Precise Input Parameters:**
+  * Workspace ID: `recycle-reset-ws`
+  * Terminal ID: `115`
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(115)` to start background spawning.
+  * Call `ResetWorkspace()`.
+  * Immediately (while the first spawn's background OS setup is still completing) call `SpawnPTY(115)` again.
+* **Assertions & Expected Predicates:**
+  * Assert that `ResetWorkspace` successfully cleans the ID from the pending spawning map.
+  * Assert that the second `SpawnPTY(115)` succeeds (no collision error returned), registering a new spawning context.
+  * Assert that when the background thread for the first spawn finally completes, it detects that it was cancelled and reaps itself without interfering with the second spawn.
+
+---
+
+### Test Case 7k: TestPTYSpawningFailureLifecycle
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when process spawning fails during the background setup phase (e.g. invalid command path), the PTY is transitioned to the `Terminated` state with exit status `255`, and enqueues the `SpawnPTYStatus` failure and `PTYTerminalExit` status frames.
+* **Precise Input Parameters:**
+  * Workspace ID: `spawn-failure-ws`
+  * Terminal ID: `116`
+  * Command: `/nonexistent/path/to/shell` (invalid executable path)
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(116)` passing the invalid shell path. The spawning context is created.
+  * Wait for the background allocation thread to fail and complete.
+* **Assertions & Expected Predicates:**
+  * Assert that the PTY remains in `Workspace.ptys` (is not deleted immediately) with state transitioned to `Terminated` and exit status recorded as `255`.
+  * Assert that a `SpawnPTYStatus` (`0x0002`) failure frame (status `0x01`) and a `PTYTerminalExit` (`0x0005`) frame (payload `[0xFF]` or `255`) are enqueued.
+  * Assert that on subsequent reconnection, the PTY is successfully replayed as `Terminated` with code `255`.
+
+---
+
+### Test Case 7l: TestPTYRemoveActivePTY
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `RemovePTY` on an active PTY immediately terminates the shell process group, reaps the child process, closes its FDs, and purges all entries from registry maps.
+* **Precise Input Parameters:**
+  * Workspace ID: `remove-active-ws`
+  * Terminal ID: `117`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `117` and verify its state is `Active` and child shell process is running.
+  * Send `RemovePTY(117)` via the socket command router.
+* **Assertions & Expected Predicates:**
+  * Assert that the active child process group is forcefully reaped.
+  * Assert that the master FD is closed.
+  * Assert that PTY ID `117` is completely deleted from the `Workspace.ptys` map.
+
+---
+
+### Test Case 7m: TestPTYSpawningContextPrioritySyncDiscard
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending `SyncPTYPriorities` to a spawning terminal is safely discarded by the server and returns a "terminal not ready" error.
+* **Precise Input Parameters:**
+  * Workspace ID: `spawn-prio-sync-ws`
+  * Terminal ID: `118`
+* **Step-by-Step Execution Sequence:**
+  * Call `SpawnPTY(118)` to start background spawning.
+  * Before process setup completes, send a `SyncPTYPriorities` command assigning ID `118` as Low priority (`0x00`).
+* **Assertions & Expected Predicates:**
+  * Assert that the `SyncPTYPriorities` command is discarded, returning a "terminal not ready" error.
+
+---
+
+### Test Case 7n: TestResizeDimensionClamping
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending a `ResizePTY` command with `0` rows or columns is clamped to a minimum of `1` before invoking the `TIOCSWINSZ` ioctl, preventing system side-effects or crashes.
+* **Precise Input Parameters:**
+  * Workspace ID: `resize-clamp-ws`
+  * Terminal ID: `119`
+  * Rows: `0`, Columns: `0`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `119`.
+  * Send `ResizePTY(119, 0, 0)`.
+  * Query the PTY master's actual terminal dimensions using the winsize ioctl.
+* **Assertions & Expected Predicates:**
+  * Assert that the command returns success.
+  * Assert that the active terminal size is clamped to `1x1` in the system, proving zero values are prevented from reaching the OS.
+
+---
+
+## SECTION 2: Updated/Refactored Test Cases
+
+### Test Case 8: TestPTYDecoupledExitReconstruction
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when a process exits naturally, the exit handler does not delete the PTY registry entry, and enqueues the `PTYTerminalExit` (`0x0005`) frame containing the exit status code.
+* **Precise Input Parameters:**
+  * Workspace ID: `decoupled-exit-ws`
+  * Terminal ID: `201`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `201`.
+  * Write `exit 42\n` to the PTY and wait for the process to exit naturally.
+* **Assertions & Expected Predicates:**
+  * Assert that the process is reaped (no zombie).
+  * Assert that the master file descriptor is closed.
+  * Assert that the PTY remains in `Workspace.ptys` with state set to `Terminated` and exit status set to `42`.
+  * Assert that a `PTYTerminalExit` (`0x0005`) frame is enqueued with exit status payload `[0x2a]` (decimal `42`).
+
+---
+
+### Test Case 9: TestPTYExitSignalByteEncoding
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when a process is killed by an unhandled signal, the exit status byte is encoded as `128 + SignalNumber`.
+* **Precise Input Parameters:**
+  * Workspace ID: `signal-exit-ws`
+  * Terminal ID: `202`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `202`.
+  * Kill the child process using `SIGKILL` (signal `9`).
+  * Wait for the exit handler to complete.
+* **Assertions & Expected Predicates:**
+  * Assert that the PTY remains in the registry in a `Terminated` state.
+  * Assert that the exit status is encoded as `137` (`128 + 9`).
+  * Assert that the enqueued `PTYTerminalExit` (`0x0005`) payload contains `[0x89]` (decimal `137`).
+
+---
+
+### Test Case 10: TestWebSocketSessionHijackLifecycle
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when a client reconnects, the server takeovers the session and replays the states of both active PTYs (scrollback + spawn status) and non-removed terminated PTYs (exit frames).
+* **Precise Input Parameters:**
+  * Workspace ID: `hijack-ws`
+  * Terminals: `T1` (Active), `T2` (Terminated)
+* **Step-by-Step Execution Sequence:**
+  * Spawn active PTY `T1` and write output data to populate its scrollback.
+  * Spawn PTY `T2` and write `exit 0\n` so it transitions to `Terminated`.
+  * Connect a new WebSocket to hijack the socket writer, triggering `FlushAndEnqueueReplays`.
+  * Read all initial frames drained from `QueueIndexLow` over the new connection.
+* **Assertions & Expected Predicates:**
+  * Assert that the connection takeover pauses active scheduler lanes.
+  * Assert that the drained replay frames contain `T1`'s scrollback output (`OutputPTY` - `0x0008`) followed by its active spawn status (`SpawnPTYStatus` - `0x0002`).
+  * Assert that the replay frames contain `T2`'s process exit frame (`PTYTerminalExit` - `0x0005`) with exit code `0`.
+  * Assert that no old queue frames are leaked.
+
+---
+
+### Test Case 11: TestPTYUnidirectionalDataFlow
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that client input (`InputPTY` - `0x0007`) bypasses all scheduler queues and is written directly to the PTY stdin, while shell output (`OutputPTY` - `0x0008`) is processed through scheduling priority queues.
+* **Precise Input Parameters:**
+  * Workspace ID: `unidirectional-ws`
+  * Terminal ID: `203`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `203`.
+  * Send keystrokes via `InputPTY(203, "data")`.
+  * Intercept the shell stdout and verify its path.
+* **Assertions & Expected Predicates:**
+  * Assert that the client input is written to `master.Write` synchronously without ever entering the `Workspace.centralizedQueues`.
+  * Assert that shell stdout is enqueued as `OutputPTY` (`0x0008`) frames and drained according to the priority scheduler's temporal pacing lanes.
+
+---
+
+### Test Case 12: TestPrioritySyncPacingExclusion
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that terminated or non-existent PTYs are excluded from priority sync scheduling updates.
+* **Precise Input Parameters:**
+  * Workspace ID: `priority-exclude-ws`
+  * Terminals: `T1` (Active), `T2` (Terminated)
+* **Step-by-Step Execution Sequence:**
+  * Spawn active PTY `T1` and terminated PTY `T2`.
+  * Send a `SyncPTYPriorities` (`0x0009`) command assigning `T1` as Low priority (`0x00`) and `T2` as High priority (`0x01`).
+* **Assertions & Expected Predicates:**
+  * Assert that the priority sync completes without errors.
+  * Assert that `T1` is moved to the Low-Priority queue.
+  * Assert that the priority sync handler ignores `T2` (T2's state remains unaffected, and no scheduler queues are reconfigured or paced for it).
+
+---
+
+### Test Case 12b: TestQueueGenerationVersioning
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when a WebSocket takeover occurs, the queue generation increments, and any pending outbound frames enqueued under the old generation are ignored and discarded during pops.
+* **Precise Input Parameters:**
+  * Workspace ID: `queue-gen-ws`
+  * Terminal ID: `204`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket Client A.
+  * Spawn PTY `204` and enqueue 5 `OutputPTY` frames.
+  * Abruptly close Client A's connection. Do not drain the scheduler queues.
+  * Connect WebSocket Client B (hijacking the session), causing `queueGeneration` to increment.
+  * Read frames received by Client B.
+* **Assertions & Expected Predicates:**
+  * Assert that Client B does **not** receive the 5 stale `OutputPTY` frames enqueued under Client A's generation (they are discarded on pop due to version mismatch).
+  * Assert that Client B receives a clean, newly compiled handshake replay sequence.
+
+---
+
+### Test Case 12c: TestPTYProcessDescendantTeardown
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `KillPTY` or `RemovePTY` kills the primary shell process and forcefully terminates all of its child descendant processes (e.g. background tasks like `sleep 100`) using process group signaling or process tree traversal.
+* **Precise Input Parameters:**
+  * Workspace ID: `descendant-kill-ws`
+  * Terminal ID: `205`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `205`.
+  * Write `sleep 300 &\n` via `InputPTY` to launch a long-running background descendant process. Obtain its PID.
+  * Verify the descendant sleep process is running under the shell's PGID.
+  * Invoke `KillPTY(205)`.
+* **Assertions & Expected Predicates:**
+  * Assert that the primary shell process is reaped.
+  * Assert that the background descendant `sleep` process is forcefully terminated (calling `kill -PID` or checking system process list to confirm the sleeping PID no longer exists), preventing orphaned process leaks.
+
+---
+
+### Test Case 12d: TestPrioritySchedulerUnidirectionalPacing
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that the unidirectional `OutputPTY` (`0x0008`) streams are correctly paced at 15ms intervals when a terminal is marked as Low priority, and drained immediately when marked as High priority.
+* **Precise Input Parameters:**
+  * Workspace ID: `pacing-unidir-ws`
+  * Terminals: `T1` (Low Priority `0x00`), `T2` (High Priority `0x01`)
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminals `T1` and `T2`.
+  * Set `T1` as Low priority and `T2` as High priority.
+  * Override `timeNow` to return mock time `t0`.
+  * Enqueue 3 `OutputPTY` frames to `T1` and 3 `OutputPTY` frames to `T2`.
+* **Assertions & Expected Predicates:**
+  * Assert that `T2`'s `OutputPTY` frames are popped instantly at time `t0`.
+  * Assert that `T1`'s `OutputPTY` frames are paused, and are popped only after advancing the mock clock beyond `t0 + 15ms` per frame, verifying that priority scheduler lanes pace the unidirectional stream correctly.
+
+---
+
+### Test Case 12e: TestGlobalTeardownBypassesTerminatedPTYs
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when the server daemon invokes global workspace teardown, it skips process signaling (`syscall.Kill`) for PTYs that are in the `Terminated` state, avoiding signaling recycled PIDs.
+* **Precise Input Parameters:**
+  * Workspace ID: `teardown-bypass-ws`
+  * Terminal ID: `206`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `206`.
+  * Trigger exit status `exit 0\n` so it transitions to `Terminated` (reaped, master FD closed).
+  * Record the process PID `P1`.
+  * Invoke `teardown()` on the workspace.
+* **Assertions & Expected Predicates:**
+  * Assert that the workspace teardown completes successfully.
+  * Assert that the server does **not** issue `syscall.Kill` or process group signal calls to `P1` during teardown, proving that terminated process entries are safely bypassed.
+
+---
+
+### Test Case 12f: TestPTYTerminationBypassesTerminatedState
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that calling `KillPTY` or `RemovePTY` on an already terminated PTY does not issue OS signals to its underlying process ID, preventing accidental signals to recycled PIDs.
+* **Precise Input Parameters:**
+  * Workspace ID: `term-bypass-ws`
+  * Terminal ID: `207`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `207`.
+  * Send `exit 0\n` so it transitions to `Terminated`.
+  * Record its PID `P2`.
+  * Call `KillPTY(207)` or `RemovePTY(207)`.
+* **Assertions & Expected Predicates:**
+  * Assert that the command returns success (for `KillPTY`) or deletes the entry (for `RemovePTY`).
+  * Assert that no `syscall.Kill` calls are executed targeting `P2` during processing, verifying that the terminated state bypasses OS-level signal invocation.
+
+---
+
+### Test Case 12g: TestPTYTerminatedStateInputAndResizeGuards
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending `InputPTY` or `ResizePTY` commands to an already terminated PTY is safely discarded by the server, executing no descriptor writes or ioctl calls.
+* **Precise Input Parameters:**
+  * Workspace ID: `term-guards-ws`
+  * Terminal ID: `208`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `208`.
+  * Trigger exit status `exit 0\n` so it transitions to `Terminated` (master FD closed).
+  * Send `InputPTY(208, "data")` and `ResizePTY(208, 120, 40)` commands.
+* **Assertions & Expected Predicates:**
+  * Assert that both commands complete successfully without errors.
+  * Assert that no write calls are executed on the closed master descriptor.
+  * Assert that no winsize ioctls are issued on the closed file descriptor, avoiding `EBADF` failures.
+
+---
+
+### Test Case 12h: TestProtocolViolationMalformedHeader
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that sending a binary frame shorter than 4 bytes, or containing an invalid Action ID, triggers a protocol error and immediately closes the connection.
+* **Precise Input Parameters:**
+  * Workspace ID: `malformed-header-ws`
+  * Malformed Frames: `[0x00, 0x01]` (2 bytes instead of 4), and `[0x00, 0xFF, 0x00, 0x01]` (Action ID `255` which is out-of-bounds).
+* **Step-by-Step Execution Sequence:**
+  * Establish a WebSocket connection.
+  * Write the 2-byte malformed frame to the socket. Verify connection closure.
+  * Establish a new connection.
+  * Write the out-of-bounds Action ID frame to the socket. Verify connection closure.
+* **Assertions & Expected Predicates:**
+  * Assert that the server closes the WebSocket connection immediately upon receiving either malformed frame, verifying protocol boundary enforcement.
+
+---
+
+### Test Case 12i: TestReplayHandshakeBypassesPacing
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that during a reconnection handshake replay phase, the server drains all scrollback replay frames instantly, bypassing any temporal scheduling pacing pauses.
+* **Precise Input Parameters:**
+  * Workspace ID: `replay-pacing-ws`
+  * Terminal ID: `209` (Low priority `0x00`)
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `209` and set priority to Low.
+  * Write 10 lines of stdout output to populate the ring buffer.
+  * Trigger process exit so terminal `209` enters `Terminated` state.
+  * Override `timeNow` to return mock time `t0`.
+  * Establish a new WebSocket connection to trigger handshake replays (`pendingReplays` count set to total enqueued replay frames).
+* **Assertions & Expected Predicates:**
+  * Assert that all historical scrollback (`OutputPTY` - `0x0008`) and exit status (`PTYTerminalExit` - `0x0005`) frames are drained instantly and received by the socket writer at exactly time `t0`.
+  * Assert that the pacing sleep bypasses the `15ms` temporal deadline during the replay handshake phase.
+
+---
+
+### Test Case 12j: TestPTYJobControlSessionLeadership
+* **Scope:** Internal (`package source`)
+* **Objective:** Verify that the spawned shell process is allocated as a session leader (`setsid`) and owns the slave PTY as its controlling terminal, guaranteeing that Unix job control (signals like `SIGINT` from `Ctrl+C`) operates correctly and does not propagate to the server daemon itself.
+* **Precise Input Parameters:**
+  * Workspace ID: `job-control-ws`
+  * Terminal ID: `210`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `210`.
+  * Retrieve the PID of the spawned shell.
+* **Assertions & Expected Predicates:**
+  * Assert that the process's session ID (SID) equals its process ID (PID), proving it is a session leader.
+  * Assert that the process's controlling terminal (PGID/TTY) is successfully bound to the allocated slave PTY.
+  * Assert that sending a `SIGINT` (signal `2`) to the slave PTY interrupts only the foreground process group inside the PTY and does not kill or interrupt the main server daemon.
+
+---
+
+### Test Case 12k: TestPTYEnvironmentVariables
+* **Scope:** Internal (`package source`)
+* **Objective:** Verify that the server injects the default environment variables (specifically `TERM=xterm-256color`) to support correct color rendering and compatibility with terminal-based software.
+* **Precise Input Parameters:**
+  * Workspace ID: `env-inject-ws`
+  * Terminal ID: `211`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `211`.
+  * Inspect the environment variables of the spawned child process.
+* **Assertions & Expected Predicates:**
+  * Assert that `TERM` is set to `xterm-256color` in the child process's environment.
+  * Assert that standard environment variables (like `PATH` and `HOME`) are inherited from the server's parent process environment.
+
+---
+
+### Test Case 12l: TestPTYReadLoopBackpressureTrigger
+* **Scope:** External (`package gotests`)
+* **Objective:** Verify that when the WebSocket connection is congested/blocked and scheduler queues fill up to capacity, backpressure triggers to block/pause the PTY read loops, halting TTY reads and preventing unbounded server memory accumulation.
+* **Precise Input Parameters:**
+  * Workspace ID: `backpressure-trigger-ws`
+  * Terminal ID: `212`
+  * Queue Capacity: `1024` frames
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal ID `212`.
+  * Congest the WebSocket writer (by refusing to read from the client side) so the scheduler queue fills up to its `1024` limit.
+  * Write continuous, high-volume stdout data inside the shell.
+  * Track server memory/buffer growth and check if the PTY read loop blocks on the backpressure condition variable.
+* **Assertions & Expected Predicates:**
+  * Assert that once enqueued frames reach the capacity threshold, the enqueuing thread halts and calls `backpressureCond.Wait()`.
+  * Assert that the master PTY read loop ceases reading new bytes from the file descriptor, keeping memory usage constant and bounded.
+  * Assert that resuming socket reads drains the queue, signals the condition variable, and unblocks/resumes the PTY read loop cleanly.
+
+---
+
+## SECTION 3: Removed/Deleted Test Cases
+
+### 1. Test Sweeper Timer Pruning (Removed)
+* **Legacy Test:** `TestSweeperTimerCallbackRaceRegression` and other sweeper timeout tests.
+* **Reason for Deletion:** Background reaper sweeper timers have been completely removed from the server. PTY lifetime is now controlled manually and strictly driven by client UI close signals via `RemovePTY` and `ResetWorkspace`.
+
+### 2. Test PTY Bidirectional Stream I/O (Removed)
+* **Legacy Test:** `TestPTYStreamIO` and matching bidirectional loop assertions.
+* **Reason for Deletion:** The bidirectional `ActionStreamIO` frame has been deleted. It has been replaced by separate unidirectional `InputPTY` (`0x0007`) and `OutputPTY` (`0x0008`) frames.
+
+# Mini Refactor Specification: SpawnPTY Passthrough Protocol Conversion
+
+## 1. Architectural Philosophy & Objective
+
+The primary objective of this refactoring is to establish and maintain a clean modular boundary between the network transport layer (`network.go`) and the core terminal engine (`core.go`). 
+
+The network layer is designed to be a thin, unopinionated gateway on top of the core server logic. It manages socket connections, upgrades HTTP requests to WebSocket frames, parses binary protocols, and enforces syntactic contract boundaries. It remains entirely oblivious to terminal scheduling, process management, text rendering, and buffer lifecycles.
+
+By migrating internal state compilation and scheduling policies to the core, and shifting wire-level parsing inputs (such as length-prefixed commands/args) to a thin passthrough wrapper, we achieve strict separation of concerns:
+* **The Core (`core.go`)** remains completely transport-agnostic, managing pseudo-terminals, scheduling priorities, and scrollback histories.
+* **The Network (`network.go`)** remains completely logic-agnostic, handling binary parsing, packet limit enforcements, and socket-level teardown procedures.
+
+---
+
+## 2. Division of Responsibilities & Validation Boundaries
+
+To enforce this modular boundary, data validation and state management are partitioned into a strict two-tier verification layout:
+
+* **Tier 1: Syntactic & Protocol Validation (Network Layer):** Handled entirely within the network package. This validates binary packet structures, length prefixes, zero boundaries, and wire-level constraints. Any violation of these syntactic checks indicates a protocol breach, causing the server to immediately close the connection with a WebSocket Protocol Error code.
+* **Tier 2: Semantic & State Validation (Core Layer):** Handled entirely within the core package. This validates state invariants, terminal ID availability/collisions, process exit codes, and priority scheduling maps. Violations here indicate application-level logic failures; they do not terminate the connection, and are instead reported back to the client via control frame notifications.
+
+---
+
+## 3. Protocol Layout Changes (`ActionSpawn` - `0x0001`)
+
+The payload for `ActionSpawn` will be modified from a fixed-length layout to a variable-length, length-prefixed structure:
+
+* **Columns (2 Bytes, Big-Endian):** Represents the target window column width as an unsigned 16-bit integer.
+* **Rows (2 Bytes, Big-Endian):** Represents the target window row height as an unsigned 16-bit integer.
+* **Command Length (2 Bytes, Big-Endian):** Represents the byte length of the command executable path string.
+* **Command Path (Variable Bytes, UTF-8):** The target command executable path string (e.g. `/bin/bash` or `/usr/bin/python3`), read immediately after the command length prefix.
+* **Argument Count (1 Byte):** Represents the number of arguments to pass to the executable as an unsigned 8-bit integer.
+* **Argument Structs (Looping Pairs):** For each argument, a 2-byte Big-Endian length prefix followed by the UTF-8 encoded argument string bytes.
+
+---
+
+## 4. Server-Side Parsing & Validation Design (`network.go`)
+
+Upon receiving an `ActionSpawn` (`0x0001`) request, the network handler executes the following sequential parsing and validation logic:
+
+1. **Minimum Bounds Check:** The handler verifies the payload contains at least 6 bytes (columns, rows, and command length). If shorter, the handler closes the connection with a protocol error.
+2. **Dimension Verification:** The handler extracts columns and rows. If either value is zero, the handler terminates the connection with a protocol error.
+3. **Command Extraction:** The handler reads the 2-byte command length. It checks if the payload buffer contains enough remaining bytes to satisfy this length. If not, it triggers a protocol error and terminates. If the command path string is empty, it rejects the frame as malformed.
+4. **Argument Count Extraction:** The handler reads the single-byte argument count.
+5. **Argument Loop Extraction:** For each argument declared in the count:
+   * It reads the 2-byte argument length prefix.
+   * It checks that the remaining payload buffer holds enough bytes to extract the argument string.
+   * It extracts the argument string and stores it in a Go slice of strings.
+6. **Payload Exactness Verification:** After extracting the command and all arguments, the handler verifies that the total parsed bytes match the received payload frame size exactly. Any extra trailing bytes indicate a malformed packet, resulting in connection termination.
+7. **Core Dispatch:** The handler calls the core `SpawnPTY` method, passing the parsed columns, rows, command string, and arguments slice.
+
+---
+
+## 5. Dynamic Priority Scheduling Sync (`SyncPTYPriorities`)
+
+To keep the network layer unopinionated, all priority synchronization and implicit demotion logic are moved into a new method on the `Workspace` struct inside the core.
+
+### A. Code Identified for Migration (Network Layer)
+* **Description:** Inside the `ActionPrioritySync` case block of the main HTTP upgrade/handling loop, the router loops over the parsed connection mapping to call `SetPTYPriority` on active terminals. It then locks the workspace mutex, scans the active terminal list to find omitted active terminal IDs, and demotes them to low priority.
+* **Refactor:** This entire logic block is deleted from the network router and replaced with a call to the new workspace method `SyncPTYPriorities`.
+
+### B. New Workspace Method in `core.go`
+* **Description:** The core `Workspace` implements `SyncPTYPriorities` to handle scheduling pacing updates.
+* **Internal Logic:** The method loops through the mapped priorities, updates the active process pacing flags, locks the internal registry, scans all active shell instances, collects omitted IDs, and demotes them to Low priority. If the mapped priorities layout is empty, all active terminals are implicitly demoted to Low priority.
+
+---
+
+## 6. Core Business Logic & State Migrations
+
+The following business logic blocks are migrated out of the network router and centralized inside the core:
+
+### A. Unified Spawn Status Synchronous Failure Framing
+* **Description:** Inside the `ActionSpawn` case block of the network handler, if `SpawnPTY` returns an error, the handler manually enqueues an `ActionSpawnStatus` failure frame to notify the client.
+* **Refactor:** The framing enqueue block is deleted from the network layer. The core method `SpawnPTY` is modified to internally enqueue the `ActionSpawnStatus` failure frame inside the synchronous collision/teardown check block before returning the error.
+
+### B. Replay Frame Compilation (`CompileReplayFrames`)
+* **Description:** During connection takeovers in the HTTP WebSocket upgrade handler, the router directly locks the workspace registry, iterates through all registered terminals, reads their state, extracts scrollback buffers, performs UTF-8 boundary alignments, prepends yellow ANSI warnings on overflows, and compiles the list of replay frames to send.
+* **Refactor:** This takeover serialization code is deleted from the network layer and replaced with a call to the new `CompileReplayFrames` method on `Workspace`. The network handler then flushes the replays and registers the socket writer.
+
+---
+
+## 7. Latent Constraints & Security Boundaries
+
+The passthrough API runs under the following implicit constraints and discretionary OS/network boundaries:
+
+### A. Executable Path Resolution
+If the client passes a relative command path (e.g. `"ls"` or `"python3"`), the server relies on Go's standard library `exec.Command` which internally executes `exec.LookPath` to resolve the executable against the server process's `PATH` environment variable. If the command cannot be resolved, the spawn fails.
+
+### B. Frame Size Limit Constraint & Extensibility
+The WebSocket read limit is capped at `65536 + 4` bytes. Because the header consumes 4 bytes, the entire serialized `ActionSpawn` payload (columns, rows, command, argument count, and argument values) cannot exceed `65536` bytes. Any request exceeding this limit will trigger connection termination at the protocol layer.
+* **Extensibility Note:** This is a configurable software-enforced limit. If larger command payloads are required in the future, the limit can be easily increased by adjusting the WebSocket `ReadLimit` in the server configuration. The 2-byte fields (`cmd_len` and `arg_len`) can represent up to 65,535 bytes individually; for anything larger, the protocol schema can be upgraded to use 4-byte `uint32` prefixes.
+
+### C. Environment Inheritance
+The spawned process inherits all parent environment variables of the running server daemon. The WebSocket protocol payload does not support specifying custom environment variables.
+
+### D. File Descriptor Safety
+If the target executable fails to start (e.g. due to permission denied or file not found errors), the core guarantees that all allocated PTY master and slave file descriptors are immediately closed to prevent system leaks.
+
+# Go Test Specification: Passthrough Refactoring & Core Migrations
+
+## 1. Objective
+
+This document defines the Go-specific testing and verification specification (covering unit tests in `source/` and integration tests in `tests/integration/`) for validating the passthrough refactoring and core migrations. All WebSocket/Deno E2E test cases are isolated in [e2e_test_spec.md](file:///home/coder/project/suprasole-server/artifacts/e2e_test_spec.md).
+
+---
+
+## SECTION 1: New Go Test Cases
+
+The following new Go test cases must be implemented within `source/` or `tests/integration/` to verify migrated core features directly:
+
+### 1. `TestSyncPTYPriorities` (Unit Test in `source/`)
+* **Objective:** Verify that `SyncPTYPriorities` correctly sets terminal pacing priorities and performs implicit demotions of omitted terminals.
+* **Verification Logic:** 
+  * Spawn three active PTY terminals: `1`, `2`, and `3`. Set their initial pacing states to `PriorityHigh`.
+  * Invoke `SyncPTYPriorities` with a map specifying only terminal `1` as `PriorityHigh`.
+  * Assert that terminal `1` remains `PriorityHigh`.
+  * Assert that terminals `2` and `3` (which were omitted from the sync map) are implicitly demoted to `PriorityLow`.
+
+### 2. `TestSyncPTYPrioritiesEmptyPayload` (Unit Test in `source/`)
+* **Objective:** Verify that calling priority sync with an empty map implicitly demotes all active terminals to Low priority.
+* **Verification Logic:**
+  * Spawn active terminals `1` and `2`. Set their initial pacing states to `PriorityHigh`.
+  * Invoke `SyncPTYPriorities` with an empty map.
+  * Assert that both terminal `1` and terminal `2` are demoted to `PriorityLow`.
+
+### 3. `TestCompileReplayFrames` (Unit Test in `source/`)
+* **Objective:** Verify that `CompileReplayFrames` correctly serializes connection history, aligns UTF-8 boundaries, and prepends overflow warnings.
+* **Verification Logic:**
+  * Spawn terminal `1`. Fill its ring buffer past the 256KB threshold to force an overflow.
+  * Spawn terminal `2` and send `"exit 12\n"` to transition it to `Terminated` with exit code `12`.
+  * Invoke `CompileReplayFrames`.
+  * Assert that the compiled frame list contains an `OutputPTY` frame for terminal `1` with the yellow ANSI truncation warning banner prepended.
+  * Assert that the compiled frame list contains a `SpawnPTYStatus` success frame for terminal `1`.
+  * Assert that the compiled frame list contains a `PTYTerminalExit` frame for terminal `2` with a payload of `[12]`.
+
+### 4. `TestAlignUTF8Boundary` (Unit Test in `source/`)
+* **Objective:** Verify the core boundary alignment logic resolves partial multibyte character truncations correctly under all trailing byte offsets.
+* **Verification Logic:**
+  * Pass a valid UTF-8 byte slice to `AlignUTF8Boundary` and assert it returns identical bytes.
+  * Pass a byte slice ending with a truncated 2-byte, 3-byte, and 4-byte UTF-8 sequence, and assert that the partial leading byte(s) are cleanly stripped from the trailing edge, returning a valid UTF-8 substring.
+
+### 5. `TestSpawnPTYEmptyCommand` (Unit Test in `source/`)
+* **Objective:** Verify that calling `SpawnPTY` with an empty command string is rejected synchronously at the Go API boundary.
+* **Verification Logic:**
+  * Call `SpawnPTY` with an empty command path `""`.
+  * Assert that the function returns a non-nil error synchronously.
+  * Assert that no shell process is allocated or spawned.
+
+### 6. `TestSpawnPTYZeroDimensions` (Unit Test in `source/`)
+* **Objective:** Verify that spawning a PTY with `columns = 0` or `rows = 0` is rejected synchronously at the Go API level.
+* **Verification Logic:**
+  * Call `SpawnPTY` with `columns = 0` or `rows = 0`.
+  * Assert that the function returns a non-nil error synchronously.
+
+### 7. `TestSpawnPTYFileDescriptorCleanup` (Unit Test in `source/`)
+* **Objective:** Verify that if process execution fails (e.g. command path not found), all allocated pseudo-terminal file descriptors are released synchronously and no orphaned terminal entries are left in the registry.
+* **Verification Logic:**
+  * Invoke `SpawnPTY` requesting execution of a non-existent command path (e.g. `"/bin/non-existent-executable"`).
+  * Assert that the function returns a non-nil error synchronously (e.g., `exec.ErrNotFound`).
+  * Assert that the terminal ID is **not registered** in the workspace registry (`workspace.ptys`), which synchronously proves that the deferred cleanup logic ran, closed the master/slave file descriptors, and prevented memory leaks.
+
+### 8. `TestSynchronousSpawnFailureFraming` (Unit Test in `source/`)
+* **Objective:** Verify that calling `SpawnPTY` enqueues the `ActionSpawnStatus` failure frame (`0x02` with payload `[0x01]`) directly in the control queue on synchronous failures.
+* **Verification Logic:**
+  * Spawn terminal `1`.
+  * Call `SpawnPTY` again with the same terminal ID `1` to trigger a collision.
+  * Assert that the synchronous call returns an error.
+  * Assert that the control queue contains the `ActionSpawnStatus` failure frame.
+
+---
+
+## SECTION 2: Updated/Refactored Go Test Cases
+
+The following existing Go integration tests (in `tests/integration/`) must be updated to align with core signature changes:
+
+### 1. Priority Pacing Integration Tests
+* **Refactor Details:** Any Go integration tests that manually updated pacing priorities by calling `SetPTYPriority` in loops or setting up pacing structures manually should be updated to verify the behavior using the new `SyncPTYPriorities` API, ensuring that scheduling flows utilize the core priority synchronization mechanism.
+
+### 2. Spawning and Takeover Integration Tests
+* **Refactor Details:** Reconnection and takeover tests must verify that replay frame generation works by calling `CompileReplayFrames` directly at the core package level rather than asserting internal ring buffer states directly.
+
+---
+
+## SECTION 3: Removed Go Test Cases
+
+The following Go tests are deleted or retired:
+
+### 1. Legacy Sweeper Integration Tests
+* **Reason:** All sweeper/reaper timers are defunct. Any test cases validating idle sweeps or process reaps on timers must be removed.
+
+---
+
+## SECTION 4: Established Tests to Migrate and Adapt
+
+The following existing, established Go tests in `tests/integration/priority_scheduler_test.go` must be adapted and updated to reflect the new passthrough design and core methods:
+
+### 1. `TestRaceFreeTerminalStateAccess` (Adaptation)
+* **Objective:** Asserts concurrent thread safety during terminal state transitions.
+* **Refactor:** Currently, this test directly inspects the workspace's internal `ptys` registry map and checks the `state` field of individual PTY instances. Since state representation is now factored into the core takeover sequence, this test must be adapted to verify concurrent thread safety on shared memory.
+* **Concurrency Scope:** The test will spawn 20 concurrent goroutines combining:
+  1. Spawning new PTY terminals asynchronously (modifying the shared `workspace.ptys` registry map).
+  2. Generating high-frequency stdout data writes to active buffers (modifying individual terminal buffers concurrently).
+  3. Inducing terminal exits to transition states to terminated (modifying terminal states concurrently).
+  4. Executing high-frequency calls to `CompileReplayFrames` (iterating over the shared `workspace.ptys` map and reading terminal buffers).
+  This entire mix must run concurrently under the Go race detector (`go test -race`) to assert that the locks in `CompileReplayFrames` and `SpawnPTY` fully guard the shared workspace state.
+
+### 2. `TestSchedulerPrioritySwitching` (Adaptation)
+* **Objective:** Verifies that active terminal pacing priorities can be toggled dynamically.
+* **Refactor:** Currently, this test calls `SetPTYPriority` directly on the terminal IDs to change scheduling lanes. It must be adapted to use the new `SyncPTYPriorities` method, passing map updates to assert that both explicit priority updates and implicit demotions shift scheduling queues correctly.
+
+### 3. `TestPacingSchedulerAndScrollback` (Adaptation)
+* **Objective:** Verifies scheduler pacing rates and historical playback buffers.
+* **Refactor:** Currently, this test asserts replay consistency by querying raw ring buffers. It must be adapted to verify scrollback outputs by asserting the payload outputs from `CompileReplayFrames`, ensuring that UTF-8 alignment bounds and warning banners are generated exactly as expected before the egress socket writer is bound.
+
+# E2E Test Specification: Decoupled PTY Lifecycle & Unidirectional Protocols
+
+This document defines the end-to-end (E2E) integration test cases for the `suprasole-server` to run within the Deno test runner environment (`tests/e2e/source/*.test.ts`). All test definitions strictly adhere to the black-box testing paradigm, operating solely through WebSocket binary frames and asserting invariants over public network contracts.
+
+---
+
+## SECTION 1: New E2E Test Cases
+
+### Test Case 1: `{ptyl10} [PTY Ingestion] PTY Eviction (Remove): Verifies RemovePTY completely purges terminal maps and buffers`
+* **Objective:** Verify that sending a `RemovePTY` (`0x0006`) command to an active or terminated terminal completely evicts its state and buffer from server memory.
+* **Precise Input Parameters:**
+  * Terminal ID: `301`
+* **Step-by-Step Execution Sequence:**
+  * Establish a WebSocket connection and spawn terminal `301`.
+  * Wait for `SpawnPTYStatus` success.
+  * Send `RemovePTY` (`0x0006`) command with payload `301`.
+  * Attempt to send `InputPTY` (`0x0007`) or `ResizePTY` (`0x0003`) targeting terminal `301`.
+* **Assertions & Expected Invariants:**
+  * Assert that the connection remains active and stable.
+  * Assert that subsequent commands targeting `301` are rejected with a "terminal not found" error, proving the terminal record was successfully evicted.
+  * Assert that the underlying shell process is terminated.
+
+---
+
+### Test Case 2: `{ptyl11} [PTY Ingestion] Context-Bound Spawning Early Kill (CancelSpawn): Cancels spawning process via KillPTY mid-launch`
+* **Objective:** Verify that sending `KillPTY` (`0x0004`) to a terminal ID while it is still spawning invokes context cancellation on the server, aborting allocation.
+* **Precise Input Parameters:**
+  * Terminal ID: `302`
+* **Step-by-Step Execution Sequence:**
+  * Send a `SpawnPTY` (`0x0001`) command for terminal `302`.
+  * Immediately (before receiving spawn status) send `KillPTY` (`0x0004`) targeting `302`.
+  * Wait for any incoming messages.
+* **Assertions & Expected Invariants:**
+  * Assert that the server does not register an active terminal on ID `302`.
+  * Assert that the background process is terminated cleanly without orphaned shells.
+
+---
+
+### Test Case 3: `{ptyl12} [PTY Ingestion] Spawning Command Discard (LateRouting): Discards resizes and inputs for spawning terminals`
+* **Objective:** Verify that sending `InputPTY` (`0x0007`) or `ResizePTY` (`0x0003`) targeting a terminal that is currently in `Spawning` state is safely discarded by the server.
+* **Precise Input Parameters:**
+  * Terminal ID: `303`
+* **Step-by-Step Execution Sequence:**
+  * Send a `SpawnPTY` (`0x0001`) command for terminal `303`.
+  * Immediately send `InputPTY` (`0x0007` with payload `"data"`) and `ResizePTY` (`0x0003` with layout `120x40`) before spawn status is returned.
+* **Assertions & Expected Invariants:**
+  * Assert that both commands are rejected with a "terminal not ready" error.
+  * Assert that no write attempts are made to the spawning PTY's descriptors.
+
+---
+
+### Test Case 4: `{ptyl13} [PTY Ingestion] Terminated Terminal Safety (GuardedRouting): Bypasses writes and resizes to terminated terminals`
+* **Objective:** Verify that sending `InputPTY` (`0x0007`) or `ResizePTY` (`0x0003`) to an already terminated PTY (with closed master FD) is safely discarded without throwing Bad File Descriptor (`EBADF`) faults on the server.
+* **Precise Input Parameters:**
+  * Terminal ID: `304`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `304`.
+  * Send `InputPTY` with text `"exit 0\n"`. Wait for the `PTYTerminalExit` (`0x0005`) frame to confirm the process has terminated.
+  * Send `InputPTY` (`0x0007`, payload `"keystrokes"`) and `ResizePTY` (`0x0003`, dimensions `100x30`) targeting the dead terminal `304`.
+* **Assertions & Expected Invariants:**
+  * Assert that the server discards the input payload immediately.
+  * Assert that the resize request is silently ignored, returning success without issuing `ioctl` calls to closed file descriptors.
+
+---
+
+### Test Case 5: `{ptyl14} [PTY Ingestion] Reset Workspace Active and Terminated (WorkspaceReset): Wipes all terminal maps and process groups`
+* **Objective:** Verify that sending a `ResetWorkspace` (`0x000a`) command terminates all processes, frees all terminal structures, and resets the workspace session completely.
+* **Precise Input Parameters:**
+  * Terminal IDs: `305` (Active), `306` (Terminated)
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `305`.
+  * Spawn terminal `306`, send `"exit 0\n"`, and wait for `PTYTerminalExit` (`0x0005`).
+  * Send `ResetWorkspace` (`0x000a`).
+  * Read incoming frames.
+* **Assertions & Expected Invariants:**
+  * Assert that all active process groups are killed.
+  * Assert that the server enqueues a `Reset` frame over the connection.
+  * Assert that attempting to interact with `305` or `306` post-reset returns a "terminal not found" error, proving the registry is clean.
+
+---
+
+### Test Case 6: `{srec07} [Session Recovery] Reconnect Terminated Replay (ExitReplay): Replays exit status codes for terminated PTYs on connection takeover`
+* **Objective:** Verify that when a client reconnects, the server takes over the session and replays the exit status frames of all terminated (but not removed) PTYs.
+* **Precise Input Parameters:**
+  * Terminal ID: `307`
+* **Step-by-Step Execution Sequence:**
+  * Establish Connection A. Spawn terminal `307`.
+  * Send `"exit 42\n"` to `307` and wait for the `PTYTerminalExit` (`0x0005`) frame with exit code `42`.
+  * Disconnect Connection A.
+  * Establish Connection B (hijacking the session).
+  * Read initial handshake replay frames from the socket.
+* **Assertions & Expected Invariants:**
+  * Assert that Connection B receives a compiled handshake sequence containing the `PTYTerminalExit` (`0x0005`) frame for ID `307` with exit code payload `42`.
+
+---
+
+### Test Case 7: `{srec08} [Session Recovery] UTF-8 Scrollback Alignment (Sanitization): Sanitizes mid-character truncations on replay`
+* **Objective:** Verify that the server's scrollback replay alignment routine discards leading continuation bytes resulting from ring buffer overflows.
+* **Precise Input Parameters:**
+  * Terminal ID: `308`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `308`.
+  * Force the ring buffer to overflow by enqueuing a data sequence that ends with truncated multibyte UTF-8 continuation sequences at its beginning boundary.
+  * Connect a new WebSocket client to trigger the connection takeover handshake.
+  * Intercept the replayed scrollback `OutputPTY` (`0x0008`) frame.
+* **Assertions & Expected Invariants:**
+  * Assert that the client receives a properly aligned UTF-8 stream where leading continuation bytes were stripped.
+
+---
+
+### Test Case 8: `{def07g} [Defensive Mechanisms] PID Recycling Bypass (SafetyGuard): Skips process group signaling on terminated terminals`
+* **Objective:** Verify that executing `KillPTY` (`0x0004`), `RemovePTY` (`0x0006`), or `ResetWorkspace` (`0x000a`) on terminated PTYs does not issue OS signals (`SIGKILL`), preventing sending signals to recycled process IDs.
+* **Precise Input Parameters:**
+  * Terminal ID: `309`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `309`.
+  * Send `"exit 0\n"` and wait for `PTYTerminalExit` (`0x0005`).
+  * Obtain its PID and verify it has exited.
+  * Call `KillPTY` (`0x0004`) or `RemovePTY` (`0x0006`) targeting `309`.
+* **Assertions & Expected Invariants:**
+  * Assert that the server returns success instantly.
+  * Assert that no signal delivery calls (`syscall.Kill`) target the reaped PID.
+
+---
+
+### Test Case 9: `{srec09} [Session Recovery] Offline Exit Handler Unblocking (OfflineUnblock): Ensures immediate process reaping on disconnected sessions`
+* **Objective:** Verify that when a terminal process exits while the workspace writer is offline (`SetSocketWriter(nil)`), the exit handler does not block indefinitely waiting for output draining, and completes process reaping immediately.
+* **Precise Input Parameters:**
+  * Terminal ID: `310`
+* **Step-by-Step Execution Sequence:**
+  * Establish a WebSocket connection. Spawn terminal `310`.
+  * Buffer some output data on terminal `310`.
+  * Simulate connection drop by disconnecting the WebSocket (setting the writer to `nil` on the server).
+  * Send a signal or wait for terminal `310`'s process to exit naturally.
+* **Assertions & Expected Invariants:**
+  * Assert that the PTY exit handler detects the offline writer, closes the `drainSignal` channel, reaps the shell process group immediately, and releases the PTY master file descriptor.
+  * Assert that reconnecting shows terminal `310` is in `Terminated` state with its final scrollback buffer retained.
+
+---
+
+### Test Case 10: `{psch06} [Priority Scheduling] Spawning Cancellation Under Backpressure Lockout (SpawningLockout): Prevents spawning deadlocks under heavy egress congestion`
+* **Objective:** Verify that when the scheduler is under heavy backpressure (queues filled), terminating a spawning PTY completes immediately without deadlocking.
+* **Precise Input Parameters:**
+  * Terminal IDs: `311` (Active/Flood), `312` (Spawning)
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `311`. Block the socket writer to fill the queue and trigger flow control backpressure.
+  * Call `SpawnPTY` for terminal `312`.
+  * Immediately (while spawning is active and backpressure is engaged) call `KillPTY(312)`.
+* **Assertions & Expected Invariants:**
+  * Assert that the spawning context is cancelled and the setup routine is cleanly reaped.
+  * Assert that `KillPTY(312)` returns success immediately and does not hang on the backpressure lock.
+
+---
+
+### Test Case 11: `{srec10} [Session Recovery] Replay Starvation Prevention Workspace-Wide (ReplayStarvation): Places live traffic behind historical playback on reconnection`
+* **Objective:** Verify that new live output generated during connection takeovers is queued behind historical replays, avoiding replay starvation.
+* **Precise Input Parameters:**
+  * Terminal IDs: `313` (Active), `314` (Active)
+* **Step-by-Step Execution Sequence:**
+  * Establish Connection A. Spawn terminals `313` and `314`.
+  * Generate scrollback history on `313`.
+  * Evict Connection A by connecting Connection B.
+  * While Connection B is in the handshake replay phase, trigger new live output on terminal `314`.
+* **Assertions & Expected Invariants:**
+  * Assert that Connection B receives all historical scrollback (`OutputPTY`) frames for `313` *before* receiving any live output from `314`.
+
+---
+
+### Test Case 12: `{srec11} [Session Recovery] Ring Buffer Overflow Warning Injection (WarningInjection): Injects yellow ANSI truncation message on buffer overflow`
+* **Objective:** Verify that the server injects the yellow ANSI warning banner when a PTY scrollback ring buffer overflows.
+* **Precise Input Parameters:**
+  * Terminal ID: `315`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `315`.
+  * Write a continuous stream of stdout data exceeding the 256KB ring buffer limit.
+  * Reconnect to trigger the connection takeover handshake.
+  * Read the first block of replayed scrollback frames.
+* **Assertions & Expected Invariants:**
+  * Assert that the first frame contains the yellow ANSI warning message: `\r\n\x1b[33m[... Output truncated due to buffer overflow ...]\x1b[0m\r\n\r\n` preceding the truncated scrollback data.
+
+---
+
+### Test Case 13: `{ptyl15} [PTY Ingestion] Reset Workspace Outbound Notification (ResetFrame): Asserts Reset frame broadcast on workspace reset`
+* **Objective:** Verify that calling `ResetWorkspace` (`0x000a`) enqueues and broadcasts an outbound `ActionReset` frame over the WebSocket.
+* **Precise Input Parameters:**
+  * Scope: Workspace Session
+* **Step-by-Step Execution Sequence:**
+  * Spawn active terminals and write scrollback content.
+  * Send `ResetWorkspace` (`0x000a`).
+  * Read the outbound frames dispatched over the WebSocket.
+* **Assertions & Expected Invariants:**
+  * Assert that the client receives an outbound frame with `Action` set to `0x000a` (`ActionReset`) and `TerminalID` set to `0`.
+  * Assert that all subsequent queues are empty.
+
+---
+
+### Test Case 14: `{wsg04d} [WebSocket Gateway] Graceful Connection Eviction RST Prevention (EvictionRST): Ensures graceful takeover closures`
+* **Objective:** Verify that session takeovers close the hijacked client socket gracefully, preventing TCP RST packets.
+* **Precise Input Parameters:**
+  * Scope: External Connection
+* **Step-by-Step Execution Sequence:**
+  * Connect Client A.
+  * Connect Client B, initiating takeover.
+  * Client A monitors the socket closure state.
+* **Assertions & Expected Invariants:**
+  * Assert that Client A receives a normal Close frame (code `4000`) and the TCP connection closes gracefully via standard FIN handshakes.
+
+---
+
+### Test Case 15: `{wsg05e} [WebSocket Gateway] Sequential Connection Takeover Handshake Race (TakeoverRace): Prevents overlapping writes and port locks during rapid reconnections`
+* **Objective:** Verify that rapid sequential connection attempts (Client A -> Client B -> Client C) trying to bind to the single active workspace WebSocket slot are handled safely, with the server serializing the upgrades and waiting for each evicted connection's network teardown to finish.
+* **Precise Input Parameters:**
+  * WebSocket Connections: Sequential socket upgrade requests (Client A, Client B, Client C)
+* **Step-by-Step Execution Sequence:**
+  * Connect Connection A and bind it as the workspace's active socket writer.
+  * Initiate a takeover by opening Connection B.
+  * Open Connection C concurrently (before Connection B completes its full HTTP WebSocket upgrade and registry binding handshake).
+* **Assertions & Expected Invariants:**
+  * Assert that the server handles the sequential upgrade requests at the HTTP handler level without throwing port conflicts or socket errors.
+  * Assert that Connection C successfully becomes the single, active bound socket writer for the workspace.
+  * Assert that Connection A and Connection B are evicted and closed cleanly with Close Code `4000`, with all network writes halted to prevent frame interleaving on the socket.
+
+---
+
+### Test Case 16: `{ptyl16} [PTY Ingestion] Synchronous State Consistency on Exit (ExitConsistency): Guarantees exit code capture before client notification`
+* **Objective:** Verify that when a terminal shell exits, the server captures its exit status code and updates its internal registry state to `Terminated` before notifying the client via the `PTYTerminalExit` (`0x0005`) frame.
+* **Precise Input Parameters:**
+  * Terminal ID: `317`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `317`.
+  * Send `"exit 99\n"` to trigger process exit.
+  * Intercept the `PTYTerminalExit` (`0x0005`) frame and verify its exit status payload is `99`.
+  * Immediately attempt to call `InputPTY(317)` or `ResizePTY(317)`.
+* **Assertions & Expected Invariants:**
+  * Assert that the exit status code payload in the frame matches `99`.
+  * Assert that the immediate late commands are discarded as a terminated terminal without causing master FD double-closes or system errors, proving the state transition occurred synchronously before the exit event was dispatched.
+
+---
+
+### Test Case 17: `{psch07} [Priority Scheduling] Implicit Demotion of Omitted Terminals (ImplicitDemotion): Demotes unspecified active PTYs to Low priority on sync`
+* **Objective:** Verify that when a `SyncPTYPriorities` (`0x0009`) layout update is received, any active terminals omitted from the layout are implicitly demoted to `PriorityLow` (`0x00`).
+* **Precise Input Parameters:**
+  * Terminal IDs: `318` (Active), `319` (Active)
+* **Step-by-Step Execution Sequence:**
+  * Spawn active terminals `318` and `319`. Assign both to High priority initially.
+  * Send a `SyncPTYPriorities` (`0x0009`) command specifying only `318` as High priority (`0x01`). Terminal `319` is omitted from the update.
+  * Verify the scheduling speed/pacing of both terminals under load.
+* **Assertions & Expected Invariants:**
+  * Assert that `318` continues to drain immediately as High priority.
+  * Assert that the omitted terminal `319` is paced at `15ms` intervals, proving it was implicitly demoted to Low priority.
+
+---
+
+### Test Case 18: `{ptyl17} [PTY Ingestion] Reset Workspace Outbound Notification (ResetFrame): Asserts Reset frame broadcast on workspace reset`
+* **Objective:** Verify that calling `ResetWorkspace` (`0x000a`) enqueues and broadcasts an outbound `ActionReset` frame over the WebSocket.
+* **Precise Input Parameters:**
+  * Scope: Workspace Session
+* **Step-by-Step Execution Sequence:**
+  * Spawn active terminals and write scrollback content.
+  * Send `ResetWorkspace` (`0x000a`).
+  * Read the outbound frames dispatched over the WebSocket.
+* **Assertions & Expected Invariants:**
+  * Assert that the client receives an outbound frame with `Action` set to `0x000a` (`ActionReset`) and `TerminalID` set to `0`.
+  * Assert that all subsequent queues are empty.
+
+---
+
+## SECTION 1B: Nuanced Composite Flow Test Cases
+
+### Test Case 19: `{comp01} [PTY Ingestion] Interactive Task & Tab Eviction Sequence (InteractiveEviction): Validates job control and terminal close sequence`
+* **Objective:** Verify a complete, multi-command developer interaction flow: spawning a terminal, running a loop, resizing during output, interrupting the shell, verifying state, and closing the tab container.
+* **Precise Input Parameters:**
+  * Terminal ID: `401`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `401` with geometry `80x24`.
+  * Send `InputPTY` (`0x0007`) with the command `"for i in $(seq 1 100); do echo \"Line $i\"; sleep 0.05; done\n"`.
+  * While output is actively streaming back via `OutputPTY` (`0x0008`), send `ResizePTY` (`0x0003`) to `120x40`.
+  * Send a `SIGINT` (Ctrl+C byte `0x03`) via `InputPTY` (`0x0007`) to interrupt the loop.
+  * Send `InputPTY` (`0x0007`) containing `"exit 130\n"`.
+  * Wait for `PTYTerminalExit` (`0x0005`) status frame.
+  * Disconnect and reconnect to trigger connection takeover. Verify exit status `130` and scrollback logs are retained.
+  * Send `RemovePTY` (`0x0006`) to delete the terminal registry entry.
+* **Assertions & Expected Invariants:**
+  * Assert that the resize operation updates the window geometry mid-execution without dropping output data.
+  * Assert that the interrupt (`0x03`) successfully halts loop generation.
+  * Assert that `PTYTerminalExit` returns exit code `130`.
+  * Assert that the dead terminal and its scrollback remain readable in memory post-exit, but are completely cleared from the registry after `RemovePTY`.
+
+---
+
+### Test Case 20: `{comp02} [Priority Scheduling] Responsive Multi-Tab Typing and Reconnection Recovery (ResponsiveSession): Asserts layout sync persistence across network drops`
+* **Objective:** Verify multi-terminal prioritization and priority synchronization state persistence across WebSocket disconnections.
+* **Precise Input Parameters:**
+  * Terminal IDs: `402` (High priority typing), `403` (Low priority compiler)
+* **Step-by-Step Execution Sequence:**
+  * Spawn active terminals `402` and `403`.
+  * Send `SyncPTYPriorities` (`0x0009`) setting `402` to High priority (`0x01`) and `403` to Low priority (`0x00`).
+  * Congest the socket and trigger high-volume output on both terminals concurrently.
+  * Evict/disconnect the active connection.
+  * Reconnect to take over the session.
+  * Send new data to both terminals and observe the outbound scheduling order.
+* **Assertions & Expected Invariants:**
+  * Assert that before disconnection, `402` preempts `403`'s low-priority streams.
+  * Assert that after session recovery, the server retains the scheduling mappings (omitting the need to resend `SyncPTYPriorities`).
+  * Assert that `402` continues to preempt `403` in real-time post-reconnection.
+
+---
+
+### Test Case 21: `{comp03} [Session Recovery] Reconnect Takeover Handshake Interleaving (InterleavedHandshake): Asserts correct delivery order of buffer warnings, exits, and async spawns`
+* **Objective:** Verify the connection takeover handshake when a workspace contains a mix of active, truncated, terminated, and spawning terminals.
+* **Precise Input Parameters:**
+  * Terminal IDs: `404` (Truncated), `405` (Terminated), `406` (Spawning)
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `404`. Flood it to exceed the 256KB buffer limit.
+  * Spawn terminal `405`. Send `"exit 77\n"` and wait for termination.
+  * Call `SpawnPTY` for terminal `406` (introducing an artificial setup delay).
+  * While `406` is spawning, connect a new WebSocket to trigger connection takeover.
+  * Intercept all replay frames and wait for `406`'s spawning completion.
+* **Assertions & Expected Invariants:**
+  * Assert that the handshake replays `404`'s scrollback with the yellow ANSI buffer truncation warning prepended.
+  * Assert that `405`'s exit status `77` is replayed via `PTYTerminalExit` (`0x0005`).
+  * Assert that the newly bound connection receives the `SpawnPTYStatus` success for `406` only *after* the handshake replay sequence completes.
+
+---
+
+### Test Case 22: `{comp04} [PTY Ingestion] Workspace Reset and ID Recycling Recovery (ResetRecycling): Validates clean slate recovery and immediate re-spawns`
+* **Objective:** Verify resetting a complex workspace session and immediately reusing the terminated Terminal IDs.
+* **Precise Input Parameters:**
+  * Terminal IDs: `407`, `408`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `407` (Active) and terminal `408` (Terminated).
+  * Send `ResetWorkspace` (`0x000a`).
+  * Immediately (without waiting or disconnecting) send `SpawnPTY` (`0x0001`) commands for terminal `407` and terminal `408`.
+* **Assertions & Expected Invariants:**
+  * Assert that both new spawn attempts succeed (no ID collision errors `0x01` returned).
+  * Assert that the new processes are allocated successfully and begin streaming on clean, empty scrollback buffers.
+
+---
+
+### Test Case 23: `{comp05} [Session Recovery] Takeover During Spawning With Immediate Eviction (TakeoverSpawnEvict): Asserts spawn abort and memory cleanup on sequential takeover events`
+* **Objective:** Verify a connection takeover happens mid-spawn, followed by an immediate client-driven PTY removal, proving context cancellation and resource cleanups operate cleanly.
+* **Precise Input Parameters:**
+  * Terminal ID: `409`
+* **Step-by-Step Execution Sequence:**
+  * Establish Connection A. Send a `SpawnPTY` command for terminal `409`.
+  * Before Connection A receives the spawn status, initiate a session takeover by opening Connection B.
+  * Immediately upon Connection B's upgrade (before the background spawn thread completes), Connection B sends a `RemovePTY(409)` command.
+  * Wait for the background setup thread to finish.
+* **Assertions & Expected Invariants:**
+  * Assert that the server cancels Connection A's spawn context.
+  * Assert that Connection B's `RemovePTY` command immediately forces context abort.
+  * Assert that the background thread detects context cancellation, reaps any partially allocated shell process cleanly, and exits.
+  * Assert that terminal `409` is completely absent from the workspace registry map, leaving a clean state.
+
+---
+
+### Test Case 24: `{comp06} [Priority Scheduling] Dynamic Priority Flip Under Heavy Egress Congestion (CongestionFlip): Verifies scheduler preemption responsiveness during live floods`
+* **Objective:** Verify that when one terminal is heavily flooding the outbound stream and starving a second terminal, sending a priority sync flip instantly swaps pacing.
+* **Precise Input Parameters:**
+  * Terminal IDs: `410` (initially High priority), `411` (initially Low priority)
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminals `410` and `411`.
+  * Set `410` to High priority and `411` to Low priority.
+  * Flood both terminals with continuous high-volume output.
+  * Verify that `411`'s low-priority frames are heavily paced and starved by `410`.
+  * Send `SyncPTYPriorities` (`0x0009`) flipping the priorities: `410` becomes Low priority (`0x00`) and `411` becomes High priority (`0x01`).
+* **Assertions & Expected Invariants:**
+  * Assert that the scheduler immediately swaps queues.
+  * Assert that `411`'s output frames are popped and dispatched instantly (preempting the egress stream), while `410`'s output frames are paced at `15ms` intervals.
+
+---
+
+### Test Case 25: `{comp07} [Defensive Mechanisms] Malformed Command Interleaving (MalformedInterleave): Asserts connection termination on mixed valid and malformed headers`
+* **Objective:** Test gateway defensive resilience by sending valid spawn requests followed by interleaved malformed payloads, asserting that the connection is immediately terminated.
+* **Precise Input Parameters:**
+  * Terminal ID: `412`
+* **Step-by-Step Execution Sequence:**
+  * Spawn terminal `412`. Wait for spawn status success.
+  * Send `InputPTY` (`0x0007`) containing a valid key command.
+  * Interleave and send a malformed frame (header size < 4 bytes, or invalid Action code).
+* **Assertions & Expected Invariants:**
+  * Assert that the WebSocket connection is closed immediately by the server.
+  * Assert that the active terminal `412` remains in the server's workspace registry.
+
+---
+
+### Test Case 26: `{comp08} [PTY Ingestion] Rapid Concurrent Spawns and Teardown (ConcurrentTeardown): Validates lock safety under heavy concurrent allocation and reset load`
+* **Objective:** Test workspace lock coordination by spawning multiple terminals concurrently, sending inputs, and executing a workspace reset, verifying zero deadlocks or resource leaks.
+* **Precise Input Parameters:**
+  * Terminal IDs: `413` through `422` (10 concurrent terminals)
+* **Step-by-Step Execution Sequence:**
+  * Simultaneously launch 10 async goroutines from the client, each attempting to `SpawnPTY` on terminal IDs `413` through `422`.
+  * Concurrently dispatch continuous `InputPTY` keys to all 10 terminals.
+  * Concurrently send a `ResetWorkspace` (`0x000a`) command.
+* **Assertions & Expected Invariants:**
+  * Assert that the server executes all operations safely without mutex deadlock or race crashes.
+  * Assert that after the reset concludes, all 10 shell process groups are fully reaped and all file descriptors are closed.
+  * Assert that the workspace returns to a clean, empty state.
+
+---
+
+## SECTION 1C: Passthrough Protocol E2E Test Cases
+
+### Test Case 27: `{ptyl18} [PTY Ingestion] Default Shell Spawn Passthrough (DefaultSpawn): Spawns default bash shell via length-prefixed protocol`
+* **Objective:** Verify that a standard client spawn request running a default shell executes successfully under the new variable-length protocol.
+* **Precise Input Parameters:**
+  * Terminal ID: `501`
+  * Command: `/bin/bash`
+  * Arguments: `[]`
+* **Step-by-Step Execution Sequence:**
+  * Connect the WebSocket client.
+  * Construct and send a `SpawnPTY` (`0x0001`) frame containing `columns=80`, `rows=24`, `cmd_len=9`, `cmd="/bin/bash"`, and `arg_count=0` (length-prefixed).
+  * Wait for incoming messages.
+* **Assertions & Expected Invariants:**
+  * Assert that the server processes the payload and returns `SpawnPTYStatus` success (`0x00` status payload).
+  * Assert that the active shell runs cleanly inside the PTY master.
+
+---
+
+### Test Case 28: `{ptyl19} [PTY Ingestion] Custom Executable Passthrough (CustomSpawn): Spawns custom command with arguments and asserts stdout`
+* **Objective:** Verify that the server successfully spawns alternative commands and arguments passed through the passthrough API.
+* **Precise Input Parameters:**
+  * Terminal ID: `502`
+  * Command: `/usr/bin/python3`
+  * Arguments: `["-c", "print('PASSTHROUGH_TEST')"]`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket client.
+  * Construct a `SpawnPTY` (`0x0001`) frame containing `columns=80`, `rows=24`, `cmd_len=16`, `cmd="/usr/bin/python3"`, `arg_count=2`, `arg1_len=2`, `arg1="-c"`, `arg2_len=24`, `arg2="print('PASSTHROUGH_TEST')"` (length-prefixed).
+  * Send the frame, and read the outbound stream messages.
+* **Assertions & Expected Invariants:**
+  * Assert that the spawn completes successfully.
+  * Assert that the client receives an `OutputPTY` (`0x0008`) frame containing the string `"PASSTHROUGH_TEST"` printed to stdout.
+
+---
+
+### Test Case 29: `{def08h} [Defensive Mechanisms] Empty Command Path Rejection (EmptyCommand): Asserts connection close on empty command length`
+* **Objective:** Verify that sending an empty command path is rejected by the server as a protocol violation.
+* **Precise Input Parameters:**
+  * Terminal ID: `503`
+  * Command: `""`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket client.
+  * Construct a `SpawnPTY` (`0x0001`) frame with `cmd_len=0` and empty command path bytes.
+  * Send the frame. Monitor connection state.
+* **Assertions & Expected Invariants:**
+  * Assert that the server rejects the frame immediately.
+  * Assert that the WebSocket connection is closed with a Protocol Error (`1002`).
+
+---
+
+### Test Case 30: `{def09i} [Defensive Mechanisms] Truncated Payload Rejection (TruncatedPayload): Asserts connection close on mismatch between declared command length and frame bounds`
+* **Objective:** Verify that sending a payload shorter than the declared command length is caught by the server's parser.
+* **Precise Input Parameters:**
+  * Terminal ID: `504`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket client.
+  * Construct a malformed `SpawnPTY` frame where the `cmd_len` field is set to `20` bytes, but the actual payload buffer contains only `5` bytes of command path data.
+  * Send the frame. Monitor connection state.
+* **Assertions & Expected Invariants:**
+  * Assert that the server detects the buffer truncation.
+  * Assert that the WebSocket connection is immediately closed with a Protocol Error (`1002`).
+
+---
+
+### Test Case 31: `{psch08} [Priority Scheduling] Dynamic Priority Sync Layout (SyncPriorities): Asserts dynamic priority syncing using ActionPrioritySync (0x0009)`
+* **Objective:** Verify that the new `0x0009` priority sync command correctly updates scheduling pacing and implicitly demotes unspecified active shells.
+* **Precise Input Parameters:**
+  * Terminal IDs: `505` (Active), `506` (Active)
+* **Step-by-Step Execution Sequence:**
+  * Spawn active terminals `505` and `506`.
+  * Send a priority sync frame (`0x0009`) specifying only terminal `505` as High priority (`0x01`). Terminal `506` is omitted.
+  * Flood both terminals with output.
+* **Assertions & Expected Invariants:**
+  * Assert that terminal `505` drains immediately.
+  * Assert that terminal `506` is implicitly demoted to Low priority and paced at 15ms intervals, proving priority sync and implicit demotions execute cleanly.
+
+---
+
+### Test Case 32: `{def10j} [Defensive Mechanisms] Orphaned Process Tree Reaping (OrphanReaping): Asserts clean cleanup of child process tree`
+* **Objective:** Verify that terminating a terminal session guarantees the clean reaping of its entire child process tree (descendants) on the host.
+* **Precise Input Parameters:**
+  * Terminal ID: `507`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket client and spawn terminal `507`.
+  * Send stdin command to spawn a long-running background process: `sh -c "sleep 9999" & echo $!\n`.
+  * Wait for the background PID to be written to the `OutputPTY` (`0x0008`) stream.
+  * Send `KillPTY` (`0x0004`) targeting terminal `507`.
+* **Assertions & Expected Invariants:**
+  * Assert that the background process is terminated cleanly.
+  * Assert that querying the host process table confirms the background PID is reaped.
+
+---
+
+### Test Case 33: `{ptyl20} [PTY Ingestion] Interactive Control Signal Passthrough (CtrlCInterrupt): Interrupts loop execution via Ctrl+C`
+* **Objective:** Verify that sending the ASCII control character sequence `Ctrl+C` (`0x03`) successfully halts active execution inside the PTY shell.
+* **Precise Input Parameters:**
+  * Terminal ID: `508`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket client and spawn terminal `508`.
+  * Send a continuous loop command: `while true; do echo "running"; sleep 0.1; done\n`.
+  * Wait until a stream of `OutputPTY` (`0x0008`) frames is received.
+  * Send an `InputPTY` (`0x0007`) frame containing the single control byte `0x03` (`Ctrl+C` / ASCII ETX).
+* **Assertions & Expected Invariants:**
+  * Assert that the continuous loop output halts immediately.
+  * Assert that the shell returns to the command prompt, showing that the signal was successfully interpreted by the line discipline.
+
+---
+
+### Test Case 34: `{def11k} [Defensive Mechanisms] Startup Port Collision Resiliency (PortCollision): Asserts non-zero exit on TCP port binding collision`
+* **Objective:** Verify that the server daemon exits immediately and logs a clear error if it attempts to bind to an already occupied port.
+* **Precise Input Parameters:**
+  * Bind Port: `9999`
+* **Step-by-Step Execution Sequence:**
+  * Start a dummy TCP listener on loopback port `9999`.
+  * Start the `suprasole-server` daemon, configuring it to bind to port `9999`.
+* **Assertions & Expected Invariants:**
+  * Assert that the server process terminates immediately with a non-zero exit status code.
+  * Assert that a bind failure error message is written to `stderr`.
+
+---
+
+### Test Case 35: `{wsg06f} [WebSocket Gateway] Invalid Route Rejection (BadPath): Returns HTTP 404 on invalid paths`
+* **Objective:** Verify that the server rejects WebSocket connection attempts made to paths other than `/ws` with a standard `404 Not Found` response.
+* **Precise Input Parameters:**
+  * Path: `/badpath`
+* **Step-by-Step Execution Sequence:**
+  * Attempt to establish an HTTP WebSocket connection to the server on `/badpath`.
+* **Assertions & Expected Invariants:**
+  * Assert that the server rejects the connection request.
+  * Assert that the server returns an HTTP status code `404 Not Found`.
+
+---
+
+### Test Case 36: `{wsg07g} [WebSocket Gateway] Missing Token Rejection (NoToken): Returns HTTP 400 on missing query parameter`
+* **Objective:** Verify that the server rejects connection attempts to `/ws` that do not specify a `token` query parameter with a standard `400 Bad Request` response.
+* **Precise Input Parameters:**
+  * Path: `/ws` (no query token parameter)
+* **Step-by-Step Execution Sequence:**
+  * Attempt to establish an HTTP WebSocket connection to the server on `/ws` without specifying the `token` parameter.
+* **Assertions & Expected Invariants:**
+  * Assert that the server rejects the connection request.
+  * Assert that the server returns an HTTP status code `400 Bad Request` with message "Missing token query parameter".
+
+---
+
+### Test Case 37: `{ptyl21} [PTY Ingestion] Argument Safety and Metacharacter Passthrough (LiteralArgs): Asserts direct execution without shell evaluation`
+* **Objective:** Verify that arguments passed to the custom command are treated as literal strings and not evaluated or expanded by a shell (preventing command injection).
+* **Precise Input Parameters:**
+  * Terminal ID: `509`
+  * Command: `/usr/bin/printf`
+  * Arguments: `["%s\n", "hello; echo 'INJECTED'"]`
+* **Step-by-Step Execution Sequence:**
+  * Connect WebSocket client and spawn terminal `509` with `/usr/bin/printf` and arguments `["%s\n", "hello; echo 'INJECTED'"]`.
+  * Read the outbound `OutputPTY` (`0x0008`) stream frames.
+* **Assertions & Expected Invariants:**
+  * Assert that the client receives the exact output `"hello; echo 'INJECTED'\n"`.
+  * Assert that the string `"INJECTED"` is not executed or printed as a separate command result, proving arguments are forwarded without shell expansion.
+
+---
+
+## SECTION 2: Updated/Refactored E2E Test Cases
+
+The following existing E2E tests are updated to integrate with the new decoupled lifecycle commands and the refactored unidirectional streaming actions:
+
+### Global Refactoring Details: Spawn Payload Update
+All existing E2E test cases that invoke `SpawnPTY` (`0x0001`) must be updated to replace the old 4-byte spawn payload (`[columns (2B), rows (2B)]`) with the new variable-length Option A layout. The client-side helper must construct the payload using the new `packSpawnRequest` utility, specifying the target geometry (columns, rows), the executable command path (defaulting to `/bin/bash`), and the argument list. Any test attempt utilizing the obsolete 4-byte layout will be rejected by the server under Tier 1 network validation, resulting in connection termination.
+
+### 1. `{ptyl02} [PTY Ingestion] Inter-Process Stream IO (StreamIO)`
+* **Refactor Details:** Update connection streams to use separate unidirectional channels:
+  * Keypress/paste stdin inputs are written using action `0x0007` (`InputPTY`).
+  * Process stdout/stderr outputs are read using action `0x0008` (`OutputPTY`).
+  * Bidirectional stream I/O assertions (`0x0005`) are replaced.
+
+### 2. `{ptyl04} [PTY Ingestion] Process Termination (Kill)`
+* **Refactor Details:**
+  * Trigger termination using `KillPTY` (`0x0004`).
+  * Assert that `PTYTerminalExit` (`0x0005`) is received, containing the exit status code (e.g., `137` if terminated by `SIGKILL`).
+  * Verify that the terminal entry is retained in memory after termination and its final scrollback buffer remains readable.
+
+### 3. `{ptyl07} [PTY Ingestion] TerminalID Reuse Restriction (IdCollision)`
+* **Refactor Details:**
+  * Assert that attempting to spawn a terminal with an ID that matches a terminated (but not removed) terminal is rejected with a `SpawnPTYStatus` failure code `0x01`.
+  * Assert that the ID becomes available for new spawns only after calling `RemovePTY` (`0x0006`) or `ResetWorkspace` (`0x000a`).
+
+### 4. `{srec02} [Session Recovery] Historical Output Playback (Replay)`
+* **Refactor Details:** Update assertions to check that replayed outputs on takeover are returned as `OutputPTY` (`0x0008`) scrollbacks, and terminated sessions are replayed as `PTYTerminalExit` (`0x0005`) status frames.
+
+### 5. `{psch02} [Priority Scheduling] Whole-State Layout Synchronization (PrioritySync)`
+* **Refactor Details:** Align dynamic scheduling updates to use `SyncPTYPriorities` (`0x0009`), transferring scheduling layouts in a single unified message.
+
+### 6. `{psch04} [Priority Scheduling] Offline Low-Priority Fallback (Reversion)`
+* **Refactor Details:** Ensure the offline fallback mechanism works correctly with the new unidirectional message routing.
+
+---
+
+## SECTION 3: Removed/Deleted E2E Test Cases
+
+The following E2E tests are deleted from the codebase as they target obsolete components:
+
+### 1. `{srec03} [Session Recovery] Orphan Sweeper Expiration (OrphanSweeper)`
+* **Reason:** All sweeper/reaper timer logic has been deleted. Terminals and workspaces persist indefinitely in memory until a client explicitly sends a `RemovePTY` or `ResetWorkspace` command.
+
+### 2. `{srec05} [Session Recovery] Empty Workspace Sweeping (IdleSweep)`
+* **Reason:** Idle workspace sweeping has been removed. Workspaces stay active to support persistent shell reconnects.
+
+### 3. `{srec06} [Session Recovery] Connection Eviction Sweeper Prevention (TakeoverClean)`
+* **Reason:** Obsolete due to the complete removal of sweeper mechanisms.
+
+---
+
+## SECTION 4: Contract Boundaries
+
+The `suprasole-server` relies on the following protocol and network contracts that must be preserved for successful E2E contract compliance:
+
+### 1. Big-Endian Binary Serialization
+* **Description:** All multi-byte integer parameters in frame headers and payloads (Action IDs, Terminal IDs, geometry sizes) must follow Big-Endian serialization.
+* **E2E Assertions:** E2E clients must pack variables via `binary.BigEndian` counterparts (e.g. `binary.BigEndian.Uint16`). Mismatched endianness results in connection drops under Malformed Frame rules.
+
+### 2. 256KB Scrollback Limit & Warnings Boundary
+* **Description:** The scrollback buffer limits maximum memory usage to exactly 256KB (262,144 bytes). Evicting history below this size forces the server to prepend the specific ANSI yellow truncation sequence.
+* **E2E Assertions:** E2E tests in `{srec04}` and `{srec11}` rely on this exact limit to trigger overflow warnings.
+
+### 3. TCP Socket Write-Buffer Constraints
+* **Description:** To enable predictable testing of socket write failures, flow control, and backpressure without needing to transmit megabytes of data, the server configures a small TCP write buffer size of exactly `4096` bytes.
+* **E2E Assertions:** Verified via `{def04d}` (ConnectionReap), allowing E2E tests to trigger write timeouts and connection reaping quickly.
+
+---
+
+## SECTION 5: Client-Side Helper Refactoring (Passthrough Serialization)
+
+The Deno E2E test client helper must be refactored to support packing variable-length binary payloads when spawning pseudo-terminals:
+
+### 1. Dynamic Spawn Packet Serialization
+The client-side serialization helper (such as `packSpawnRequest`) will construct the binary payload in the following sequence:
+* **Size Calculation:** Calculate the total size of the byte array by summing 2 bytes (columns) + 2 bytes (rows) + 2 bytes (command length) + command path UTF-8 bytes + 1 byte (argument count) + 2 bytes (argument length) + argument UTF-8 bytes for each argument in the list.
+* **Buffer Allocation:** Allocate a typed byte array of the calculated total size and wrap it in a data view.
+* **Writing Fields:**
+  * Write the columns as a 2-byte Big-Endian unsigned integer at offset 0.
+  * Write the rows as a 2-byte Big-Endian unsigned integer at offset 2.
+  * Write the command string length as a 2-byte Big-Endian unsigned integer at offset 4.
+  * Copy the UTF-8 encoded command path bytes starting at offset 6.
+  * Write the argument count as a single byte at the offset immediately following the command bytes.
+  * For each argument, write its length as a 2-byte Big-Endian unsigned integer, and copy its UTF-8 encoded bytes, maintaining offsets.
+* **Return Payload:** Return the fully packed byte array to be sent in the WebSocket binary frame.

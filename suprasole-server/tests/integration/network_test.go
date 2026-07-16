@@ -19,11 +19,16 @@ import (
 // Helper to construct binary frames for client-to-server requests
 
 func packSpawnRequest(terminalID, columns, rows uint16) []byte {
-	buf := make([]byte, 8)
+	cmd := "/bin/bash"
+	payloadSize := 2 + 2 + 2 + len(cmd) + 1
+	buf := make([]byte, 4+payloadSize)
 	binary.BigEndian.PutUint16(buf[0:2], source.ActionSpawn)
 	binary.BigEndian.PutUint16(buf[2:4], terminalID)
 	binary.BigEndian.PutUint16(buf[4:6], columns)
 	binary.BigEndian.PutUint16(buf[6:8], rows)
+	binary.BigEndian.PutUint16(buf[8:10], uint16(len(cmd)))
+	copy(buf[10:10+len(cmd)], cmd)
+	buf[10+len(cmd)] = 0 // argCount = 0
 	return buf
 }
 
@@ -45,7 +50,7 @@ func packKillRequest(terminalID uint16) []byte {
 
 func packStreamIO(terminalID uint16, payload []byte) []byte {
 	buf := make([]byte, 4+len(payload))
-	binary.BigEndian.PutUint16(buf[0:2], source.ActionStreamIO)
+	binary.BigEndian.PutUint16(buf[0:2], source.ActionInput)
 	binary.BigEndian.PutUint16(buf[2:4], terminalID)
 	copy(buf[4:], payload)
 	return buf
@@ -215,7 +220,7 @@ func TestPTYStreamIO(t *testing.T) {
 			}
 			if msgType == websocket.BinaryMessage {
 				action, termID, payload, unpackError := unpackFrame(data)
-				if unpackError == nil && action == source.ActionStreamIO && termID == 200 {
+				if unpackError == nil && action == source.ActionOutput && termID == 200 {
 					outputChan <- payload
 				}
 			}
@@ -311,7 +316,7 @@ func TestPTYResize(t *testing.T) {
 				return
 			}
 			action, termID, payload, error := unpackFrame(data)
-			if error == nil && action == source.ActionStreamIO && termID == 300 {
+			if error == nil && action == source.ActionOutput && termID == 300 {
 				outputChan <- payload
 			}
 		}
@@ -369,9 +374,9 @@ func TestPTYLifecycleTermination(t *testing.T) {
 			}
 			action, _, payload, error := unpackFrame(data)
 			if error == nil {
-				if action == source.ActionStreamIO {
+				if action == source.ActionOutput {
 					outputChan <- payload
-				} else if action == source.ActionKill {
+				} else if action == source.ActionTerminalExit {
 					if len(payload) >= 1 {
 						exitChan <- payload[0]
 					}
@@ -394,7 +399,7 @@ func TestPTYLifecycleTermination(t *testing.T) {
 			t.Errorf("expected client-killed PTY exit code 137 (SIGKILL), got %d", code)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timeout waiting for exit notification source.ActionKill")
+		t.Fatal("timeout waiting for exit notification source.ActionTerminalExit")
 	}
 	// 2. Process-Initiated Exit
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(402, 80, 24))
@@ -487,7 +492,7 @@ findCloseA:
 				return
 			}
 			action, termID, payload, error := unpackFrame(data)
-			if error == nil && action == source.ActionStreamIO && termID == 501 {
+			if error == nil && action == source.ActionOutput && termID == 501 {
 				wsBOutput <- payload
 			}
 		}
@@ -621,7 +626,7 @@ func TestProtocolViolationRejections(t *testing.T) {
 			name: "PTY Stream IO Truncated (less than 4 bytes)",
 			sendFunc: func(connection *websocket.Conn) error {
 				buf := make([]byte, 3) // 3 bytes (must be at least 4 bytes for header + terminalID)
-				binary.BigEndian.PutUint16(buf[0:2], source.ActionStreamIO)
+				binary.BigEndian.PutUint16(buf[0:2], source.ActionInput)
 				return connection.WriteMessage(websocket.BinaryMessage, buf)
 			},
 			expectCode: websocket.CloseProtocolError,
@@ -769,7 +774,7 @@ func TestWebSocketWriteDeadlineTimeout(t *testing.T) {
 			t.Fatalf("failed to read prompt: %v", readError)
 		}
 		action, termID, _, _ := unpackFrame(msg)
-		if action == source.ActionStreamIO && termID == 910 {
+		if action == source.ActionOutput && termID == 910 {
 			break
 		}
 	}
@@ -782,7 +787,7 @@ func TestWebSocketWriteDeadlineTimeout(t *testing.T) {
 			t.Fatalf("failed to read yes output: %v", readError)
 		}
 		action, termID, payload, _ := unpackFrame(msg)
-		if action == source.ActionStreamIO && termID == 910 && bytes.Contains(payload, []byte("y")) {
+		if action == source.ActionOutput && termID == 910 && bytes.Contains(payload, []byte("y")) {
 			break
 		}
 	}
@@ -990,62 +995,6 @@ func TestTakeoverEvictionRaceRegression(t *testing.T) {
 	}
 }
 
-// TestEvictedConnectionInputRejection asserts that when a connection is evicted,
-// any further input frames sent on it are ignored and do not modify workspace state.
-func TestEvictedConnectionInputRejection(t *testing.T) {
-	registry := source.NewWorkspaceRegistry()
-	handler := source.NewHandler(registry)
-	ts := httptest.NewServer(handler)
-	t.Cleanup(ts.Close)
-	token := "eviction-input-rejection-test"
-	dialURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/ws?token=" + token
-	// 1. Establish first connection (wsA)
-	wsA, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
-	if err != nil {
-		t.Fatalf("wsA failed to connect: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = wsA.Close()
-		_ = registry.RemoveWorkspace(token)
-	})
-	// 2. Establish second connection (wsB) which will evict wsA
-	wsB, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
-	if err != nil {
-		t.Fatalf("wsB failed to connect: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = wsB.Close()
-	})
-	// 3. Concurrently write a Spawn PTY request on the evicted connection wsA
-	req := packSpawnRequest(999, 80, 24)
-	_ = wsA.WriteMessage(websocket.BinaryMessage, req)
-	// 4. Assert wsA is closed with 4000
-	_ = wsA.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	_, _, readErr := wsA.ReadMessage()
-	if readErr == nil {
-		t.Fatal("expected wsA to be closed")
-	}
-	closeErr, ok := readErr.(*websocket.CloseError)
-	if !ok {
-		t.Fatalf("expected CloseError, got: %v", readErr)
-	}
-	if closeErr.Code != 4000 {
-		t.Errorf("expected close code 4000, got %d", closeErr.Code)
-	}
-	// 5. Verify PTY 999 was NOT spawned (evicted input was discarded)
-	time.Sleep(50 * time.Millisecond)
-	workspace, err := registry.GetOrCreateWorkspace(token)
-	if err != nil {
-		t.Fatalf("failed to resolve workspace: %v", err)
-	}
-	activeIDs := workspace.GetActiveTerminalIDs()
-	for _, id := range activeIDs {
-		if id == 999 {
-			t.Error("Terminal ID 999 was spawned by evicted connection! Evicted inputs must be discarded.")
-		}
-	}
-}
-
 func TestGracefulTCPCloseDraining(t *testing.T) {
 	registry := source.NewWorkspaceRegistry()
 	handler := source.NewHandler(registry)
@@ -1057,7 +1006,7 @@ func TestGracefulTCPCloseDraining(t *testing.T) {
 		t.Fatalf("failed to connect: %v", error)
 	}
 	defer connection.Close()
-	oversizedPayload := make([]byte, 65536 + 10)
+	oversizedPayload := make([]byte, 65536+10)
 	_ = connection.WriteMessage(websocket.BinaryMessage, oversizedPayload)
 	_ = connection.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, _, readErr := connection.ReadMessage()
@@ -1086,7 +1035,7 @@ func TestTakeoverEvictionRSTPrevention(t *testing.T) {
 	defer wsA.Close()
 	// Construct valid ActionStreamIO messages that the server will accept but not block on
 	msg := make([]byte, 10)
-	binary.BigEndian.PutUint16(msg[0:2], source.ActionStreamIO)
+	binary.BigEndian.PutUint16(msg[0:2], source.ActionInput)
 	binary.BigEndian.PutUint16(msg[2:4], 1)
 	copy(msg[4:], "data")
 	for i := 0; i < 5; i++ {
@@ -1108,5 +1057,101 @@ func TestTakeoverEvictionRSTPrevention(t *testing.T) {
 	}
 	if closeErr.Code != 4000 {
 		t.Errorf("expected close code 4000, got %d", closeErr.Code)
+	}
+}
+
+// Test Case 7b: TestWebSocketSessionHijackDuringSpawning
+func TestWebSocketSessionHijackDuringSpawning(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	handler := source.NewHandler(registry)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+	dialURL := fmt.Sprintf("ws://%s/ws?token=hijack-spawn-ws", ts.Listener.Addr().String())
+	connA, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to dial Conn A: %v", err)
+	}
+	defer connA.Close()
+	_ = connA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(108, 80, 24))
+	// Hijack
+	connB, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to dial Conn B: %v", err)
+	}
+	defer connB.Close()
+	// Conn A should be closed
+	_ = connA.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
+	for {
+		_, _, err = connA.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, 4000) || websocket.IsUnexpectedCloseError(err) {
+				// Successfully disconnected via close frame/closure
+				break
+			}
+			t.Errorf("Expected Conn A to be disconnected after hijack, got error: %v", err)
+			break
+		}
+	}
+}
+
+// Test Case 7h: TestProtocolWriteLimitConstraint
+func TestProtocolWriteLimitConstraint(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	handler := source.NewHandler(registry)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+	dialURL := fmt.Sprintf("ws://%s/ws?token=write-limit-ws", ts.Listener.Addr().String())
+	conn, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+	// Send 66000 byte frame (exceeds 64KB read limit)
+	hugePayload := make([]byte, 66000)
+	hugeFrame := packStreamIO(113, hugePayload)
+	_ = conn.WriteMessage(websocket.BinaryMessage, hugeFrame)
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Error("Expected connection to close immediately after sending >64KB frame")
+	}
+}
+
+// Test Case 7i: TestWebSocketFailedUpgradeNoEviction
+func TestWebSocketFailedUpgradeNoEviction(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	handler := source.NewHandler(registry)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+	dialURL := fmt.Sprintf("ws://%s/ws?token=no-evict-token", ts.Listener.Addr().String())
+	connA, _, err := websocket.DefaultDialer.Dial(dialURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to establish active connection A: %v", err)
+	}
+	defer connA.Close()
+	// Perform a failing HTTP upgrade request under the same token.
+	// Gorilla Upgrade fails if the request is not a GET or does not have Upgrade headers.
+	httpURL := fmt.Sprintf("http://%s/ws?token=no-evict-token", ts.Listener.Addr().String())
+	resp, err := http.Post(httpURL, "text/plain", nil)
+	if err != nil {
+		t.Fatalf("Failed to execute request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status code 400 or 405 for failed upgrade, got %d", resp.StatusCode)
+	}
+	// Verify that the active connection connA is still healthy and not evicted.
+	_ = connA.SetWriteDeadline(time.Now().Add(1 * time.Second))
+	err = connA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(123, 80, 24))
+	if err != nil {
+		t.Fatalf("Connection A was prematurely evicted or closed: %v", err)
+	}
+	_ = connA.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_, data, err := connA.ReadMessage()
+	if err != nil {
+		t.Fatalf("Failed to read from active connection: %v", err)
+	}
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
+		t.Error("PTY spawn request on surviving connection failed or was ignored")
 	}
 }

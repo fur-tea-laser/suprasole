@@ -1,4 +1,4 @@
-import { join as joinPath } from '@std/path'
+import { join as joinPath } from "@std/path";
 
 export interface ServerSession {
   port: number;
@@ -8,38 +8,37 @@ export interface ServerSession {
 
 export class ServerOrchestrator {
   private binaryPath: string;
+
   constructor() {
-    this.binaryPath = joinPath(import.meta.dirname!, '..', 'suprasole-server');
+    this.binaryPath = joinPath(import.meta.dirname!, "..", "suprasole-server");
   }
+
   async spawnRuntime(args: string[] = []): Promise<ServerSession> {
     let retries = 5;
     while (retries > 0) {
-      const listener = Deno.listen({ transport: 'tcp', hostname: '127.0.0.1', port: 0 });
+      const listener = Deno.listen({
+        transport: "tcp",
+        hostname: "127.0.0.1",
+        port: 0,
+      });
       const port = (listener.addr as Deno.NetAddr).port;
       listener.close();
       const command = new Deno.Command(this.binaryPath, {
-        args: ['-port', port.toString(), ...args],
-        stdout: 'piped',
-        stderr: 'inherit',
+        args: ["-port", port.toString(), ...args],
+        stdout: "piped",
+        stderr: "inherit",
       });
       const process = command.spawn();
       const reader = process.stdout.getReader();
       const decoder = new TextDecoder();
       let booted = false;
-      let buffer = '';
-      const timeout = setTimeout(() => {
-        try {
-          process.kill('SIGKILL');
-        } catch {
-          // Ignore
-        }
-      }, 5000);
+      let buffer = "";
       try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          if (buffer.includes('Server listening on port')) {
+          if (buffer.includes("Server listening on port")) {
             booted = true;
             break;
           }
@@ -47,7 +46,6 @@ export class ServerOrchestrator {
       } catch {
         // Ignore read/boot errors
       } finally {
-        clearTimeout(timeout);
         try {
           await reader.cancel();
         } catch {
@@ -58,9 +56,13 @@ export class ServerOrchestrator {
         const shutdown = async () => {
           try {
             // Retrieve and kill all child processes (e.g. spawned shells) of the Go server
-            const pgrep = new Deno.Command("pgrep", { args: ["-P", process.pid.toString()] });
+            const pgrep = new Deno.Command("pgrep", {
+              args: ["-P", process.pid.toString()],
+            });
             const output = await pgrep.output();
-            const pids = new TextDecoder().decode(output.stdout).trim().split(/\s+/).filter(Boolean);
+            const pids = new TextDecoder().decode(output.stdout).trim().split(
+              /\s+/,
+            ).filter(Boolean);
             for (const pid of pids) {
               try {
                 const k = new Deno.Command("kill", { args: ["-9", pid] });
@@ -73,7 +75,7 @@ export class ServerOrchestrator {
             // Ignore
           }
           try {
-            process.kill('SIGKILL');
+            process.kill("SIGKILL");
             await process.status;
           } catch {
             // Ignore
@@ -83,7 +85,7 @@ export class ServerOrchestrator {
       } else {
         retries--;
         try {
-          process.kill('SIGKILL');
+          process.kill("SIGKILL");
           await process.status;
         } catch {
           // Ignore
