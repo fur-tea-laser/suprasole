@@ -16,6 +16,33 @@ import (
 	"suprasole-server/source"
 )
 
+func waitUntilReadyWS(t *testing.T, connection *websocket.Conn, termID uint16) {
+	cmdInput := make([]byte, 4+len("stty raw -echo && echo 'PTY_READY'\n"))
+	binary.BigEndian.PutUint16(cmdInput[0:2], source.ActionInput)
+	binary.BigEndian.PutUint16(cmdInput[2:4], termID)
+	copy(cmdInput[4:], []byte("stty raw -echo && echo 'PTY_READY'\n"))
+	err := connection.WriteMessage(websocket.BinaryMessage, cmdInput)
+	if err != nil {
+		t.Fatalf("failed to write ready check input: %v", err)
+	}
+	var accum bytes.Buffer
+	for {
+		msgType, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("failed to read message: %v", err)
+		}
+		if msgType == websocket.BinaryMessage {
+			action, id, payload, err := unpackFrame(data)
+			if err == nil && action == source.ActionOutput && id == termID {
+				accum.Write(payload)
+				if bytes.Contains(accum.Bytes(), []byte("PTY_READY")) {
+					return
+				}
+			}
+		}
+	}
+}
+
 // Helper to construct binary frames for client-to-server requests
 
 func packSpawnRequest(terminalID, columns, rows uint16) []byte {
@@ -155,6 +182,26 @@ func TestPTYLifecycleSpawn(t *testing.T) {
 	if len(payload) != 1 {
 		t.Fatalf("expected 1-byte status payload, got %d bytes", len(payload))
 	}
+	if payload[0] != 0x02 {
+		t.Errorf("expected spawn status spawning (0x02), got 0x%02x", payload[0])
+	}
+	msgType, data, error = connection.ReadMessage()
+	if error != nil {
+		t.Fatalf("failed to read spawn success response: %v", error)
+	}
+	action, termID, payload, error = unpackFrame(data)
+	if error != nil {
+		t.Fatalf("failed to unpack spawn success response: %v", error)
+	}
+	if action != source.ActionSpawnStatus {
+		t.Errorf("expected spawn response action source.ActionSpawnStatus, got 0x%04x", action)
+	}
+	if termID != 100 {
+		t.Errorf("expected terminal ID 100, got %d", termID)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1-byte status payload, got %d bytes", len(payload))
+	}
 	if payload[0] != 0x00 {
 		t.Errorf("expected spawn status success (0x00), got 0x%02x", payload[0])
 	}
@@ -203,11 +250,17 @@ func TestPTYStreamIO(t *testing.T) {
 	spawnReq := packSpawnRequest(200, 80, 24)
 	_ = connection.WriteMessage(websocket.BinaryMessage, spawnReq)
 	_, data, _ := connection.ReadMessage()
-	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
-		t.Fatal("spawn failed")
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x02 {
+		t.Fatal("spawn failed (expected spawning 0x02)")
 	}
+	_, data, _ = connection.ReadMessage()
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
+		t.Fatal("spawn failed (expected success 0x00)")
+	}
+	// Wait deterministically for bash to be ready using our probe
+	waitUntilReadyWS(t, connection, 200)
+
 	// We start a background consumer loop to read all WebSocket output.
-	// Since bash echoes characters and prompts, we read asynchronously until we see our result marker.
 	outputChan := make(chan []byte, 100)
 	errChan := make(chan error, 1)
 	go func() {
@@ -226,17 +279,7 @@ func TestPTYStreamIO(t *testing.T) {
 			}
 		}
 	}()
-	// Wait for terminal prompt to settle
-	time.Sleep(300 * time.Millisecond)
-	// Clear out initial shell setup output from output channel
-drainLoop:
-	for {
-		select {
-		case <-outputChan:
-		default:
-			break drainLoop
-		}
-	}
+
 	// 1. Send normal input
 	inputCmd := []byte("echo 'STREAM_IO_OK'\n")
 	streamIOReq := packStreamIO(200, inputCmd)
@@ -305,9 +348,16 @@ func TestPTYResize(t *testing.T) {
 	// Spawn PTY 300
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(300, 80, 24))
 	_, data, _ := connection.ReadMessage()
-	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
-		t.Fatal("spawn failed")
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x02 {
+		t.Fatal("spawn failed (expected spawning 0x02)")
 	}
+	_, data, _ = connection.ReadMessage()
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
+		t.Fatal("spawn failed (expected success 0x00)")
+	}
+	// Wait deterministically for bash to be ready using our probe
+	waitUntilReadyWS(t, connection, 300)
+
 	outputChan := make(chan []byte, 100)
 	go func() {
 		for {
@@ -321,7 +371,6 @@ func TestPTYResize(t *testing.T) {
 			}
 		}
 	}()
-	time.Sleep(300 * time.Millisecond)
 	// Send PTY Resize
 	resizeReq := packResizeRequest(300, 110, 35)
 	if error := connection.WriteMessage(websocket.BinaryMessage, resizeReq); error != nil {
@@ -366,6 +415,7 @@ func TestPTYLifecycleTermination(t *testing.T) {
 	})
 	outputChan := make(chan []byte, 100)
 	exitChan := make(chan byte, 5)
+	spawnChan := make(chan byte, 10)
 	go func() {
 		for {
 			_, data, error := connection.ReadMessage()
@@ -380,14 +430,27 @@ func TestPTYLifecycleTermination(t *testing.T) {
 					if len(payload) >= 1 {
 						exitChan <- payload[0]
 					}
+				} else if action == source.ActionSpawnStatus {
+					if len(payload) >= 1 {
+						spawnChan <- payload[0]
+					}
 				}
 			}
 		}
 	}()
 	// 1. Client-Initiated Close
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(401, 80, 24))
-	// Wait for spawn response
-	time.Sleep(100 * time.Millisecond)
+	for {
+		select {
+		case status := <-spawnChan:
+			if status == 0x00 {
+				goto spawned401
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for spawn 401 success")
+		}
+	}
+spawned401:
 	// Send kill request (exactly 4 bytes)
 	killReq := packKillRequest(401)
 	if error := connection.WriteMessage(websocket.BinaryMessage, killReq); error != nil {
@@ -403,7 +466,17 @@ func TestPTYLifecycleTermination(t *testing.T) {
 	}
 	// 2. Process-Initiated Exit
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(402, 80, 24))
-	time.Sleep(100 * time.Millisecond)
+	for {
+		select {
+		case status := <-spawnChan:
+			if status == 0x00 {
+				goto spawned402
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for spawn 402 success")
+		}
+	}
+spawned402:
 	// Send command to exit shell with status 45
 	exitCmd := []byte("exit 45\n")
 	_ = connection.WriteMessage(websocket.BinaryMessage, packStreamIO(402, exitCmd))
@@ -436,8 +509,12 @@ func TestWebSocketSessionHijackLifecycle(t *testing.T) {
 	// Spawn PTY 501
 	_ = wsA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(501, 80, 24))
 	_, data, _ := wsA.ReadMessage()
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x02 {
+		t.Fatal("spawn 501 failed (expected spawning 0x02)")
+	}
+	_, data, _ = wsA.ReadMessage()
 	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
-		t.Fatal("spawn 501 failed")
+		t.Fatal("spawn 501 failed (expected success 0x00)")
 	}
 	// Start printing command (e.g. bash loops printing markers)
 	// We disable job control (set +m) so it runs in same process group and gets reaped cleanly
@@ -723,6 +800,13 @@ func TestWebSocketLivenessAndClosure(t *testing.T) {
 	if error != nil {
 		t.Fatalf("socket closed unexpectedly: %v", error)
 	}
+	if _, termID, status, _ := unpackFrame(data); termID != 900 || status[0] != 0x02 {
+		t.Fatal("spawn 900 failed (expected spawning 0x02)")
+	}
+	_, data, error = connection.ReadMessage()
+	if error != nil {
+		t.Fatalf("socket closed unexpectedly: %v", error)
+	}
 	if _, termID, status, _ := unpackFrame(data); termID != 900 || status[0] != 0x00 {
 		t.Fatal("spawn 900 failed, non-existent target test broke session")
 	}
@@ -764,8 +848,12 @@ func TestWebSocketWriteDeadlineTimeout(t *testing.T) {
 	// Spawn PTY 910
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(910, 80, 24))
 	_, data, _ := connection.ReadMessage()
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x02 {
+		t.Fatal("spawn failed (expected spawning 0x02)")
+	}
+	_, data, _ = connection.ReadMessage()
 	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
-		t.Fatal("spawn failed")
+		t.Fatal("spawn failed (expected success 0x00)")
 	}
 	// Wait deterministically for the initial shell prompt before writing commands
 	for {
@@ -874,8 +962,7 @@ func TestServerInitiatedWorkspaceTeardown(t *testing.T) {
 	t.Cleanup(func() {
 		_ = connection.Close()
 	})
-	// Sleep briefly to let the HTTP handler register the workspace in the registry
-	time.Sleep(20 * time.Millisecond)
+
 	// Programmatically remove workspace from server registry
 	error = registry.RemoveWorkspace("server-teardown-workspace")
 	if error != nil {
@@ -1151,7 +1238,51 @@ func TestWebSocketFailedUpgradeNoEviction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read from active connection: %v", err)
 	}
+	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x02 {
+		t.Error("PTY spawn request on surviving connection failed (expected spawning 0x02)")
+	}
+	_, data, err = connA.ReadMessage()
+	if err != nil {
+		t.Fatalf("Failed to read from active connection: %v", err)
+	}
 	if _, _, status, _ := unpackFrame(data); len(status) == 0 || status[0] != 0x00 {
-		t.Error("PTY spawn request on surviving connection failed or was ignored")
+		t.Error("PTY spawn request on surviving connection failed (expected success 0x00)")
+	}
+}
+
+// TestWebSocketEvictionFDLeak verifies that immediately evicted takeover connections
+// are cleanly closed and do not leak their underlying sockets.
+func TestWebSocketEvictionFDLeak(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	handler := source.NewHandler(registry)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	wsURL := fmt.Sprintf("ws://%s/ws?token=evict-leak-token", ts.Listener.Addr().String())
+
+	// 1. Establish connection A
+	connA, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to dial connection A: %v", err)
+	}
+	defer connA.Close()
+
+	// 2. Establish connection B with the same token to evict connection A
+	connB, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to dial connection B: %v", err)
+	}
+	defer connB.Close()
+
+	// 3. Verify connection A receives the Close frame and the socket is closed by the server
+	_ = connA.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err = connA.ReadMessage()
+	if err == nil {
+		t.Fatal("Expected connection A to be closed, but ReadMessage succeeded")
+	}
+
+	// Verify that it is indeed a WebSocket close error or connection reset/closed error
+	if !websocket.IsCloseError(err, 4000) && !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "reset") {
+		t.Errorf("Expected close error 4000 or closed socket error on connection A, got: %v", err)
 	}
 }

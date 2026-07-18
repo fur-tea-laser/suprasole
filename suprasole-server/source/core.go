@@ -389,74 +389,108 @@ func (workspace *Workspace) SpawnPTY(terminalID uint16, columns uint16, rows uin
 	inst := &spawningInstance{cancel: cancel, done: doneChan}
 	workspace.spawning[terminalID] = inst
 	workspace.mutex.Unlock()
+	workspace.EnqueueControlFrame(OutboundFrame{
+		Action:     ActionSpawnStatus,
+		TerminalID: terminalID,
+		Payload:    []byte{0x02}, // Spawning (0x02)
+	})
 	go func() {
 		defer close(doneChan)
-		failSpawn := func() {
-			workspace.mutex.Lock()
-			isRemoved := inst.isRemoved
-			if isRemoved {
-				if workspace.spawning[terminalID] == inst {
-					delete(workspace.spawning, terminalID)
-				}
-				workspace.mutex.Unlock()
-			} else {
-				if _, exists := workspace.ptys.Get(terminalID); !exists {
-					if workspace.spawning[terminalID] == inst {
-						delete(workspace.spawning, terminalID)
-					}
-					failedPTY := &ptyInstance{
-						terminalID: terminalID,
-						state:      StateTerminated,
-						exitStatus: 255,
-						waitDone:   make(chan struct{}),
-						readDone:   make(chan struct{}),
-					}
-					close(failedPTY.waitDone)
-					close(failedPTY.readDone)
-					workspace.ptys.Put(terminalID, failedPTY)
-					workspace.backpressureCond.Broadcast()
-				}
-				workspace.mutex.Unlock()
-				workspace.EnqueueControlFrame(OutboundFrame{
-					Action:     ActionSpawnStatus,
-					TerminalID: terminalID,
-					Payload:    []byte{0x01},
-				})
-				workspace.EnqueueControlFrame(OutboundFrame{
-					Action:     ActionTerminalExit,
-					TerminalID: terminalID,
-					Payload:    []byte{255},
-				})
-			}
-		}
-		master, slave, err := openPty()
-		if err != nil {
-			failSpawn()
-			return
-		}
-		success := false
+
+		var cmd *exec.Cmd
+		var master *os.File
+		var slave *os.File
+		var wasRegistered bool
+		var isFailed bool
+
 		defer func() {
-			if !success {
-				master.Close()
-				slave.Close()
+			if !wasRegistered {
+				// 1. If it failed, register a terminated dummy PTY so its exit status is queryable
+				if isFailed {
+					workspace.mutex.Lock()
+					if _, exists := workspace.ptys.Get(terminalID); !exists {
+						failedPTY := &ptyInstance{
+							terminalID: terminalID,
+							state:      StateTerminated,
+							exitStatus: 255,
+							waitDone:   make(chan struct{}),
+							readDone:   make(chan struct{}),
+						}
+						close(failedPTY.waitDone)
+						close(failedPTY.readDone)
+						workspace.ptys.Put(terminalID, failedPTY)
+						workspace.backpressureCond.Broadcast()
+					}
+					workspace.mutex.Unlock()
+				}
+
+				// 2. Clean up spawning maps
+				workspace.mutex.Lock()
+				wasSpawning := (workspace.spawning[terminalID] == inst)
+				if wasSpawning {
+					delete(workspace.spawning, terminalID)
+					delete(workspace.pendingPriorities, terminalID)
+				}
+				workspace.backpressureCond.Broadcast()
+				workspace.mutex.Unlock()
+
+				// 3. Clean up OS processes
+				if cmd != nil && cmd.Process != nil {
+					killDescendants(cmd.Process.Pid)
+					_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					_ = cmd.Wait()
+				}
+
+				// 4. Close PTY file descriptors
+				if slave != nil {
+					_ = slave.Close()
+				}
+				if master != nil {
+					_ = master.Close()
+				}
+
+				// 5. Enqueue control frames
+				if wasSpawning {
+					status := byte(0x03) // Canceled (0x03)
+					if isFailed {
+						status = 0x01 // Failure (0x01)
+					}
+					workspace.EnqueueControlFrame(OutboundFrame{
+						Action:     ActionSpawnStatus,
+						TerminalID: terminalID,
+						Payload:    []byte{status},
+					})
+					if status == 0x01 {
+						workspace.EnqueueControlFrame(OutboundFrame{
+							Action:     ActionTerminalExit,
+							TerminalID: terminalID,
+							Payload:    []byte{255},
+						})
+					}
+				}
 			}
 		}()
+
+		var err error
+		master, slave, err = openPty()
+		if err != nil {
+			isFailed = true
+			return
+		}
+
 		if ctx.Err() != nil {
-			workspace.mutex.Lock()
-			if workspace.spawning[terminalID] == inst {
-				delete(workspace.spawning, terminalID)
-			}
-			workspace.backpressureCond.Broadcast()
-			workspace.mutex.Unlock()
 			return
 		}
+
 		if err := setSize(int(slave.Fd()), columns, rows); err != nil {
-			failSpawn()
+			isFailed = true
 			return
 		}
+
 		shell := resolvedPath
 		shellArgs := args
-		cmd := exec.Command(shell, shellArgs...)
+		cmd = exec.Command(shell, shellArgs...)
 		cmd.Stdin = slave
 		cmd.Stdout = slave
 		cmd.Stderr = slave
@@ -465,6 +499,7 @@ func (workspace *Workspace) SpawnPTY(terminalID uint16, columns uint16, rows uin
 			Setctty: true,
 			Ctty:    1,
 		}
+
 		var env []string
 		hasPath := false
 		for _, e := range os.Environ() {
@@ -482,63 +517,45 @@ func (workspace *Workspace) SpawnPTY(terminalID uint16, columns uint16, rows uin
 			env = append(env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 		}
 		cmd.Env = env
+
 		if ctx.Err() != nil {
-			workspace.mutex.Lock()
-			if workspace.spawning[terminalID] == inst {
-				delete(workspace.spawning, terminalID)
-			}
-			workspace.mutex.Unlock()
 			return
 		}
+
 		if err := cmd.Start(); err != nil {
-			failSpawn()
+			isFailed = true
 			return
 		}
-		success = true
-		slave.Close()
+
+		// Slave side is closed after start.
+		_ = slave.Close()
+		slave = nil
+
 		if ctx.Err() != nil {
-			killDescendants(cmd.Process.Pid)
-			_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			_ = master.Close()
-			_ = cmd.Wait()
-			workspace.mutex.Lock()
-			if workspace.spawning[terminalID] == inst {
-				delete(workspace.spawning, terminalID)
-			}
-			workspace.mutex.Unlock()
 			return
 		}
+
 		workspace.mutex.Lock()
 		if ctx.Err() != nil {
-			if workspace.spawning[terminalID] == inst {
-				delete(workspace.spawning, terminalID)
-			}
 			workspace.mutex.Unlock()
-			killDescendants(cmd.Process.Pid)
-			_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			_ = master.Close()
-			_ = cmd.Wait()
 			return
 		}
+
 		if workspace.spawning[terminalID] == inst {
 			delete(workspace.spawning, terminalID)
 		}
+
 		if workspace.isTornDown {
 			workspace.mutex.Unlock()
-			killDescendants(cmd.Process.Pid)
-			_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			_ = master.Close()
-			_ = cmd.Wait()
 			return
 		}
+
 		priority := PriorityLow
 		if p, ok := workspace.pendingPriorities[terminalID]; ok {
 			priority = p
 			delete(workspace.pendingPriorities, terminalID)
 		}
+
 		terminal := &ptyInstance{
 			terminalID: terminalID,
 			master:     master,
@@ -554,6 +571,9 @@ func (workspace *Workspace) SpawnPTY(terminalID uint16, columns uint16, rows uin
 		workspace.waitGroup.Add(1)
 		workspace.backpressureCond.Broadcast()
 		workspace.mutex.Unlock()
+
+		wasRegistered = true
+
 		go func() {
 			defer func() {
 				close(terminal.waitDone)
@@ -588,7 +608,7 @@ func (workspace *Workspace) SpawnPTY(terminalID uint16, columns uint16, rows uin
 		workspace.EnqueueControlFrame(OutboundFrame{
 			Action:     ActionSpawnStatus,
 			TerminalID: terminalID,
-			Payload:    []byte{0x00},
+			Payload:    []byte{0x00}, // Success (0x00)
 		})
 	}()
 	return nil
@@ -1055,8 +1075,14 @@ func (workspace *Workspace) TerminatePTY(terminalID uint16) error {
 		inst.isRemoved = true
 		inst.cancel()
 		delete(workspace.spawning, terminalID)
+		delete(workspace.pendingPriorities, terminalID)
 		workspace.backpressureCond.Broadcast()
 		workspace.mutex.Unlock()
+		workspace.EnqueueControlFrame(OutboundFrame{
+			Action:     ActionSpawnStatus,
+			TerminalID: terminalID,
+			Payload:    []byte{0x03}, // Canceled (0x03)
+		})
 		return nil
 	}
 	terminal, exists := workspace.ptys.Get(terminalID)
@@ -1121,7 +1147,14 @@ func (workspace *Workspace) RemovePTY(terminalID uint16) error {
 		inst.isRemoved = true
 		inst.cancel()
 		delete(workspace.spawning, terminalID)
+		delete(workspace.pendingPriorities, terminalID)
+		workspace.backpressureCond.Broadcast()
 		workspace.mutex.Unlock()
+		workspace.EnqueueControlFrame(OutboundFrame{
+			Action:     ActionSpawnStatus,
+			TerminalID: terminalID,
+			Payload:    []byte{0x03}, // Canceled (0x03)
+		})
 		return nil
 	}
 	terminal, exists := workspace.ptys.Get(terminalID)
@@ -1159,11 +1192,17 @@ func (workspace *Workspace) RemovePTY(terminalID uint16) error {
 func (workspace *Workspace) ResetWorkspace() error {
 	workspace.mutex.Lock()
 	defer workspace.mutex.Unlock()
+
+	// 1. Gather all spawning terminals to cancel
+	var spawningIDs []uint16
 	for terminalID, inst := range workspace.spawning {
 		inst.isRemoved = true
 		inst.cancel()
-		delete(workspace.spawning, terminalID)
+		spawningIDs = append(spawningIDs, terminalID)
 	}
+	workspace.spawning = make(map[uint16]*spawningInstance)
+
+	// 2. Tear down active PTYs
 	if workspace.ptys != nil {
 		for pty := workspace.ptys.head; pty != nil; pty = pty.next {
 			pty.mutex.Lock()
@@ -1190,6 +1229,8 @@ func (workspace *Workspace) ResetWorkspace() error {
 			}
 		}
 	}
+
+	// 3. Clear/Reinitialize workspace structures
 	workspace.ptys = newOrderedPTYMap()
 	workspace.queueGeneration++
 	workspace.centralizedQueues[0] = nil
@@ -1198,13 +1239,24 @@ func (workspace *Workspace) ResetWorkspace() error {
 	workspace.pendingCount = make(map[uint16]int)
 	workspace.pendingPriorities = make(map[uint16]byte)
 	workspace.pendingReplays = 0
-	workspace.backpressureCond.Broadcast()
-	// Enqueue Reset frame immediately over active connection (routed to Control queue 0)
+
+	// 4. Enqueue Canceled status codes for cancelled spawning PTYs
+	for _, terminalID := range spawningIDs {
+		workspace.centralizedQueues[QueueIndexControl] = append(workspace.centralizedQueues[QueueIndexControl], OutboundFrame{
+			Action:     ActionSpawnStatus,
+			TerminalID: terminalID,
+			Payload:    []byte{0x03}, // Canceled (0x03)
+		})
+	}
+
+	// 5. Enqueue global Reset frame
 	workspace.centralizedQueues[QueueIndexControl] = append(workspace.centralizedQueues[QueueIndexControl], OutboundFrame{
 		Action:     ActionReset,
 		TerminalID: 0,
 		Payload:    nil,
 	})
+
+	workspace.backpressureCond.Broadcast()
 	workspace.notifyScheduler()
 	return nil
 }
@@ -1247,6 +1299,16 @@ func (workspace *Workspace) SyncPTYPriorities(priorities map[uint16]byte) error 
 		}
 		pty.mutex.Unlock()
 	}
+
+	// Synchronize pending priorities for spawning PTYs
+	for tid := range workspace.spawning {
+		if priority, specified := priorities[tid]; specified {
+			workspace.pendingPriorities[tid] = priority
+		} else {
+			delete(workspace.pendingPriorities, tid)
+		}
+	}
+
 	if modified {
 		workspace.backpressureCond.Broadcast()
 		workspace.pacingDeadline = TimeNow().Add(PacingInterval)
@@ -1265,6 +1327,18 @@ func (workspace *Workspace) CompileReplayFrames() []OutboundFrame {
 
 func (workspace *Workspace) compileReplayFramesLocked() []OutboundFrame {
 	var replayFrames []OutboundFrame
+
+	// 1. Replay Spawning status frames for all currently spawning PTYs
+	for id := range workspace.spawning {
+		replayFrames = append(replayFrames, OutboundFrame{
+			Action:           ActionSpawnStatus,
+			TerminalID:       id,
+			Payload:          []byte{0x02}, // Spawning (0x02)
+			DrainingPriority: PriorityLow,
+		})
+	}
+
+	// 2. Replay active and terminated PTY outputs and trailing statuses
 	for pty := workspace.ptys.head; pty != nil; pty = pty.next {
 		pty.mutex.Lock()
 		state := pty.state
@@ -1273,7 +1347,8 @@ func (workspace *Workspace) compileReplayFramesLocked() []OutboundFrame {
 		isTruncated := pty.buffer.isTruncated
 		pty.mutex.Unlock()
 		id := pty.terminalID
-		if state == StateActive {
+
+		if state == StateActive || state == StateTerminated {
 			buf = AlignUTF8Boundary(buf)
 			if len(buf) > 0 || isTruncated {
 				replayPayload := buf
@@ -1290,10 +1365,13 @@ func (workspace *Workspace) compileReplayFramesLocked() []OutboundFrame {
 					DrainingPriority: PriorityLow,
 				})
 			}
+		}
+
+		if state == StateActive {
 			replayFrames = append(replayFrames, OutboundFrame{
 				Action:           ActionSpawnStatus,
 				TerminalID:       id,
-				Payload:          []byte{0x00},
+				Payload:          []byte{0x00}, // Success (0x00)
 				DrainingPriority: PriorityLow,
 			})
 		} else if state == StateTerminated {

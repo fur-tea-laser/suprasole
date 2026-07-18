@@ -19,7 +19,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error binding listener: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Server listening on port %d\n", *port)
+	fmt.Printf("Server listening on port %d\n", listener.Addr().(*net.TCPAddr).Port)
 	if err := http.Serve(listener, handler); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting server: %v\n", err)
 		os.Exit(1)

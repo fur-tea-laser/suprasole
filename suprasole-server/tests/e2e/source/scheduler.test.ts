@@ -15,9 +15,15 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(1, 80, 24, "bash"); // T1
-          await client.readSpawnStatus(1);
+          const spawn_spawning_85327 = await client.readSpawnStatus(1);
+          assertEquals(spawn_spawning_85327.payload[0], 0x02);
+          const spawn_success_85327 = await client.readSpawnStatus(1);
+          assertEquals(spawn_success_85327.payload[0], 0x00);
           client.sendSpawn(2, 80, 24, "bash"); // T2
-          await client.readSpawnStatus(2);
+          const spawn_spawning_534685 = await client.readSpawnStatus(2);
+          assertEquals(spawn_spawning_534685.payload[0], 0x02);
+          const spawn_success_534685 = await client.readSpawnStatus(2);
+          assertEquals(spawn_success_534685.payload[0], 0x00);
           const syncPayload = new Uint8Array([0, 1, 1, 0, 2, 0]);
           client.sendFrame(0x0009, 0, syncPayload); // ActionPrioritySync = 9
           client.sendFrame(
@@ -73,9 +79,15 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(1, 80, 24, "bash"); // T1
-          await client.readSpawnStatus(1);
+          const spawn_spawning_789572 = await client.readSpawnStatus(1);
+          assertEquals(spawn_spawning_789572.payload[0], 0x02);
+          const spawn_success_789572 = await client.readSpawnStatus(1);
+          assertEquals(spawn_success_789572.payload[0], 0x00);
           client.sendSpawn(2, 80, 24, "bash"); // T2
-          await client.readSpawnStatus(2);
+          const spawn_spawning_332281 = await client.readSpawnStatus(2);
+          assertEquals(spawn_spawning_332281.payload[0], 0x02);
+          const spawn_success_332281 = await client.readSpawnStatus(2);
+          assertEquals(spawn_success_332281.payload[0], 0x00);
           const syncPayload = new Uint8Array([0, 1, 0, 0, 2, 1]);
           client.sendFrame(0x0009, 0, syncPayload); // ActionPrioritySync = 9
           client.sendFrame(
@@ -135,9 +147,15 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(1, 80, 24, "bash"); // T1 (High)
-          await client1.readSpawnStatus(1);
+          const spawn_spawning_902392 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_spawning_902392.payload[0], 0x02);
+          const spawn_success_902392 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_success_902392.payload[0], 0x00);
           client1.sendSpawn(2, 80, 24, "bash"); // T2 (Low)
-          await client1.readSpawnStatus(2);
+          const spawn_spawning_740177 = await client1.readSpawnStatus(2);
+          assertEquals(spawn_spawning_740177.payload[0], 0x02);
+          const spawn_success_740177 = await client1.readSpawnStatus(2);
+          assertEquals(spawn_success_740177.payload[0], 0x00);
           client1.sendFrame(
             0x0007,
             2,
@@ -202,7 +220,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(1, 80, 24, "bash"); // T1 (High)
-          await client1.readSpawnStatus(1);
+          const spawn_spawning_241115 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_spawning_241115.payload[0], 0x02);
+          const spawn_success_241115 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_success_241115.payload[0], 0x00);
           client1.close();
           const client2 = new WebSocketClient(session.port, token);
           try {
@@ -225,9 +246,15 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(1, 80, 24, "bash"); // T1 (High)
-          await client1.readSpawnStatus(1);
+          const spawn_spawning_444322 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_spawning_444322.payload[0], 0x02);
+          const spawn_success_444322 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_success_444322.payload[0], 0x00);
           client1.sendSpawn(2, 80, 24, "bash"); // T2 (Low)
-          await client1.readSpawnStatus(2);
+          const spawn_spawning_763024 = await client1.readSpawnStatus(2);
+          assertEquals(spawn_spawning_763024.payload[0], 0x02);
+          const spawn_success_763024 = await client1.readSpawnStatus(2);
+          assertEquals(spawn_success_763024.payload[0], 0x00);
           client1.sendFrame(
             0x0007,
             2,
@@ -278,7 +305,10 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(311, 80, 24, "bash");
-          await client.readSpawnStatus(311);
+          const spawn_spawning_455466 = await client.readSpawnStatus(311);
+          assertEquals(spawn_spawning_455466.payload[0], 0x02);
+          const spawn_success_455466 = await client.readSpawnStatus(311);
+          assertEquals(spawn_success_455466.payload[0], 0x00);
           client.sendFrame(
             0x0007,
             311,
@@ -311,9 +341,15 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(318, 80, 24, "bash");
-          await client.readSpawnStatus(318);
+          const spawn_spawning_114969 = await client.readSpawnStatus(318);
+          assertEquals(spawn_spawning_114969.payload[0], 0x02);
+          const spawn_success_114969 = await client.readSpawnStatus(318);
+          assertEquals(spawn_success_114969.payload[0], 0x00);
           client.sendSpawn(319, 80, 24, "bash");
-          await client.readSpawnStatus(319);
+          const spawn_spawning_582912 = await client.readSpawnStatus(319);
+          assertEquals(spawn_spawning_582912.payload[0], 0x02);
+          const spawn_success_582912 = await client.readSpawnStatus(319);
+          assertEquals(spawn_success_582912.payload[0], 0x00);
           const syncPayload1 = new Uint8Array([0, 318, 1, 0, 319, 1]);
           client.sendFrame(0x0009, 0, syncPayload1);
           const syncPayload2 = new Uint8Array([0, 318, 1]);
@@ -374,9 +410,15 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(505, 80, 24, "bash");
-          await client.readSpawnStatus(505);
+          const spawn_spawning_190850 = await client.readSpawnStatus(505);
+          assertEquals(spawn_spawning_190850.payload[0], 0x02);
+          const spawn_success_190850 = await client.readSpawnStatus(505);
+          assertEquals(spawn_success_190850.payload[0], 0x00);
           client.sendSpawn(506, 80, 24, "bash");
-          await client.readSpawnStatus(506);
+          const spawn_spawning_259738 = await client.readSpawnStatus(506);
+          assertEquals(spawn_spawning_259738.payload[0], 0x02);
+          const spawn_success_259738 = await client.readSpawnStatus(506);
+          assertEquals(spawn_success_259738.payload[0], 0x00);
           // Sync specifies only 505 as High priority
           const syncPayload = new Uint8Array([0, 505, 1]);
           client.sendFrame(0x0009, 0, syncPayload);
@@ -434,9 +476,15 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(402, 80, 24, "bash");
-          await client1.readSpawnStatus(402);
+          const spawn_spawning_816444 = await client1.readSpawnStatus(402);
+          assertEquals(spawn_spawning_816444.payload[0], 0x02);
+          const spawn_success_816444 = await client1.readSpawnStatus(402);
+          assertEquals(spawn_success_816444.payload[0], 0x00);
           client1.sendSpawn(403, 80, 24, "bash");
-          await client1.readSpawnStatus(403);
+          const spawn_spawning_568473 = await client1.readSpawnStatus(403);
+          assertEquals(spawn_spawning_568473.payload[0], 0x02);
+          const spawn_success_568473 = await client1.readSpawnStatus(403);
+          assertEquals(spawn_success_568473.payload[0], 0x00);
           // Set 402 High, 403 Low
           const syncPayload = new Uint8Array([0, 402, 1, 0, 403, 0]);
           client1.sendFrame(0x0009, 0, syncPayload);
@@ -549,9 +597,15 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(410, 80, 24, "bash");
-          await client.readSpawnStatus(410);
+          const spawn_spawning_439910 = await client.readSpawnStatus(410);
+          assertEquals(spawn_spawning_439910.payload[0], 0x02);
+          const spawn_success_439910 = await client.readSpawnStatus(410);
+          assertEquals(spawn_success_439910.payload[0], 0x00);
           client.sendSpawn(411, 80, 24, "bash");
-          await client.readSpawnStatus(411);
+          const spawn_spawning_644739 = await client.readSpawnStatus(411);
+          assertEquals(spawn_spawning_644739.payload[0], 0x02);
+          const spawn_success_644739 = await client.readSpawnStatus(411);
+          assertEquals(spawn_success_644739.payload[0], 0x00);
           // 410 High, 411 Low
           client.sendFrame(0x0009, 0, new Uint8Array([0, 410, 1, 0, 411, 0]));
           // Start T410 High priority flood

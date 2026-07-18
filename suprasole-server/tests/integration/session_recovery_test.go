@@ -198,9 +198,22 @@ func TestMutexSynchronizedPlaybackAndConcurrentInput(t *testing.T) {
 	}
 	// Spawn PTY 1
 	_ = connA.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
-	_, _, error = connA.ReadMessage()
-	if error != nil {
-		t.Fatalf("failed to read spawn: %v", error)
+	for i := 0; i < 2; i++ {
+		_, _, error = connA.ReadMessage()
+		if error != nil {
+			t.Fatalf("failed to read spawn status: %v", error)
+		}
+	}
+	// Wait for the initial shell prompt before writing commands
+	for {
+		_, msg, error := connA.ReadMessage()
+		if error != nil {
+			t.Fatalf("failed to read prompt: %v", error)
+		}
+		action, termID, _, _ := unpackFrame(msg)
+		if action == source.ActionOutput && termID == 1 {
+			break
+		}
 	}
 	// Write command that outputs part 1, sleeps, then outputs part 2
 	cmdInput := packStreamIO(1, []byte("echo 'PART1' && sleep 0.3 && echo 'PART2'\n"))

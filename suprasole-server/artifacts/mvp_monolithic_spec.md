@@ -3109,9 +3109,9 @@ This change guarantees that:
    ```
 2. **Execute E2E Suite**: Run the E2E test suite to check that `{def01a}` passes consistently:
    ```bash
-   ./run_tests.sh
+   ./run_e2e_tests.sh
    ```
-3. **Reliability Loop**: Run `./run_tests.sh` multiple times (e.g., 20 times) in a loop to guarantee that `{def01a}` achieves a 100% success rate under the new design.
+3. **Reliability Loop**: Run `./run_e2e_tests.sh` multiple times (e.g., 20 times) in a loop to guarantee that `{def01a}` achieves a 100% success rate under the new design.
 
 
 ---
@@ -3212,7 +3212,7 @@ This guarantees that:
 ## 4. Verification Plan
 
 1. **Go Unit Tests**: Run `go test -v ./...` in `source/` to execute the time-mocked regression test `TestSchedulerPacingDeadlineFlow`.
-2. **E2E Suite Loops**: Execute `./run_tests.sh 40` in `tests/e2e/` to verify that `{psch01}` and all other E2E test cases achieve a 100% success rate under parallel test execution load.
+2. **E2E Suite Loops**: Execute `./run_e2e_tests.sh 40` in `tests/e2e/` to verify that `{psch01}` and all other E2E test cases achieve a 100% success rate under parallel test execution load.
 
 
 ---
@@ -5664,3 +5664,786 @@ The client-side serialization helper (such as `packSpawnRequest`) will construct
   * Write the argument count as a single byte at the offset immediately following the command bytes.
   * For each argument, write its length as a 2-byte Big-Endian unsigned integer, and copy its UTF-8 encoded bytes, maintaining offsets.
 * **Return Payload:** Return the fully packed byte array to be sent in the WebSocket binary frame.
+
+
+
+# Protocol Specification: PTY Spawning Lifecycle Granularity & Handshake/Reset Reliability
+
+This specification details updates to the `suprasole-server` pseudo-terminal (PTY) spawning protocol to introduce intermediate, granular lifecycle phase updates. Additionally, it specifies critical regression fixes to connection handshake replays, workspace resets, and spawning priority sync mapping to guarantee protocol reliability.
+
+---
+
+## 1. Background & Motivation
+
+### A. Spawning Granularity
+Under the current **SpawnPTY Passthrough Protocol**, spawning execution is asynchronous:
+1. The client sends a `SpawnPTY` (`0x0001`) command.
+2. The server performs brief synchronous checks (collision, non-zero dimensions, command empty) and returns immediately, spawning the OS process in a background goroutine.
+3. The server sends no immediate network frame if the synchronous validation succeeds.
+4. The client must *optimistically* assume that the PTY is spawning and transition its state to `spawning` locally.
+5. Once background execution finishes, the server enqueues either `SpawnPTYStatus` success (`0x00`) or failure (`0x01`).
+
+This lack of initial acknowledgment makes it impossible for the client to distinguish between a request that is actively spawning on the server versus one that was dropped, delayed, or is suffering from socket pipeline lag.
+
+### B. Pre-Existing Bug: Terminated PTY Replay Omission
+When a connection takeover or client reconnection occurs, the server compiles a state replay package (`compileReplayFramesLocked`) to restore the client's screen.
+* **Active Terminals:** The server correctly packages their stdout scrollback history followed by a `SpawnPTYStatus` success (`0x00`) frame.
+* **Terminated Terminals:** The server bypasses the scrollback history completely and only packages the `PTYTerminalExit` (`0x0005`) status frame.
+
+**The Impact:** Any terminal pane where the process has completed (e.g., a finished build step or tool execution) goes completely blank upon reconnecting, violating the requirement that terminated output history must be preserved.
+
+### C. Pre-Existing Bug: Workspace Reset Scheduler Lockout
+When a client issues a `ResetWorkspace` (`0x000a`) command, the server reaps active processes, flushes queues, and appends an `ActionReset` (`0x000a`) acknowledgment frame to the control queue.
+* **Standard Queue Behavior:** Helper enqueuing functions (such as `EnqueueFrame` and `EnqueueControlFrame`) call `workspace.notifyScheduler()` to wake up the blocked scheduler thread when new frames are added.
+* **Reset Queue Behavior:** `ResetWorkspace` manually appends the `ActionReset` frame to the control queue but **omits** calling `workspace.notifyScheduler()`.
+
+**The Impact:** If the workspace is reset while idle, the scheduler remains asleep. The client hangs indefinitely waiting for the reset acknowledgment frame over the WebSocket.
+
+### D. Pre-Existing Bug: Spawning PTY Priority Sync Omission
+The client can dynamically synchronize the priority of all its terminals by sending a `SyncPTYPriorities` (`0x0009`) command. This informs the server which terminals are high priority (active tab) and which are low priority (background tabs).
+* **Active Terminals:** The server correctly iterates over active terminals and synchronizes their scheduler priorities.
+* **Spawning Terminals:** Because spawning terminals do not yet exist in `workspace.ptys`, the server **completely ignores** their IDs in the sync packet and fails to record their priority in `workspace.pendingPriorities`.
+
+**The Impact:** When a spawning terminal finishes launching, it defaults to `PriorityLow`, ignoring any high-priority sync requested by the client during its spawning window.
+
+---
+
+## 2. Proposed Protocol Extension
+
+We extend the `SpawnPTYStatus` (`0x0002`) status byte payload to support a third and fourth state code representing the **Spawning** and **Canceled** phases:
+
+| Status Byte Code | Phase Name | Description |
+| :--- | :--- | :--- |
+| `0x00` | **Success** | The background PTY has successfully opened FDs and spawned the child process. |
+| `0x01` | **Failure** | Spawning failed (either synchronously during validation or asynchronously in the background loop). |
+| `0x02` | **Spawning** | The server has successfully validated the request parameters, allocated a spawning slot, and is launching the process. |
+| `0x03` | **Canceled** | The spawn request was cancelled before completion (via `KillPTY` or `RemovePTY` commands). |
+
+---
+
+## 3. Lifecycle Sequence Flows
+
+### Scenario A: Successful Background Spawn
+The request passes validation, enters spawning state, and successfully launches the process.
+
+```mermaid
+sequenceDiagram
+    participant Client as suprasole-client
+    participant Server as suprasole-server (Core)
+    participant OS as OS PTY / Process
+
+    Client->{spawn}: 1. SpawnPTY (0x0001)
+    Note over Server: Validates command, dimensions, ID collision
+    Server-->>Client: 2. SpawnPTYStatus (0x0002) -> 0x02 (Spawning)
+    Note over Server: Launches spawning goroutine
+    Server->>OS: 3. Fork-Exec & open PTY FDs
+    OS-->>Server: 4. Process running
+    Server-->>Client: 5. SpawnPTYStatus (0x0002) -> 0x00 (Success)
+```
+
+### Scenario B: Synchronous Validation Failure
+The request fails initial parameter checks (e.g. empty command path or duplicate terminal ID).
+
+```mermaid
+sequenceDiagram
+    participant Client as suprasole-client
+    participant Server as suprasole-server (Core)
+
+    Client->>Server: 1. SpawnPTY (0x0001)
+    Note over Server: Collision detected (ID already exists)
+    Server-->>Client: 2. SpawnPTYStatus (0x0002) -> 0x01 (Failure)
+    Note over Server: Exits immediately without launching goroutine
+```
+
+### Scenario C: Asynchronous Startup Failure
+The request passes synchronous validation, but fails to launch the target executable (e.g. command binary not found or permission denied).
+
+```mermaid
+sequenceDiagram
+    participant Client as suprasole-client
+    participant Server as suprasole-server (Core)
+    participant OS as OS PTY / Process
+
+    Client->>Server: 1. SpawnPTY (0x0001)
+    Note over Server: Validates command, dimensions, ID collision
+    Server-->>Client: 2. SpawnPTYStatus (0x0002) -> 0x02 (Spawning)
+    Note over Server: Launches spawning goroutine
+    Server->>OS: 3. Fork-Exec (Binary not found)
+    OS-->>Server: 4. Error returned
+    Note over Server: Registers PTY as Terminated (exit code 255)
+    Server-->>Client: 5. SpawnPTYStatus (0x0002) -> 0x01 (Failure)
+    Server-->>Client: 6. PTYTerminalExit (0x0005) -> 255 (Exit status)
+```
+
+### Scenario D: Spawning Cancellation
+The request passes validation and starts spawning, but the client cancels it (via `KillPTY` or `RemovePTY`) mid-launch.
+
+```mermaid
+sequenceDiagram
+    participant Client as suprasole-client
+    participant Server as suprasole-server (Core)
+    participant OS as OS PTY / Process
+
+    Client->>Server: 1. SpawnPTY (0x0001)
+    Note over Server: Validates and sets spawning state
+    Server-->>Client: 2. SpawnPTYStatus (0x0002) -> 0x02 (Spawning)
+    Note over Server: Launches spawning goroutine
+    Client->>Server: 3. KillPTY or RemovePTY (0x0004 or 0x0006)
+    Note over Server: Cancels spawning context & marks isRemoved = true
+    Note over Server: Spawning thread reaps process FDs and exits
+    Server-->>Client: 4. SpawnPTYStatus (0x0002) -> 0x03 (Canceled)
+```
+
+---
+
+## 4. Required Implementation Changes (suprasole-server)
+
+### A. Update Constants (`source/core.go`)
+Define status payload constants for clarity:
+```go
+const (
+	SpawnStatusSuccess  byte = 0x00
+	SpawnStatusFailure  byte = 0x01
+	SpawnStatusSpawning byte = 0x02
+	SpawnStatusCanceled byte = 0x03
+)
+```
+
+### B. Modify `SpawnPTY` (`source/core.go`)
+Right before releasing the lock and launching the spawning goroutine, transmit the spawning status frame:
+```go
+// Inside SpawnPTY:
+	ctx, cancel := context.WithCancel(context.Background())
+	doneChan := make(chan struct{})
+	inst := &spawningInstance{cancel: cancel, done: doneChan}
+	workspace.spawning[terminalID] = inst
+	
+	// Transmit spawning acknowledgment frame before unlocking
+	workspace.EnqueueControlFrame(OutboundFrame{
+		Action:     ActionSpawnStatus,
+		TerminalID: terminalID,
+		Payload:    []byte{SpawnStatusSpawning}, // 0x02
+	})
+	
+	workspace.mutex.Unlock()
+	go func() {
+        ...
+```
+
+Inside the background goroutine, handle the `Canceled` status emission under cancellation/removal branches:
+```go
+// Inside background goroutine:
+		failSpawn := func() {
+			workspace.mutex.Lock()
+			isRemoved := inst.isRemoved
+			if isRemoved {
+				if workspace.spawning[terminalID] == inst {
+					delete(workspace.spawning, terminalID)
+					delete(workspace.pendingPriorities, terminalID)
+				}
+				workspace.mutex.Unlock()
+				// Send explicit cancellation status
+				workspace.EnqueueControlFrame(OutboundFrame{
+					Action:     ActionSpawnStatus,
+					TerminalID: terminalID,
+					Payload:    []byte{SpawnStatusCanceled}, // 0x03
+				})
+			} else {
+				if _, exists := workspace.ptys.Get(terminalID); !exists {
+					if workspace.spawning[terminalID] == inst {
+						delete(workspace.spawning, terminalID)
+						delete(workspace.pendingPriorities, terminalID)
+					}
+					failedPTY := &ptyInstance{
+						terminalID: terminalID,
+						state:      StateTerminated,
+						exitStatus: 255,
+						waitDone:   make(chan struct{}),
+						readDone:   make(chan struct{}),
+					}
+					close(failedPTY.waitDone)
+					close(failedPTY.readDone)
+					workspace.ptys.Put(terminalID, failedPTY)
+					workspace.backpressureCond.Broadcast()
+				}
+				workspace.mutex.Unlock()
+				workspace.EnqueueControlFrame(OutboundFrame{
+					Action:     ActionSpawnStatus,
+					TerminalID: terminalID,
+					Payload:    []byte{SpawnStatusFailure}, // 0x01
+				})
+				workspace.EnqueueControlFrame(OutboundFrame{
+					Action:     ActionTerminalExit,
+					TerminalID: terminalID,
+					Payload:    []byte{255},
+				})
+			}
+		}
+```
+
+And in the context error checks after process startup:
+```go
+		if ctx.Err() != nil {
+			killDescendants(cmd.Process.Pid)
+			_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = master.Close()
+			_ = cmd.Wait()
+			workspace.mutex.Lock()
+			if workspace.spawning[terminalID] == inst {
+				delete(workspace.spawning, terminalID)
+				delete(workspace.pendingPriorities, terminalID)
+			}
+			workspace.mutex.Unlock()
+			workspace.EnqueueControlFrame(OutboundFrame{
+				Action:     ActionSpawnStatus,
+				TerminalID: terminalID,
+				Payload:    []byte{SpawnStatusCanceled}, // 0x03
+			})
+			return
+		}
+```
+
+### C. Modify `compileReplayFramesLocked` (`source/core.go`)
+Refactor the handshake compiler to ensure terminated PTY outputs are replayed, and active spawning instances are included:
+```go
+func (workspace *Workspace) compileReplayFramesLocked() []OutboundFrame {
+	var replayFrames []OutboundFrame
+
+	// 1. Replay active spawning statuses
+	for id := range workspace.spawning {
+		replayFrames = append(replayFrames, OutboundFrame{
+			Action:           ActionSpawnStatus,
+			TerminalID:       id,
+			Payload:          []byte{SpawnStatusSpawning}, // 0x02
+			DrainingPriority: PriorityLow,
+		})
+	}
+
+	// 2. Replay active and terminated PTYs
+	for pty := workspace.ptys.head; pty != nil; pty = pty.next {
+		pty.mutex.Lock()
+		state := pty.state
+		exitStatus := pty.exitStatus
+		buf := pty.buffer.Bytes()
+		isTruncated := pty.buffer.isTruncated
+		pty.mutex.Unlock()
+		id := pty.terminalID
+
+		// Package stdout scrollback for BOTH active and terminated terminals
+		if len(buf) > 0 || isTruncated {
+			buf = AlignUTF8Boundary(buf)
+			replayPayload := buf
+			if isTruncated {
+				warning := []byte("\r\n\x1b[33m[... Output truncated due to buffer overflow ...]\x1b[0m\r\n\r\n")
+				replayPayload = make([]byte, len(warning)+len(buf))
+				copy(replayPayload, warning)
+				copy(replayPayload[len(warning):], buf)
+			}
+			replayFrames = append(replayFrames, OutboundFrame{
+				Action:           ActionOutput,
+				TerminalID:       id,
+				Payload:          replayPayload,
+				DrainingPriority: PriorityLow,
+			})
+		}
+
+		// Append state markers
+		if state == StateActive {
+			replayFrames = append(replayFrames, OutboundFrame{
+				Action:           ActionSpawnStatus,
+				TerminalID:       id,
+				Payload:          []byte{SpawnStatusSuccess}, // 0x00
+				DrainingPriority: PriorityLow,
+			})
+		} else if state == StateTerminated {
+			replayFrames = append(replayFrames, OutboundFrame{
+				Action:           ActionTerminalExit,
+				TerminalID:       id,
+				Payload:          []byte{exitStatus},
+				DrainingPriority: PriorityLow,
+			})
+		}
+	}
+	return replayFrames
+}
+```
+
+### D. Modify `ResetWorkspace` (`source/core.go`)
+Wake up the scheduler loop immediately after enqueuing the reset acknowledgment frame:
+```go
+// Inside ResetWorkspace:
+	workspace.ptys = newOrderedPTYMap()
+	workspace.queueGeneration++
+	workspace.centralizedQueues[0] = nil
+	workspace.centralizedQueues[1] = nil
+	workspace.centralizedQueues[2] = nil
+	workspace.pendingCount = make(map[uint16]int)
+	workspace.pendingPriorities = make(map[uint16]byte)
+	workspace.pendingReplays = 0
+	workspace.backpressureCond.Broadcast()
+	
+	// Enqueue Reset frame immediately over active connection
+	workspace.centralizedQueues[QueueIndexControl] = append(workspace.centralizedQueues[QueueIndexControl], OutboundFrame{
+		Action:     ActionReset,
+		TerminalID: 0,
+	})
+	
+	// Wake up the scheduler thread
+	workspace.notifyScheduler()
+```
+
+### E. Modify `SyncPTYPriorities` (`source/core.go`)
+Record and manage pending priorities for active spawning slots in `SyncPTYPriorities`:
+```go
+func (workspace *Workspace) SyncPTYPriorities(priorities map[uint16]byte) error {
+	workspace.mutex.Lock()
+	defer workspace.mutex.Unlock()
+	var modified bool
+	for pty := workspace.ptys.head; pty != nil; pty = pty.next {
+		pty.mutex.Lock()
+		active := (pty.state == StateActive)
+		pty.mutex.Unlock()
+		if !active {
+			continue
+		}
+		tid := pty.terminalID
+		newPriority := PriorityLow
+		if state, specified := priorities[tid]; specified {
+			newPriority = state
+		}
+		pty.mutex.Lock()
+		if pty.priority != newPriority {
+			pty.priority = newPriority
+			modified = true
+		}
+		pty.mutex.Unlock()
+	}
+	
+	// Synchronize pending priorities for spawning PTYs
+	for tid, priority := range priorities {
+		if _, spawning := workspace.spawning[tid]; spawning {
+			workspace.pendingPriorities[tid] = priority
+		}
+	}
+	// Purge pending priorities for spawning PTYs omitted from sync map
+	for tid := range workspace.pendingPriorities {
+		if _, specified := priorities[tid]; !specified {
+			delete(workspace.pendingPriorities, tid)
+		}
+	}
+	
+	if modified {
+		workspace.backpressureCond.Broadcast()
+		workspace.pacingDeadline = TimeNow().Add(PacingInterval)
+		workspace.notifyScheduler()
+	}
+	return nil
+}
+```
+
+---
+
+## 5. Nuanced Edge-Case Behaviors
+
+### A. Input & Geometry Guard during Spawning
+* **Rule:** While a terminal is in the `Spawning` (`0x02`) state (the spawn request is validated and slot registered, but background process setup is still running), any client `InputPTY` (`0x0007`) or `ResizePTY` (`0x0003`) requests targeting that `terminalID` must be silently ignored and discarded by the server.
+* **Rationale:** Discarding input during spawning prevents buffer corruption or writing to uninitialized file descriptors, keeping process boundaries safe.
+
+### B. Workspace Reset during Spawning
+* **Rule:** If a `ResetWorkspace` (`0x000a`) command is received while a terminal is spawning, the server immediately triggers spawning cancellation: it cancels the context, reaps any partially allocated OS resources, deletes the spawning slot, and emits `SpawnPTYStatus` with code `0x03` (Canceled).
+* **Rationale:** Ensures that workspace-level resets cleanly reclaim resources from active, incomplete background operations.
+
+### C. Duplicate Spawning Requests (ID Collision)
+* **Rule:** Attempting to spawn a terminal with an ID that is currently in `Spawning` or `Active` state will fail synchronously and immediately emit `SpawnPTYStatus` failure (`0x01`).
+* **Rationale:** Enforces slot uniqueness globally across the workspace.
+
+### D. Connection Takeover mid-Spawn
+* **Rule:** If a new WebSocket connection takes over a workspace while a PTY is in `Spawning` state:
+  1. The spawning process continues execution in the background to completion.
+  2. Once complete, the final status frame (`SpawnStatusSuccess` or `SpawnStatusFailure`) is enqueued into the workspace queues.
+  3. The frame scheduler routes the final status frame to the **new** active socket writer connection. The old, disconnected connection receives zero frames.
+  4. During the connection handshake phase, the server's replay compilation (`compileReplayFramesLocked`) must include a `SpawnPTYStatus` (`0x02` - Spawning) frame for all terminal IDs currently in the `spawning` map. This ensures that the new connection is immediately notified of active, incomplete spawning slots during the state playback phase.
+* **Rationale:** Maintains seamless state playback and delivery across connection boundaries during takeovers.
+
+---
+
+## 6. Test & Verification Plan
+
+We define explicit regression tests to assert spawning states, correctness of terminated scrollback replays, scheduler reset activation, and spawning priority synchronization.
+
+### A. Spawning Lifecycle Granularity (Integration & E2E)
+* **`TestPTYSpawningGranularFrames` (Go integration):**
+  Spawns a terminal and immediately asserts that `SpawnPTYStatus` (`0x02` Spawning) is enqueued *before* `SpawnPTYStatus` (`0x00` Success) is generated.
+* **`TestPTYSpawningCancellationFrames` (Go integration):**
+  Spawns a terminal, immediately issues `KillPTY`, and asserts that the sequence is `SpawnPTYStatus(0x02)` ➔ `SpawnPTYStatus(0x03)`.
+* **`ptyl17` (TypeScript E2E):**
+  Asserts that upon spawning a new PTY, the client's socket receives `0x02` (Spawning) followed by `0x00` (Success) sequentially.
+
+### B. Terminated Scrollback Replay (Go Integration Regression)
+* **`TestPTYTerminatedScrollbackReplay` (Go integration):**
+  1. Spawn a PTY (`terminalID = 888`) executing `printf "terminated-history-data\n"`.
+  2. Wait for process exit (`<-term.waitDone`, `<-term.readDone`).
+  3. Invoke `CompileReplayFrames()` to simulate takeover state compile.
+  4. Assert that the compiled `replayFrames` contains:
+     - An `ActionOutput` frame containing the string `"terminated-history-data\r\n"`.
+     - An `ActionTerminalExit` frame carrying the exit status byte (`0`).
+     - **Critically**, assert that the `ActionOutput` frame is ordered *before* the `ActionTerminalExit` frame to guarantee chronological rendering.
+
+### C. Terminated Scrollback Replay (TypeScript E2E Regression)
+* **`ptyl18` (TypeScript E2E):**
+  1. Connection A connects, spawns terminal `10`, and inputs a command that prints `"PERSISTED_OUTPUT"` and exits (`exit 0`).
+  2. Await the receipt of `PTYTerminalExit` (`0x0005`) for terminal `10` on Connection A.
+  3. Close Connection A.
+  4. Open Connection B targeting the same workspace token to trigger a replay takeover.
+  5. Assert that Connection B's socket immediately receives:
+     - An `OutputPTY` (`0x0008`) frame containing `"PERSISTED_OUTPUT"`.
+     - Followed by a `PTYTerminalExit` (`0x0005`) frame with exit code `0`.
+
+### D. Standalone Reset Scheduler Notification (Go Integration Regression)
+* **`TestStandaloneResetNotification` (Go integration):**
+  1. Setup a workspace with an active PTY, let it complete, and clear all queues so that the scheduler transitions to blocked/idle sleep.
+  2. Call `ResetWorkspace()` to clear the registry.
+  3. Verify that `workspace.schedulerSignal` receives a notification struct immediately.
+  4. Verify that the enqueued `ActionReset` frame is successfully popped from the queue.
+
+### E. Standalone Reset Scheduler Notification (TypeScript E2E Regression)
+* **`ptyl19` (TypeScript E2E):**
+  1. Connect a client to an idle workspace.
+  2. Send a `ResetWorkspace` (`0x000a`) command frame over the WebSocket.
+  3. Do **not** send any other command.
+  4. Await the receipt of the `ResetWorkspace` (`0x000a`) acknowledgment frame on the WebSocket.
+  5. Enforce a strict timeout of 2.0 seconds. Assert that the acknowledgment frame is successfully received within the timeout window.
+
+### F. Spawning PTY Priority Synchronization (Go Integration Regression)
+* **`TestSpawningPTYPrioritySync` (Go integration):**
+  1. Call `SpawnPTY` for terminal `999` (so it enters `Spawning` state).
+  2. Call `SyncPTYPriorities` containing `{999: PriorityHigh}`.
+  3. Assert that `workspace.pendingPriorities[999]` is populated with `PriorityHigh`.
+  4. Call `SyncPTYPriorities` containing `{}` (omitting terminal `999`).
+  5. Assert that `workspace.pendingPriorities[999]` is cleared.
+  6. Call `SyncPTYPriorities` containing `{999: PriorityHigh}` again.
+  7. Allow the background spawning thread to complete process initialization.
+  8. Assert that the PTY is registered inside `workspace.ptys` with `PriorityHigh` instead of defaulting to `PriorityLow`.
+
+* **`TestSpawningPTYPrioritySyncCleanupOnFailure` (Go integration):**
+  1. Call `SpawnPTY` for terminal `999` (so it enters `Spawning` state).
+  2. Call `SyncPTYPriorities` containing `{999: PriorityHigh}`.
+  3. Assert that `workspace.pendingPriorities[999]` is populated with `PriorityHigh`.
+  4. Cancel the spawn immediately (via `KillPTY` or by triggering a startup failure).
+  5. Await the completion of the background goroutine (context cancellation and reaping).
+  6. Assert that `workspace.pendingPriorities[999]` is **completely deleted** from the map, ensuring no memory leaks.
+
+
+### G. Spawning PTY Priority Synchronization (TypeScript E2E Regression)
+* **`ptyl20` (TypeScript E2E):**
+  1. Spawn a slow-starting PTY (terminal `9`).
+  2. Receive `SpawnPTYStatus` Spawning (`0x02`).
+  3. Send `SyncPTYPriorities` (`0x0009`) setting terminal `9` to `PriorityHigh`.
+  4. Await `SpawnPTYStatus` Success (`0x00`).
+  5. Disconnect client, reconnect with Connection B.
+  6. Assert that Connection B receives the replayed state (the PTY priority scheduler queue handles it correctly).
+
+
+
+# Specification: PTY Spawning Lifecycle Granularity & Handshake/Reset Reliability
+
+This document specifies the design and behavioral invariants for introducing granular PTY spawning lifecycle states, alongside three pre-existing reliability bug fixes inside `suprasole-server`. 
+
+---
+
+## 1. High-Level Context & Motivation
+
+In the current pseudo-terminal (PTY) management system, spawning a PTY is designed to be an asynchronous operation. When a client requests a spawn, the server performs brief validation and immediately returns. The actual process creation and PTY descriptor setup are offloaded to a background thread.
+
+Previously, the server sent no status update during the intermediate stage, requiring the client to optimistically guess that spawning was underway. If validation failed or background setup crashed, the client received a binary success or failure indicator. 
+
+To improve robustness, we are refactoring this flow to introduce server-acknowledged, intermediate spawning lifecycle status codes. This ensures that the client is notified as soon as background spawning begins and if it gets cancelled mid-launch. Additionally, we are fixing three critical pre-existing protocol bugs in the server:
+1. Output history loss for terminated processes during socket takeovers.
+2. Connection lockouts/stalls during standalone workspace resets.
+3. Ignored priority synchronization updates for spawning terminals.
+
+---
+
+## 2. Spawning Lifecycle Extensions
+
+We extend the spawning status protocol by defining four distinct, sequential lifecycle states:
+
+1. **Spawning (0x02):** Transmitted immediately after a spawn request passes synchronous validation. This acknowledges that the server has registered the slot and has successfully kicked off the background OS thread.
+2. **Success (0x00):** Transmitted once the background thread successfully opens the PTY master/slave file descriptors, configures terminal dimensions, and starts the shell process.
+3. **Failure (0x01):** Transmitted if the request fails synchronous checks (e.g. invalid arguments, duplicate terminal ID) or if the background thread fails to fork-exec the process (e.g. binary not found, system out of PTY descriptors).
+4. **Canceled (0x03):** Transmitted if the client explicitly aborts the spawn request (via termination, removal, or workspace resets) before the background thread completes startup.
+
+---
+
+## 3. Pre-Existing Server Bug Fixes
+
+### Bug 1: Terminated PTY Replay Omission
+* **The Problem:** When a client reconnects or takes over a session, the server compiles a state replay to restore the screen. Currently, the server only compiles the output scrollback history for **active** terminals. For **terminated** terminals, it skips the output history entirely and only sends the exit frame. Consequently, any pane where the process has finished goes completely blank upon reconnection.
+* **The Fix:** The state replay compiler is updated to extract and serialize stdout scrollback data for both active and terminated PTYs.
+* **Frame Ordering Guarantee:** 
+  * For active terminals, the replay compiles `OutputPTY` (`0x0008`) followed by `SpawnPTYStatus` (`0x00` - Success).
+  * For terminated terminals, the replay compiles `OutputPTY` (`0x0008`) followed by `PTYTerminalExit` (`0x0005`). No `SpawnPTYStatus` frame is ever enqueued for a terminated PTY during takeover, preventing client state confusion.
+  * In both cases, the `OutputPTY` scrollback is ordered *before* the status frame to ensure chronological screen restoration.
+
+### Bug 2: Workspace Reset Scheduler Lockout
+* **The Problem:** When a client resets the workspace, the server reaps active terminals, flushes queues, and appends a reset acknowledgment frame to the control queue. However, the background network scheduler thread sleeps when there is no activity. While normal enqueuing helper methods notify and wake the scheduler, the reset handler appends to the queue manually and omits this notification. If the workspace is reset when idle, the scheduler remains asleep, causing the client to hang indefinitely waiting for reset confirmation.
+* **The Fix:** We update the reset handler to explicitly invoke the scheduler notification signal after appending the reset acknowledgment frame, ensuring that the acknowledgment is dispatched immediately.
+* **Enqueue and Broadcast Ordering:** During a workspace reset, currently spawning processes are cancelled first (which appends `SpawnPTYStatus` Canceled (`0x03`) frames to the control queue). The global `ResetWorkspace` (`0x000a`) frame is enqueued last. This guarantees that the client receives individual slot cancellation updates *before* the global reset frame, allowing the client to systematically tear down local layouts before resetting the global workspace container.
+
+### Bug 3: Spawning PTY Priority Sync Omission
+* **The Problem:** Clients can dynamically synchronize terminal priorities (high priority for the active tab, low priority for background tabs). However, the priority sync handler only updates terminals present in the active registry. Because spawning terminals are not yet in the active registry, the sync handler drops their IDs. When a spawning terminal finishes launching, it defaults to low priority, ignoring any priority sync requests sent during its spawning phase.
+* **The Fix:** The priority sync handler is updated to also check currently spawning terminals. If a spawning terminal is included in the priority sync packet, its priority is written to the pending priorities registry. If it is omitted, its pending priority is cleared. When spawning finishes, the PTY is initialized with this recorded priority.
+* **Pending Priority Lifespan:** A spawning PTY's pending priority entry is created/updated by `SyncPTYPriorities`, consumed and deleted when spawning completes successfully, or deleted immediately if the spawn fails or is cancelled.
+
+---
+
+---
+
+## 4. Memory Leak Safeguard
+
+The priority sync fix introduces a temporary registry mapping spawning terminal IDs to their requested priority. 
+* If a spawn succeeds, the priority is consumed and deleted.
+* If a spawn is cancelled (via client abort) or fails asynchronously, we must ensure we do not leak this pending priority entry in memory. 
+* **Design Rule:** The server's universal failure and context cancellation handlers must explicitly delete the terminal ID from the pending priorities map whenever a spawn fails or is cancelled, keeping the registry memory-clean.
+
+---
+
+## 5. Nuanced Edge-Case Invariants
+
+### A. Input and Geometry Guard
+While a terminal is in the intermediate "Spawning" state, it has no active shell process or open standard input file descriptor. To prevent buffer corruption or writing to uninitialized file descriptors, the server must silently ignore and discard any client-initiated inputs or geometry resizes targeting that terminal ID.
+* **Status:** **Legacy Handled & Asserted.** Fully implemented in `core.go` (`WritePTYInput` and `ResizePTY` parameter gates) and asserted in Go integration tests (`TestPTYSpawningContextResizeDiscard`/`TestPTYSpawningContextInputDiscard`) and TypeScript E2E (`ptyl12`).
+
+### B. Reset mid-Spawn
+If a workspace reset is triggered while a terminal is spawning, the server must cancel the background context immediately. The background thread will clean up partially allocated OS descriptors, delete the spawning slot, and broadcast a "Canceled" status code to the client.
+* **Status:** **Partially Legacied / Partially Upcoming.** The background cancellation context and process group reaping are already implemented in `ResetWorkspace` and asserted in tests. The transmission of the `0x03` (Canceled) status frame is **upcoming refactor** behavior.
+
+### C. Connection Takeover mid-Spawn
+If a socket connection takeover occurs while a terminal is spawning:
+1. The background spawning thread continues executing to completion.
+2. The final status frame (success or failure) is enqueued and routed to the *new* active connection.
+3. During the handshake phase, the server compiles and includes a "Spawning" (0x02) status frame in the replay package for all currently spawning terminal IDs, ensuring the new client is immediately notified of active background spawns.
+* **Status:** **Partially Legacied / Partially Upcoming.** Takeover writer rebinding and final status frame routing to the new socket connection (Rules 1 & 2) are already implemented and asserted in tests (`comp05` E2E). Compiling and sending active spawning states as part of handshake replays (Rule 3) is **upcoming refactor** behavior.
+
+---
+
+## 6. Architectural Propagation & Invariants
+
+This section specifies how the spawning refactor and reliability bug fixes propagate through the server components (both directly and indirectly), defining what remains identical (legacy invariants) versus what transitions.
+
+### A. Direct and Indirect Propagation Paths
+
+#### Direct Propagation (Immediate Code Modifications):
+* **`SpawnPTY()` (`core.go`):** Direct change to emit `SpawnStatusSpawning` (`0x02`) frame to `QueueIndexControl` before launching background routine.
+* **`failSpawn()` & cancellation contexts (`core.go`):** Directly enqueues `SpawnStatusCanceled` (`0x03`) and deletes the ID from `pendingPriorities` on aborts.
+* **`ResetWorkspace()` (`core.go`):** Direct inclusion of `workspace.notifyScheduler()` and clearing of spawning priorities.
+* **`SyncPTYPriorities()` (`core.go`):** Direct update of `workspace.pendingPriorities` map to capture spawning PTY priorities.
+* **`compileReplayFramesLocked()` (`core.go`):** Direct change to loop over both active/terminated PTYs to compile output buffers, and append `0x02` status frames for spawning IDs.
+
+#### Indirect Propagation (System-Level Cascades):
+* **Control Queue Pacing Bypass:** Appending spawning status `0x02` and cancellation `0x03` frames to `QueueIndexControl` routes them around the pacing scheduler. The scheduler loop transmits them instantly without pacing delays.
+* **Egress Replay Bandwidth:** Connection takeovers will transmit larger initial payloads since terminated PTY scrollback buffers are now included in the state playback.
+* **Backpressure Lock Wakes:** Spawning cancellations and priority wipes trigger `workspace.backpressureCond.Broadcast()`, waking any blocked queue threads.
+
+### B. Preserved Design Invariants (Must Remain Unchanged)
+To protect server stability, the following legacy systems must **not** be modified:
+* **Strict Lock Hierarchy:** We must always acquire `workspace.mutex` before acquiring any individual `ptyInstance.mutex` to prevent deadlocks.
+* **Double-Checked Context Lock:** The double-check validation of `ctx.Err() != nil` under `workspace.mutex.Lock()` inside the spawning thread before process registration must be preserved.
+* **Unix Process Reaping Invariant:** Defensive process group terminations (`killDescendants`, negative PID signals, and `TIOCGPGRP` foreground pgid checks) must be preserved to prevent zombie/orphan leaks.
+* **TCP Linger Pacing:** The 2-second TCP linger and 200ms read drainage window in the connection closure path must remain unchanged.
+* **No-Truncation Output Flush:** The wait loop must continue to block on `readDone` and socket queue flushes (`pendingCount`) before transmitting the terminal exit frame.
+
+### C. Structural & Protocol Changes
+* **Spawning Lifecycle States:** Expanding from binary outcomes to 4 discrete lifecycle codes (`0x00` through `0x03`).
+* **Handshake Replay Frame Set:** Playback packages now contain spawning status frames and terminated PTY stdout logs.
+* **Priority Tracking State:** Introduction of `pendingPriorities` map to track spawning priorities.
+
+### D. Breaking Change & Protocol Migration Policy
+This protocol transition is an explicit **breaking change** on the client-server boundary:
+* **No Legacy Compatibility Wrappers:** The server and test clients must reject backward-compatibility layers, adapters, or frame-swallowing wrappers that attempt to hide or filter out the intermediate `0x02` (Spawning) or `0x03` (Canceled) status codes.
+* **Full Downstream Upgrade Requirement:** All downstream consumers, clients, and verification frameworks must be updated to natively parse and explicitly assert the multi-stage spawning state sequences. Stale or legacy assumptions of a single-step success/failure response are declared outdated and must be systematically removed from the system.
+
+---
+
+## 7. Pragmatic Design Decisions & Implementation Safeguards
+
+To strike a balance between structural correctness and simple, pragmatic Go code, we explicitly define the architectural rationale behind our implementation choices:
+
+### A. Pragmatic Scheduler Notification & Lock Release Design
+* **Design Philosophy:** The server prioritizes minimal locking abstractions and direct, thread-safe sequence execution. Because Go's standard mutexes (`sync.Mutex`) are non-reentrant, functions that modify the workspace map or queues must carefully coordinate lock acquisition. We opt to keep locking simple and visible within each primary function rather than introducing nested lock helper wrappers.
+* **Implementation Patterns:**
+  * **Direct Reset Notification:** In `ResetWorkspace()`, the reset acknowledgment frame is appended directly to the control queue under lock. To resolve the scheduler lockout bug, this append is immediately followed by a direct call to `workspace.notifyScheduler()`. This solves the issue cleanly without introducing additional helper methods.
+  * **Lock-Release Callback Pattern:** In the background spawning callback `failSpawn()`, the routine releases `workspace.mutex` before invoking the public `EnqueueControlFrame()` method, and then exits. This pattern prevents deadlocks from nested lock acquisition, is highly readable, and is fully safe since terminal ID reuse is serialized at the client layer.
+
+### B. Minimalist Takeover Playback Serialization
+* **Design Philosophy:** Rather than writing new custom loops or separate logic trees to compile scrollbacks for active versus terminated PTYs, we reuse the existing serialization pipeline.
+* **Implementation Pattern:** We shift the existing output buffer extraction and alignment logic in `compileReplayFramesLocked` outside of the `if state == StateActive` condition. This ensures that stdout logs are serialized for all PTYs (active and terminated) identically, changing only the state-specific trailer frame appended at the end.
+
+
+### C. Low-Overhead Priority Registry Cleanup
+* **The Decision:** Although map entries of size `uint16` to `byte` consume negligible memory (a few kilobytes under heavy cancellation loads), leaving dangling keys in the priorities map is untidy.
+* **The Pragmatic Fix:** We add a single line `delete(workspace.pendingPriorities, terminalID)` to all spawning context cancellation and failure recovery paths. This keeps the pending priorities registry memory-clean with zero performance or design overhead.
+
+
+
+# Test Plan: PTY Spawning Lifecycle Granularity & Handshake/Reset Reliability
+
+This document specifies the regression testing plan to verify the correctness of the PTY spawning status refactor and the fixes for the three server-side reliability bugs.
+
+---
+
+## 1. Spawning Lifecycle Granularity Tests
+
+These tests verify that spawning terminals transition cleanly through intermediate spawning status updates.
+
+### A. Spawning Lifecycle Frames (Go Integration)
+* **Test Case:** `TestPTYSpawningGranularFrames`
+* **Flow:**
+  1. Trigger a normal PTY spawn request.
+  2. Inspect the enqueued control frames in the egress queue immediately.
+  3. Assert that the `SpawnPTYStatus` (`0x0002`) frame with status code `0x02` (Spawning) is enqueued.
+  4. Allow the background execution to complete.
+  5. Assert that a second `SpawnPTYStatus` frame with status code `0x00` (Success) is subsequently enqueued.
+  6. Verify the strict sequence order: Spawning must arrive before Success.
+
+### B. Spawning Cancellation Sequence (Go Integration)
+* **Test Case:** `TestPTYSpawningCancellationFrames`
+* **Flow:**
+  1. Trigger a PTY spawn request.
+  2. Immediately issue a `KillPTY` command for that terminal ID before background execution completes.
+  3. Await background thread cancellation and process reaping.
+  4. Assert that the enqueued frame sequence for the terminal ID is `SpawnPTYStatus(0x02)` (Spawning) followed by `SpawnPTYStatus(0x03)` (Canceled).
+  5. Verify that no `PTYTerminalExit` (`0x0005`) frame is sent and no entry is created in `ptys`.
+
+* **Test Case:** `TestPTYSpawningFailureFrames`
+* **Flow:**
+  1. Trigger a PTY spawn request with a non-existent executable path (e.g. `/bin/nonexistent_command`).
+  2. Inspect the enqueued control frames in the egress queue immediately.
+  3. Assert that the `SpawnPTYStatus` (`0x0002`) frame with status code `0x02` (Spawning) is enqueued.
+  4. Allow the background execution to fail asynchronously.
+  5. Assert that the subsequent enqueued frames are a `SpawnPTYStatus` frame with code `0x01` (Failure) followed by a `PTYTerminalExit` (`0x0005`) frame with exit status `255`.
+
+### C. Spawning Granularity (TypeScript E2E)
+* **Test Case:** `ptyl17`
+* **Flow:**
+  1. Establish a WebSocket connection.
+  2. Send a `SpawnPTY` command.
+  3. Read frames from the WebSocket.
+  4. Assert that the client socket receives a `SpawnPTYStatus` frame with code `0x02` (Spawning) followed by `SpawnPTYStatus` with code `0x00` (Success).
+
+* **Test Case:** `ptyl21`
+* **Flow:**
+  1. Establish a WebSocket connection.
+  2. Send a `SpawnPTY` command with a non-existent executable path.
+  3. Read frames from the WebSocket.
+  4. Assert that the client socket receives:
+     - A `SpawnPTYStatus` (`0x0002`) frame with status code `0x02` (Spawning).
+     - Followed by a `SpawnPTYStatus` (`0x0002`) frame with status code `0x01` (Failure).
+     - Followed by a `PTYTerminalExit` (`0x0005`) frame with exit status `255`.
+
+---
+
+## 2. Terminated Scrollback Replay Tests
+
+These tests verify that terminated terminal screens do not go blank upon reconnection.
+
+### A. Terminated PTY Scrollback Compilation (Go Integration)
+* **Test Case:** `TestPTYTerminatedScrollbackReplay`
+* **Flow:**
+  1. Spawn a short-lived PTY executing `printf "terminated-history-data\n"`.
+  2. Wait for the process to exit naturally (wait loop reaps process group and closes descriptors).
+  3. Trigger the takeover handshake replay compiler.
+  4. Assert that the compiled replay frames contain:
+     - An `ActionOutput` frame containing the string `"terminated-history-data\r\n"`.
+     - An `ActionTerminalExit` frame carrying the exit status byte (`0`).
+     - **Critically**, assert that the `ActionOutput` frame is ordered before the exit status frame so the scrollback is rendered before the pane transitions to its dead state.
+
+### B. Terminated PTY Scrollback Replay (TypeScript E2E)
+* **Test Case:** `ptyl18`
+* **Flow:**
+  1. Connect Client A, spawn terminal `10`, and execute `echo "PERSISTED_OUTPUT" && exit 0`.
+  2. Wait for Client A to receive the `PTYTerminalExit` (`0x0005`) frame.
+  3. Disconnect Client A.
+  4. Connect Client B to trigger a replay takeover.
+  5. Assert that Client B immediately receives:
+     - An `OutputPTY` (`0x0008`) frame containing the string `"PERSISTED_OUTPUT"`.
+     - Followed by a `PTYTerminalExit` (`0x0005`) frame with exit code `0`.
+
+---
+
+## 3. Standalone Reset Scheduler Notification Tests
+
+These tests verify that standalone workspace resets do not cause connection stalls.
+
+### A. Standalone Reset Activation (Go Integration)
+* **Test Case:** `TestStandaloneResetNotification`
+* **Flow:**
+  1. Set up a workspace with an active PTY, let it complete, and clear all queues so that the scheduler transitions to blocked/idle sleep.
+  2. Call `ResetWorkspace()` to clear the registry.
+  3. Verify that `workspace.schedulerSignal` receives a notification struct immediately.
+  4. Verify that the enqueued `ActionReset` frame is successfully popped from the queue.
+
+### B. Standalone Reset Activation (TypeScript E2E)
+* **Test Case:** `ptyl19`
+* **Flow:**
+  1. Connect a client to an idle workspace.
+  2. Send a `ResetWorkspace` (`0x000a`) command frame.
+  3. Do not send any other commands.
+  4. Await the receipt of the `ResetWorkspace` (`0x000a`) acknowledgment frame on the WebSocket.
+  5. Enforce a strict timeout of 2.0 seconds. Assert that the reset acknowledgment frame is successfully received within the timeout window.
+
+* **Test Case:** `ptyl22` (Grounded Spawning Slot Reclamation Verification)
+* **Flow:**
+  1. Connect a client and trigger `SpawnPTY` for terminal `12`.
+  2. Immediately send a `ResetWorkspace` (`0x000a`) command.
+  3. Await receipt of the `ResetWorkspace` acknowledgment frame.
+  4. Send a new `SpawnPTY` command for terminal `12` (reusing the ID).
+  5. Await and assert that the server returns a `SpawnPTYStatus` Success (`0x00`) frame for terminal `12`.
+  6. This verifies end-to-end that the workspace reset successfully reclaimed and unlocked the spawning slot for terminal `12`, allowing immediate slot reuse.
+
+
+---
+
+## 4. Spawning PTY Priority Sync Tests
+
+These tests verify that spawning terminals preserve priority updates and do not leak memory.
+
+### A. Spawning PTY Priority Sync (Go Integration)
+* **Test Case:** `TestSpawningPTYPrioritySync`
+* **Flow:**
+  1. Call `SpawnPTY` for terminal `999` (so it enters `Spawning` state).
+  2. Call `SyncPTYPriorities` containing `{999: PriorityHigh}`.
+  3. Assert that `workspace.pendingPriorities[999]` is populated with `PriorityHigh`.
+  4. Call `SyncPTYPriorities` containing `{}` (omitting terminal `999`).
+  5. Assert that `workspace.pendingPriorities[999]` is cleared.
+  6. Call `SyncPTYPriorities` containing `{999: PriorityHigh}` again.
+  7. Allow the background spawning thread to complete process initialization.
+  8. Assert that the PTY is registered inside `workspace.ptys` with `PriorityHigh` instead of defaulting to `PriorityLow`.
+  9. Assert that the terminal ID `999` is **completely deleted** and no longer exists in `workspace.pendingPriorities`, verifying successful map consumption and memory cleanup.
+
+
+### B. Spawning PTY Priority Memory Leak Prevention (Go Integration)
+* **Test Case:** `TestSpawningPTYPrioritySyncCleanupOnFailure`
+* **Flow:**
+  1. Call `SpawnPTY` for terminal `999` (so it enters `Spawning` state).
+  2. Call `SyncPTYPriorities` containing `{999: PriorityHigh}`.
+  3. Assert that `workspace.pendingPriorities[999]` is populated with `PriorityHigh`.
+  4. Cancel the spawn immediately (via `KillPTY` or by triggering a startup failure).
+  5. Await the completion of the background goroutine (context cancellation and reaping).
+  6. Assert that `workspace.pendingPriorities[999]` is **completely deleted** from the map, verifying that no memory leaks.
+
+
+## 5. Downstream Test Environment Propagation
+
+The introduction of the intermediate `0x02` (Spawning) status frame is a **breaking change** that must be explicitly integrated and asserted across the entire test suite. We do not use a backward-compatible helper to swallow or hide the frame.
+
+### A. Test Client Helper Updates (`WebSocketClient.ts`)
+* The `readSpawnStatus(terminalID)` helper method in [tests/e2e/source/WebSocketClient.ts](file:///home/coder/project/suprasole-server/tests/e2e/source/WebSocketClient.ts#L74-L95) will remain unopinionated. It will read the next available `0x0002` status frame for that terminal ID and return it directly to the caller, allowing the test to verify every individual status frame payload on the wire.
+
+### B. Downstream E2E Test Suite Migration
+All downstream E2E test files (`defensive.test.ts`, `gateway.test.ts`, `pty.test.ts`, `recovery.test.ts`, `scheduler.test.ts`) that spawn a terminal must be refactored to explicitly assert the two-stage lifecycle:
+1. **First Await:** Invokes `await client.readSpawnStatus(terminalID)` and asserts that the status payload byte is exactly `0x02` (Spawning).
+2. **Second Await:** Invokes `await client.readSpawnStatus(terminalID)` and asserts that the status payload byte matches the final expected outcome (`0x00` Success, `0x01` Failure, or `0x03` Canceled).
+
+This ensures that the entire test suite actively validates the new protocol invariants, preventing regressions on spawning lifecycle granularity.

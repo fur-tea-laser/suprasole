@@ -116,11 +116,8 @@ func TestStarvationAndStrictPriorityDraining(t *testing.T) {
 	if error := workspace.SpawnPTY(2, 80, 24, "sleep", "99999"); error != nil {
 		t.Fatalf("failed to spawn PTY 2: %v", error)
 	}
-	waitPTY(
-		// Sleep briefly to let background shell boot prompts finish
-		workspace, 2)
+	waitPTY(workspace, 2)
 
-	time.Sleep(100 * time.Millisecond)
 	// Flush queues completely to discard any boot prompts
 	workspace.FlushAndEnqueueReplays(nil)
 	// T1 = High Priority (0x01), T2 = Low Priority (0x00)
@@ -208,8 +205,6 @@ func TestRoundRobinFairShareDraining(t *testing.T) {
 
 		_ = workspace.SetPTYPriority(i, 0x01) // All High Priority
 	}
-	// Sleep briefly to let background shell boot prompts finish
-	time.Sleep(100 * time.Millisecond)
 	// Flush queues completely to discard any boot prompts
 	workspace.FlushAndEnqueueReplays(nil)
 	// Bind blocked writer to load frames
@@ -394,8 +389,13 @@ func TestSocketWriteErrorTransactionalHold(t *testing.T) {
 		Payload:          []byte("TRANSACTIONAL_TARGET"),
 		DrainingPriority: source.PriorityHigh,
 	})
-	// Sleep briefly; the scheduler thread will attempt write, fail, and set writer to nil
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the scheduler thread to attempt write, fail, and set writer to nil
+	for i := 0; i < 200; i++ {
+		if workspace.GetSocketWriter() == nil {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
 	// Attach a new successful writer
 	reconnectWriter := newMockTestSocketWriter()
 	defer reconnectWriter.Close()
@@ -435,11 +435,11 @@ func TestImplicitDemotionOnPrioritySync(t *testing.T) {
 	}()
 	// Spawn T1 and T2
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(1, 80, 24))
-	_, _, _ = connection.ReadMessage()
+	_, _, _ = connection.ReadMessage() // Spawning (0x02)
+	_, _, _ = connection.ReadMessage() // Success (0x00)
 	_ = connection.WriteMessage(websocket.BinaryMessage, packSpawnRequest(2, 80, 24))
-	_, _, _ = connection.ReadMessage()
-	// Wait for shell to register
-	time.Sleep(50 * time.Millisecond)
+	_, _, _ = connection.ReadMessage() // Spawning (0x02)
+	_, _, _ = connection.ReadMessage() // Success (0x00)
 	// Sync priorities: Set only PTY 1 to High (0x01), omitting PTY 2 entirely
 	syncFrame := make([]byte, 7)
 	binary.BigEndian.PutUint16(syncFrame[0:2], source.ActionPrioritySync)
@@ -447,17 +447,23 @@ func TestImplicitDemotionOnPrioritySync(t *testing.T) {
 	binary.BigEndian.PutUint16(syncFrame[4:6], 1)
 	syncFrame[6] = 0x01
 	_ = connection.WriteMessage(websocket.BinaryMessage, syncFrame)
-	time.Sleep(50 * time.Millisecond)
+
 	workspace, _ := registry.GetOrCreateWorkspace(token)
-	// Get PTY 1 priority (must be High 0x01)
-	priority1, _ := workspace.GetPTYPriority(1)
-	if priority1 != 0x01 {
-		t.Errorf("expected PTY 1 priority to be High 0x01, got %x", priority1)
+	// Wait for priority sync to be processed and applied
+	var prioritiesApplied bool
+	for i := 0; i < 200; i++ {
+		priority1, _ := workspace.GetPTYPriority(1)
+		priority2, _ := workspace.GetPTYPriority(2)
+		if priority1 == 0x01 && priority2 == 0x00 {
+			prioritiesApplied = true
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
-	// Get PTY 2 priority (must be Low 0x00 due to implicit demotion)
-	priority2, _ := workspace.GetPTYPriority(2)
-	if priority2 != 0x00 {
-		t.Errorf("expected omitted PTY 2 priority to default/demote to Low 0x00, got %x", priority2)
+	if !prioritiesApplied {
+		priority1, _ := workspace.GetPTYPriority(1)
+		priority2, _ := workspace.GetPTYPriority(2)
+		t.Fatalf("Priority sync was not applied in time: priority1=%x, priority2=%x", priority1, priority2)
 	}
 }
 
@@ -606,6 +612,10 @@ func TestGlobalConnectionSingletonEviction(t *testing.T) {
 	if err != nil || msgType != websocket.BinaryMessage || len(resp) < 5 {
 		t.Fatalf("failed to read spawn response on A: %v (msgType=%d, len=%d)", err, msgType, len(resp))
 	}
+	msgType, resp, err = connA.ReadMessage()
+	if err != nil || msgType != websocket.BinaryMessage || len(resp) < 5 {
+		t.Fatalf("failed to read spawn success response on A: %v (msgType=%d, len=%d)", err, msgType, len(resp))
+	}
 	// Establish connection B
 	connB, _, error := websocket.DefaultDialer.Dial(dialURLB, nil)
 	if error != nil {
@@ -630,9 +640,19 @@ func TestQueueCleanupOnPTYTermination(t *testing.T) {
 	defer func() {
 		_ = registry.RemoveWorkspace("cleanup-workspace")
 	}()
+	// Bind mock writer first
+	mockWriter := newMockTestSocketWriter()
+	defer mockWriter.Close()
+	workspace.SetSocketWriter(mockWriter)
+
 	_ = workspace.SpawnPTY(1, 80, 24, "sleep", "99999")
 	waitPTY(workspace, 1)
 	_ = workspace.SetPTYPriority(1, 0x01)
+
+	_ = workspace.SpawnPTY(2, 80, 24, "sleep", "99999")
+	waitPTY(workspace, 2)
+	_ = workspace.SetPTYPriority(2, 0x01)
+
 	// Direct enqueue to populate queue instead of platform-fragile shell interaction
 	workspace.EnqueueFrame(source.OutboundFrame{
 		Action:           source.ActionOutput,
@@ -640,14 +660,29 @@ func TestQueueCleanupOnPTYTermination(t *testing.T) {
 		Payload:          []byte("VAL"),
 		DrainingPriority: source.PriorityHigh,
 	})
+
+	workspace.EnqueueFrame(source.OutboundFrame{
+		Action:           source.ActionOutput,
+		TerminalID:       2,
+		Payload:          []byte("VAL2"),
+		DrainingPriority: source.PriorityHigh,
+	})
+
 	// Terminate PTY 1 (deletes from workspace map)
 	_ = workspace.TerminatePTY(1)
-	// Bind mock writer
-	mockWriter := newMockTestSocketWriter()
-	defer mockWriter.Close()
-	workspace.SetSocketWriter(mockWriter)
-	// Verify scheduler loop continues running cleanly (no nil pointer dereferences or panics)
-	time.Sleep(100 * time.Millisecond)
+	// Verify scheduler loop continues running cleanly by successfully delivering PTY 2 frame
+	for {
+		select {
+		case frame := <-mockWriter.frames:
+			if frame.TerminalID == 2 && frame.Action == source.ActionOutput {
+				if string(frame.Payload) == "VAL2" {
+					return
+				}
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for active PTY 2 frame delivery post PTY 1 termination")
+		}
+	}
 }
 
 // 11. TestPTYTerminationChronologicalSequence
@@ -823,12 +858,9 @@ func TestPriorityInversionElimination(t *testing.T) {
 	ws, _, mockWriter := setupExhaustiveTestWorkspace(t, "tc1-ws")
 	_ = ws.SpawnPTY(1, 80, 24, "sleep", "99999")
 	waitPTY(ws, 1)
-	_ = ws.SpawnPTY(2, 80, 24, "sleep",
-		// Sleep briefly to let background shell boot prompts finish
-		"99999")
+	_ = ws.SpawnPTY(2, 80, 24, "sleep", "99999")
 	waitPTY(ws, 2)
 
-	time.Sleep(150 * time.Millisecond)
 	// Flush queues completely to discard any boot prompts
 	ws.FlushAndEnqueueReplays(nil)
 	// Drain mockWriter.frames completely
@@ -886,12 +918,9 @@ func TestTemporalPacingPreemption(t *testing.T) {
 	ws, _, mockWriter := setupExhaustiveTestWorkspace(t, "tc2-ws")
 	_ = ws.SpawnPTY(1, 80, 24, "sleep", "99999")
 	waitPTY(ws, 1)
-	_ = ws.SpawnPTY(2, 80, 24, "sleep",
-		// Sleep briefly to let background shell boot prompts finish
-		"99999")
+	_ = ws.SpawnPTY(2, 80, 24, "sleep", "99999")
 	waitPTY(ws, 2)
 
-	time.Sleep(150 * time.Millisecond)
 	// Flush queues completely to discard any boot prompts
 	ws.FlushAndEnqueueReplays(nil)
 	// Drain mockWriter.frames completely

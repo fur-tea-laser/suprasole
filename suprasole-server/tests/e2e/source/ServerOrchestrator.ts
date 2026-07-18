@@ -16,15 +16,8 @@ export class ServerOrchestrator {
   async spawnRuntime(args: string[] = []): Promise<ServerSession> {
     let retries = 5;
     while (retries > 0) {
-      const listener = Deno.listen({
-        transport: "tcp",
-        hostname: "127.0.0.1",
-        port: 0,
-      });
-      const port = (listener.addr as Deno.NetAddr).port;
-      listener.close();
       const command = new Deno.Command(this.binaryPath, {
-        args: ["-port", port.toString(), ...args],
+        args: ["-port", "0", ...args],
         stdout: "piped",
         stderr: "inherit",
       });
@@ -32,14 +25,17 @@ export class ServerOrchestrator {
       const reader = process.stdout.getReader();
       const decoder = new TextDecoder();
       let booted = false;
+      let actualPort = 0;
       let buffer = "";
       try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value);
-          if (buffer.includes("Server listening on port")) {
+          const match = buffer.match(/Server listening on port (\d+)/);
+          if (match) {
             booted = true;
+            actualPort = parseInt(match[1], 10);
             break;
           }
         }
@@ -81,7 +77,7 @@ export class ServerOrchestrator {
             // Ignore
           }
         };
-        return { port, process, shutdown };
+        return { port: actualPort, process, shutdown };
       } else {
         retries--;
         try {

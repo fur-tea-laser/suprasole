@@ -58,7 +58,10 @@ Deno.test({
         try {
           await clientA.connect();
           clientA.sendSpawn(1, 80, 24, "bash");
-          await clientA.readSpawnStatus(1);
+          const spawn_spawning_405187 = await clientA.readSpawnStatus(1);
+          assertEquals(spawn_spawning_405187.payload[0], 0x02);
+          const spawn_success_405187 = await clientA.readSpawnStatus(1);
+          assertEquals(spawn_success_405187.payload[0], 0x00);
           clientA.close();
           await clientB.connect();
           clientB.sendFrame(
@@ -112,7 +115,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(1, 80, 24, "bash");
-          await client1.readSpawnStatus(1);
+          const spawn_spawning_141229 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_spawning_141229.payload[0], 0x02);
+          const spawn_success_141229 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_success_141229.payload[0], 0x00);
           const ws1 = (client1 as any).ws as WebSocket;
           ws1.close();
           const client2 = new WebSocketClient(session.port, token);
@@ -173,7 +179,10 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(309, 80, 24, "bash");
-          await client.readSpawnStatus(309);
+          const spawn_spawning_866349 = await client.readSpawnStatus(309);
+          assertEquals(spawn_spawning_866349.payload[0], 0x02);
+          const spawn_success_866349 = await client.readSpawnStatus(309);
+          assertEquals(spawn_success_866349.payload[0], 0x00);
           client.sendFrame(0x0007, 309, new TextEncoder().encode("exit 0\n"));
           while (true) {
             const frame = await client.readFrame();
@@ -248,7 +257,10 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(507, 80, 24, "bash");
-          await client.readSpawnStatus(507);
+          const spawn_spawning_594314 = await client.readSpawnStatus(507);
+          assertEquals(spawn_spawning_594314.payload[0], 0x02);
+          const spawn_success_594314 = await client.readSpawnStatus(507);
+          assertEquals(spawn_success_594314.payload[0], 0x00);
           client.sendFrame(
             0x0007,
             507,
@@ -328,7 +340,10 @@ Deno.test({
         try {
           await client.connect();
           client.sendSpawn(412, 80, 24, "bash");
-          await client.readSpawnStatus(412);
+          const spawn_spawning_907911 = await client.readSpawnStatus(412);
+          assertEquals(spawn_spawning_907911.payload[0], 0x02);
+          const spawn_success_907911 = await client.readSpawnStatus(412);
+          assertEquals(spawn_success_907911.payload[0], 0x00);
           client.sendFrame(0x0007, 412, new TextEncoder().encode("ls\n"));
           client.sendFrame(0x0099, 412);
           const closeEvent = await client.waitForClose();

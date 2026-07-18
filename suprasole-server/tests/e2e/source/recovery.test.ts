@@ -37,7 +37,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(1, 80, 24, "bash");
-          await client1.readSpawnStatus(1);
+          const spawn_spawning_837648 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_spawning_837648.payload[0], 0x02);
+          const spawn_success_837648 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_success_837648.payload[0], 0x00);
           client1.sendFrame(
             0x0007,
             1,
@@ -93,7 +96,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(1, 80, 24, "bash");
-          await client1.readSpawnStatus(1);
+          const spawn_spawning_882208 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_spawning_882208.payload[0], 0x02);
+          const spawn_success_882208 = await client1.readSpawnStatus(1);
+          assertEquals(spawn_success_882208.payload[0], 0x00);
           // Write large stream to exceed 256KB ring buffer limit
           client1.sendFrame(
             0x0007,
@@ -147,7 +153,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(307, 80, 24, "bash");
-          await client1.readSpawnStatus(307);
+          const spawn_spawning_932836 = await client1.readSpawnStatus(307);
+          assertEquals(spawn_spawning_932836.payload[0], 0x02);
+          const spawn_success_932836 = await client1.readSpawnStatus(307);
+          assertEquals(spawn_success_932836.payload[0], 0x00);
           client1.sendFrame(0x0007, 307, new TextEncoder().encode("exit 42\n"));
           while (true) {
             const frame = await client1.readFrame();
@@ -192,7 +201,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(308, 80, 24, "cat");
-          await client1.readSpawnStatus(308);
+          const spawn_spawning_99518 = await client1.readSpawnStatus(308);
+          assertEquals(spawn_spawning_99518.payload[0], 0x02);
+          const spawn_success_99518 = await client1.readSpawnStatus(308);
+          assertEquals(spawn_success_99518.payload[0], 0x00);
           const rawBytes = new Uint8Array([0x82, 0xBF, 0xE2, 0x82, 0xAC]);
           client1.sendFrame(0x0007, 308, rawBytes);
           while (true) {
@@ -233,7 +245,10 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(310, 80, 24, "bash");
-          await client1.readSpawnStatus(310);
+          const spawn_spawning_949110 = await client1.readSpawnStatus(310);
+          assertEquals(spawn_spawning_949110.payload[0], 0x02);
+          const spawn_success_949110 = await client1.readSpawnStatus(310);
+          assertEquals(spawn_success_949110.payload[0], 0x00);
           client1.sendFrame(
             0x0007,
             310,
@@ -283,9 +298,15 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(313, 80, 24, "bash");
-          await client1.readSpawnStatus(313);
+          const spawn_spawning_339379 = await client1.readSpawnStatus(313);
+          assertEquals(spawn_spawning_339379.payload[0], 0x02);
+          const spawn_success_339379 = await client1.readSpawnStatus(313);
+          assertEquals(spawn_success_339379.payload[0], 0x00);
           client1.sendSpawn(314, 80, 24, "bash");
-          await client1.readSpawnStatus(314);
+          const spawn_spawning_595869 = await client1.readSpawnStatus(314);
+          assertEquals(spawn_spawning_595869.payload[0], 0x02);
+          const spawn_success_595869 = await client1.readSpawnStatus(314);
+          assertEquals(spawn_success_595869.payload[0], 0x00);
           client1.sendFrame(
             0x0007,
             313,
@@ -352,9 +373,15 @@ Deno.test({
         try {
           await client1.connect();
           client1.sendSpawn(404, 80, 24, "bash");
-          await client1.readSpawnStatus(404);
+          const spawn_spawning_335039 = await client1.readSpawnStatus(404);
+          assertEquals(spawn_spawning_335039.payload[0], 0x02);
+          const spawn_success_335039 = await client1.readSpawnStatus(404);
+          assertEquals(spawn_success_335039.payload[0], 0x00);
           client1.sendSpawn(405, 80, 24, "bash");
-          await client1.readSpawnStatus(405);
+          const spawn_spawning_894902 = await client1.readSpawnStatus(405);
+          assertEquals(spawn_spawning_894902.payload[0], 0x02);
+          const spawn_success_894902 = await client1.readSpawnStatus(405);
+          assertEquals(spawn_success_894902.payload[0], 0x00);
           client1.sendFrame(
             0x0007,
             404,
@@ -387,6 +414,7 @@ Deno.test({
               action: number;
               text?: string;
               exitCode?: number;
+              status?: number;
             }[] = [];
             while (true) {
               const frame = await client2.readFrame();
@@ -399,6 +427,8 @@ Deno.test({
                 event.text = new TextDecoder().decode(unpacked.payload);
               } else if (unpacked.action === 5) {
                 event.exitCode = unpacked.payload[0];
+              } else if (unpacked.action === 2) {
+                event.status = unpacked.payload[0];
               }
               events.push(event);
               const got404 = events.some((e) =>
@@ -411,7 +441,7 @@ Deno.test({
                 e.terminalID === 405 && e.action === 5 && e.exitCode === 77
               );
               const got406 = events.some((e) =>
-                e.terminalID === 406 && e.action === 2
+                e.terminalID === 406 && e.action === 2 && e.status === 0x00
               );
               if (got404 && got405 && got406) {
                 break;
@@ -427,7 +457,7 @@ Deno.test({
               e.terminalID === 405 && e.action === 5 && e.exitCode === 77
             );
             const idx406 = events.findIndex((e) =>
-              e.terminalID === 406 && e.action === 2
+              e.terminalID === 406 && e.action === 2 && e.status === 0x00
             );
             assert(idx404 !== -1, "Should receive 404 truncated warning");
             assert(idx405 !== -1, "Should receive 405 exit code 77");
@@ -457,14 +487,31 @@ Deno.test({
         const client1 = new WebSocketClient(session.port, token);
         try {
           await client1.connect();
-          client1.sendSpawn(409, 80, 24, "sleep", ["99999"]);
-          const client2 = new WebSocketClient(session.port, token);
-          try {
-            await client2.connect();
-            client2.sendFrame(0x0006, 409);
-            client2.sendSpawn(409, 80, 24, "bash");
-            const unpacked = await client2.readSpawnStatus(409);
-            assertEquals(unpacked.payload[0], 0x00);
+           client1.sendSpawn(409, 80, 24, "sleep", ["99999"]);
+           const client1Spawning = await client1.readSpawnStatus(409);
+           assertEquals(client1Spawning.payload[0], 0x02);
+           const client2 = new WebSocketClient(session.port, token);
+           try {
+             await client2.connect();
+             client2.sendFrame(0x0006, 409);
+             client2.sendSpawn(409, 80, 24, "bash");
+              const firstStatus = await client2.readSpawnStatus(409);
+              const payloads = [firstStatus.payload[0]];
+              const totalExpected = (firstStatus.payload[0] === 0x02) ? 4 : 3;
+              while (payloads.length < totalExpected) {
+                const status = await client2.readSpawnStatus(409);
+                payloads.push(status.payload[0]);
+              }
+              if (totalExpected === 4) {
+                assertEquals(payloads[0], 0x02); // Replay spawning
+                assert(payloads[1] === 0x03 || payloads[1] === 0x00, `Expected canceled (0x03) or success (0x00), got: ${payloads[1]}`);
+                assertEquals(payloads[2], 0x02); // Second spawn spawning
+                assertEquals(payloads[3], 0x00); // Second spawn success
+              } else {
+                assertEquals(payloads[0], 0x00); // Replay success
+                assertEquals(payloads[1], 0x02); // Second spawn spawning
+                assertEquals(payloads[2], 0x00); // Second spawn success
+              }
           } finally {
             client2.close();
           }

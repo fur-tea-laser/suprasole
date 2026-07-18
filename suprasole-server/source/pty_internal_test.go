@@ -430,16 +430,20 @@ func TestPTYSpawnCancellationQueueCleanSlate(t *testing.T) {
 		<-inst.done
 	}
 
-	// 3. Assert that no status/exit frames for 990 are enqueued in centralizedQueues
+	// 3. Assert that both Spawning (0x02) and Canceled (0x03) frames for 990 are enqueued in centralizedQueues
 	workspace.mutex.Lock()
-	for idx, queue := range workspace.centralizedQueues {
-		for _, frame := range queue {
-			if frame.TerminalID == terminalID {
-				t.Errorf("Unexpected frame found in queue %d: action=%d, terminalID=%d", idx, frame.Action, frame.TerminalID)
+	var step3Payloads []byte
+	for _, frame := range workspace.centralizedQueues[QueueIndexControl] {
+		if frame.TerminalID == terminalID && frame.Action == ActionSpawnStatus {
+			if len(frame.Payload) > 0 {
+				step3Payloads = append(step3Payloads, frame.Payload[0])
 			}
 		}
 	}
 	workspace.mutex.Unlock()
+	if len(step3Payloads) != 2 || step3Payloads[0] != 0x02 || step3Payloads[1] != 0x03 {
+		t.Errorf("Expected [0x02, 0x03] SpawnStatus frames in control queue, got %v", step3Payloads)
+	}
 
 	// 4. Verify we can spawn 990 again and get a success status
 	err = workspace.SpawnPTY(terminalID, 80, 24, "echo", "hello")
@@ -453,24 +457,19 @@ func TestPTYSpawnCancellationQueueCleanSlate(t *testing.T) {
 		t.Fatalf("Failed to register new PTY")
 	}
 
-	// Check that the first frame for 990 in the control queue is Success (0x00)
+	// Check that the full sequence of SpawnStatus frames for 990 is: 0x02, 0x03, 0x02, 0x00
 	workspace.mutex.Lock()
-	foundSuccess := false
-	controlQueue := workspace.centralizedQueues[QueueIndexControl]
-	for _, frame := range controlQueue {
+	var finalPayloads []byte
+	for _, frame := range workspace.centralizedQueues[QueueIndexControl] {
 		if frame.TerminalID == terminalID && frame.Action == ActionSpawnStatus {
-			if len(frame.Payload) > 0 && frame.Payload[0] == 0x00 {
-				foundSuccess = true
-			} else {
-				t.Errorf("Unexpected SpawnStatus frame payload: %v", frame.Payload)
+			if len(frame.Payload) > 0 {
+				finalPayloads = append(finalPayloads, frame.Payload[0])
 			}
-			break
 		}
 	}
 	workspace.mutex.Unlock()
-
-	if !foundSuccess {
-		t.Errorf("Expected to find successful SpawnStatus frame in Control queue")
+	if len(finalPayloads) != 4 || finalPayloads[0] != 0x02 || finalPayloads[1] != 0x03 || finalPayloads[2] != 0x02 || finalPayloads[3] != 0x00 {
+		t.Errorf("Expected [0x02, 0x03, 0x02, 0x00] SpawnStatus frames, got %v", finalPayloads)
 	}
 }
 

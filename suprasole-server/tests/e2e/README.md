@@ -5,7 +5,7 @@ Welcome to the suprasole-server E2E integration test workspace. This workspace i
 ## 1. Runtime Orchestrator Engine
 The integration test suite executes through Deno's native automation framework using the deno test runner:
 ```bash
-./run_tests.sh
+./run_e2e_tests.sh
 ```
 
 ### Execution Boundary Inclusion
@@ -22,7 +22,7 @@ The workspace is organized into a strict structural layout:
 ```text
 tests/e2e/
 ├── deno.json        # Deno config and import mappings
-├── run_tests.sh     # Shell script to build and execute tests
+├── run_e2e_tests.sh # Shell script to build and execute tests
 ├── main.go          # Go entry point compiled during test run
 ├── README.md        # This workspace description
 └── source/

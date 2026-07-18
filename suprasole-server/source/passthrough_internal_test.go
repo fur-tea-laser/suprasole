@@ -438,8 +438,15 @@ func TestSpawnPTYFileDescriptorCleanup(t *testing.T) {
 	workspace.mutex.Unlock()
 	t1.master.Close()
 
-	time.Sleep(10 * time.Millisecond)
-	finalFDs, _ := countOpenFDs()
+	// Wait for FD count to return to baseline
+	var finalFDs int
+	for i := 0; i < 50; i++ {
+		finalFDs, _ = countOpenFDs()
+		if finalFDs == startFDs {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	if finalFDs != startFDs {
 		t.Logf("FD baseline diff: start=%d, final=%d", startFDs, finalFDs)
 	}

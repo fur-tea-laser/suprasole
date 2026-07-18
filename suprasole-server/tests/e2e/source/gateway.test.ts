@@ -129,7 +129,10 @@ Deno.test({
           assertEquals(closeB.code, 4000);
           // Client C remains active and can spawn PTY
           clientC.sendSpawn(1, 80, 24, "/bin/bash");
+          const spawn_spawning_386079 = await clientC.readSpawnStatus(1);
+          assertEquals(spawn_spawning_386079.payload[0], 0x02);
           const unpacked = await clientC.readSpawnStatus(1);
+          assertEquals(unpacked.payload[0], 0x00);
           assertEquals(unpacked.payload[0], 0x00);
         } finally {
           clientA.close();

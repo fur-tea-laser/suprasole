@@ -197,6 +197,13 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 	if upgradeError != nil {
 		return
 	}
+	var connectionClosed bool
+	defer func() {
+		if !connectionClosed {
+			handler.netRegistry.unregisterConnection(token, wsConn)
+			_ = connection.Close()
+		}
+	}()
 	// Set small write buffer to allow write deadline tests to saturate TCP buffers fast
 	if tcpConn, ok := connection.UnderlyingConn().(*net.TCPConn); ok {
 		_ = tcpConn.SetWriteBuffer(4096)
@@ -230,8 +237,6 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Failed to resolve workspace"),
 			time.Now().Add(1*time.Second),
 		)
-		connection.Close()
-		handler.netRegistry.unregisterConnection(token, wsConn)
 		return
 	}
 	// 2. Perform State Replay and bind wsConn atomically under the registry lock
@@ -283,6 +288,7 @@ func (handler *networkHandler) ServeHTTP(responseWriter http.ResponseWriter, req
 			}
 			_ = conn.Close()
 		}
+		connectionClosed = true
 		select {
 		case <-wsConn.done:
 		default:

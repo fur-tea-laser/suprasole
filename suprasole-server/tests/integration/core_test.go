@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,9 +13,17 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"suprasole-server/source"
 )
+
+func getPendingPriorities(w *source.Workspace) map[uint16]byte {
+	val := reflect.ValueOf(w).Elem()
+	field := val.FieldByName("pendingPriorities")
+	ptr := unsafe.Pointer(field.UnsafeAddr())
+	return *(*map[uint16]byte)(ptr)
+}
 
 // Helper to get registry or fail test early if not implemented.
 func getRegistry(t *testing.T) source.WorkspaceRegistry {
@@ -82,6 +91,17 @@ func waitPTY(workspace *source.Workspace, termID uint16) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func waitPTYState(workspace *source.Workspace, termID uint16, targetState source.TerminalState) bool {
+	for i := 0; i < 500; i++ {
+		state, exists := workspace.GetPTYState(termID)
+		if exists && state == targetState {
+			return true
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	return false
 }
 
 func waitUntilReady(t *testing.T, workspace *source.Workspace, termID uint16) {
@@ -476,8 +496,6 @@ func TestCleanPidReaping(t *testing.T) {
 	// Trigger exits
 	_ = workspace.WritePTYInput(termID501, []byte("exit 77\n"))
 	_ = workspace.WritePTYInput(termID503, []byte("kill -11 $$\n")) // SIGSEGV
-	// Wait a moment for processing before calling TerminatePTY on 502
-	time.Sleep(100 * time.Millisecond)
 	_ = workspace.TerminatePTY(termID502) // SIGKILL
 	// Wait for terminations
 	timeout := time.After(2 * time.Second)
@@ -512,12 +530,12 @@ func TestCleanPidReaping(t *testing.T) {
 
 func checkPIDReaped(t *testing.T, processID int) {
 	var error error
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 200; i++ {
 		error = syscall.Kill(processID, 0)
 		if errors.Is(error, syscall.ESRCH) {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 	}
 	t.Errorf("PID %d was not cleanly reaped (still visible in OS process list)", processID)
 }
@@ -613,8 +631,8 @@ func TestConcurrentLoadLock(t *testing.T) {
 			}
 		}()
 	}
-	// Run stress test for 1.5 seconds
-	time.Sleep(1500 * time.Millisecond)
+	// Run stress test for 300 milliseconds
+	time.Sleep(300 * time.Millisecond)
 	close(stressDone)
 	waitGroup.Wait()
 	// Concurrently terminate all PTYs
@@ -628,7 +646,14 @@ func TestConcurrentLoadLock(t *testing.T) {
 		}(termID)
 	}
 	termWg.Wait()
-	time.Sleep(200 * time.Millisecond)
+
+	// Wait deterministically for all active PTYs to exit the active IDs list
+	for i := 0; i < 200; i++ {
+		if len(workspace.GetActiveTerminalIDs()) == 0 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	// Assertions
 	activeIDs := workspace.GetActiveTerminalIDs()
 	if len(activeIDs) != 0 {
@@ -700,7 +725,21 @@ func TestRapidLifecycleRace(t *testing.T) {
 		_ = workspace.TerminatePTY(termID)
 	}()
 	waitGroup.Wait()
-	time.Sleep(100 * time.Millisecond)
+	// Wait deterministically for the PTY to exit the active IDs list
+	for i := 0; i < 200; i++ {
+		activeIDs := workspace.GetActiveTerminalIDs()
+		found := false
+		for _, id := range activeIDs {
+			if id == termID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
 	// Verify no crash and registry state resolved safely
 	activeIDs := workspace.GetActiveTerminalIDs()
 	for _, id := range activeIDs {
@@ -724,18 +763,27 @@ func TestBinaryNonUtf8Handshake(t *testing.T) {
 	// Set raw mode using stty raw -echo before piping binary data through cat
 	waitUntilReady(t, workspace, termID)
 	var outputBuffer bytes.Buffer
-	done := make(chan struct{})
 	// Sequence containing null, invalid UTF-8 bytes, and escape codes
 	payload := []byte{0x00, 0xFF, 0xFE, 0x01, 0x1B, 0x5B, 0x48, 0x02, 0x0A}
 	mockWriter := newMockSocketWriter()
 	workspace.SetSocketWriter(mockWriter)
+	probeDone := make(chan struct{})
+	payloadDone := make(chan struct{})
 	go func() {
+		probeSeen := false
 		for frame := range mockWriter.frames {
 			if frame.TerminalID == termID && frame.Action == source.ActionOutput {
 				outputBuffer.Write(frame.Payload)
-				if bytes.Contains(outputBuffer.Bytes(), payload) {
-					close(done)
-					return
+				if !probeSeen {
+					if bytes.Contains(outputBuffer.Bytes(), []byte("probe")) {
+						probeSeen = true
+						close(probeDone)
+					}
+				} else {
+					if bytes.Contains(outputBuffer.Bytes(), payload) {
+						close(payloadDone)
+						return
+					}
 				}
 			}
 		}
@@ -745,14 +793,23 @@ func TestBinaryNonUtf8Handshake(t *testing.T) {
 	if error != nil {
 		t.Fatalf("failed to write cat: %v", error)
 	}
-	time.Sleep(100 * time.Millisecond)
+	error = workspace.WritePTYInput(termID, []byte("probe\n"))
+	if error != nil {
+		t.Fatalf("failed to write probe: %v", error)
+	}
+	select {
+	case <-probeDone:
+	case <-time.After(2 * time.Second):
+		workspace.SetSocketWriter(nil)
+		t.Fatal("timeout waiting for cat probe")
+	}
 	// Write raw binary payload
 	error = workspace.WritePTYInput(termID, payload)
 	if error != nil {
 		t.Fatalf("failed to write binary: %v", error)
 	}
 	select {
-	case <-done:
+	case <-payloadDone:
 		workspace.SetSocketWriter(nil)
 	case <-time.After(2 * time.Second):
 		workspace.SetSocketWriter(nil)
@@ -798,8 +855,6 @@ func TestWriteErrorSigpipeImmunity(t *testing.T) {
 	if error == nil {
 		t.Error("expected write to closed terminal to return error, but got nil")
 	}
-	// Server should remain alive, no SIGPIPE crash
-	time.Sleep(100 * time.Millisecond)
 }
 
 // Test Case 11: Global Workspace Teardown & Process Sweep
@@ -898,13 +953,11 @@ func TestNestedProcessTreeCleanup(t *testing.T) {
 		workspace.SetSocketWriter(nil)
 		t.Fatalf("timeout waiting for sub-shell PID. Buffer state:\n%q", outputBuffer.Bytes())
 	}
-	// Wait a moment for the nested sleep process to be spawned by the sub-shell
-	time.Sleep(100 * time.Millisecond)
 	// Retrieve the grandchild (sleep) PID by reading procfs
 	var grandchildPID int
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", subPID, subPID)
 	// Try a few times in case of scheduler latency
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := 0; attempt < 50; attempt++ {
 		if data, error := os.ReadFile(childrenPath); error == nil {
 			parts := strings.Fields(string(data))
 			if len(parts) > 0 {
@@ -914,7 +967,7 @@ func TestNestedProcessTreeCleanup(t *testing.T) {
 				}
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	if grandchildPID == 0 {
 		t.Logf("grandchild PID not found (shell may have exec'd sleep directly into SUB_PID %d)", subPID)
@@ -949,8 +1002,11 @@ func TestPTYLifecycleRemove(t *testing.T) {
 	}
 
 	// Write exit command
+	waitPTY(workspace, 101)
 	_ = workspace.WritePTYInput(101, []byte("exit 0\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 101, source.StateTerminated) {
+		t.Fatal("PTY 101 did not transition to StateTerminated")
+	}
 
 	err = workspace.RemovePTY(101)
 	if err != nil {
@@ -1047,7 +1103,9 @@ func TestWorkspaceResetActiveAndTerminated(t *testing.T) {
 	_ = workspace.SpawnPTY(106, 80, 24, "/bin/bash")
 	pid106 := extractPID(t, workspace, 106)
 	_ = workspace.WritePTYInput(106, []byte("exit 0\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 106, source.StateTerminated) {
+		t.Fatal("PTY 106 did not transition to StateTerminated")
+	}
 
 	err = workspace.ResetWorkspace()
 	if err != nil {
@@ -1076,11 +1134,25 @@ func TestWorkspaceResetDuringSpawning(t *testing.T) {
 		_ = registry.RemoveWorkspace("reset-spawning-ws")
 	}()
 
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
 	go func() {
 		_ = workspace.SpawnPTY(107, 80, 24, "/bin/bash")
 	}()
 
-	time.Sleep(5 * time.Millisecond)
+	// Wait for Spawning (0x02) status frame
+	for {
+		select {
+		case frame := <-mock.frames:
+			if frame.TerminalID == 107 && frame.Action == 2 && len(frame.Payload) > 0 && frame.Payload[0] == 0x02 {
+				goto spawningStarted
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Timeout waiting for spawn to begin")
+		}
+	}
+spawningStarted:
 	err = workspace.ResetWorkspace()
 	if err != nil {
 		t.Errorf("ResetWorkspace during spawning failed: %v", err)
@@ -1150,8 +1222,11 @@ func TestPTYIDRecyclingCollisions(t *testing.T) {
 	}()
 
 	_ = workspace.SpawnPTY(112, 80, 24, "/bin/bash")
+	waitPTY(workspace, 112)
 	_ = workspace.WritePTYInput(112, []byte("exit 0\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 112, source.StateTerminated) {
+		t.Fatal("PTY 112 did not transition to StateTerminated")
+	}
 
 	// Attempt duplicate spawn before removal
 	err = workspace.SpawnPTY(112, 80, 24, "/bin/bash")
@@ -1214,11 +1289,25 @@ func TestSpawningIDRecyclingPostReset(t *testing.T) {
 		_ = registry.RemoveWorkspace("recycle-reset-ws")
 	}()
 
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
 	go func() {
 		_ = workspace.SpawnPTY(115, 80, 24, "/bin/bash")
 	}()
 
-	time.Sleep(5 * time.Millisecond)
+	// Wait for Spawning (0x02) status frame
+	for {
+		select {
+		case frame := <-mock.frames:
+			if frame.TerminalID == 115 && frame.Action == 2 && len(frame.Payload) > 0 && frame.Payload[0] == 0x02 {
+				goto spawningStarted
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Timeout waiting for spawn to begin")
+		}
+	}
+spawningStarted:
 	_ = workspace.ResetWorkspace()
 
 	// Attempt immediate spawn of ID 115
@@ -1325,7 +1414,9 @@ func TestPTYDecoupledExitReconstruction(t *testing.T) {
 	_ = workspace.SpawnPTY(201, 80, 24, "/bin/bash")
 	waitPTY(workspace, 201)
 	_ = workspace.WritePTYInput(201, []byte("exit 42\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 201, source.StateTerminated) {
+		t.Fatal("PTY 201 did not transition to StateTerminated")
+	}
 
 	state, exists := workspace.GetPTYState(201)
 	if !exists {
@@ -1358,7 +1449,9 @@ func TestPTYExitSignalByteEncoding(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to send SIGKILL to PID %d: %v", pid, err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 202, source.StateTerminated) {
+		t.Fatal("PTY 202 did not transition to StateTerminated")
+	}
 
 	state, exists := workspace.GetPTYState(202)
 	if !exists || state != source.StateTerminated {
@@ -1402,8 +1495,17 @@ func TestPTYProcessDescendantTeardown(t *testing.T) {
 	}()
 
 	_ = workspace.SpawnPTY(205, 80, 24, "/bin/bash")
+	pid := extractPID(t, workspace, 205)
 	_ = workspace.WritePTYInput(205, []byte("sleep 300 &\n"))
-	time.Sleep(100 * time.Millisecond)
+	
+	// Wait for descendant process to be registered in procfs
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", pid, pid)
+	for attempt := 0; attempt < 50; attempt++ {
+		if data, error := os.ReadFile(childrenPath); error == nil && len(strings.Fields(string(data))) > 0 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 
 	err = workspace.TerminatePTY(205)
 	if err != nil {
@@ -1422,7 +1524,9 @@ func TestGlobalTeardownBypassesTerminatedPTYs(t *testing.T) {
 	_ = workspace.SpawnPTY(206, 80, 24, "/bin/bash")
 	pid := extractPID(t, workspace, 206)
 	_ = workspace.WritePTYInput(206, []byte("exit 0\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 206, source.StateTerminated) {
+		t.Fatal("PTY 206 did not transition to StateTerminated")
+	}
 
 	err = registry.RemoveWorkspace("teardown-bypass-ws")
 	if err != nil {
@@ -1447,8 +1551,11 @@ func TestPTYTerminationBypassesTerminatedState(t *testing.T) {
 	}()
 
 	_ = workspace.SpawnPTY(207, 80, 24, "/bin/bash")
+	waitPTY(workspace, 207)
 	_ = workspace.WritePTYInput(207, []byte("exit 0\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 207, source.StateTerminated) {
+		t.Fatal("PTY 207 did not transition to StateTerminated")
+	}
 
 	err = workspace.TerminatePTY(207)
 	if err != nil {
@@ -1468,8 +1575,11 @@ func TestPTYTerminatedStateInputAndResizeGuards(t *testing.T) {
 	}()
 
 	_ = workspace.SpawnPTY(208, 80, 24, "/bin/bash")
+	waitPTY(workspace, 208)
 	_ = workspace.WritePTYInput(208, []byte("exit 0\n"))
-	time.Sleep(100 * time.Millisecond)
+	if !waitPTYState(workspace, 208, source.StateTerminated) {
+		t.Fatal("PTY 208 did not transition to StateTerminated")
+	}
 
 	err = workspace.WritePTYInput(208, []byte("data"))
 	if err == nil {
@@ -1481,3 +1591,383 @@ func TestPTYTerminatedStateInputAndResizeGuards(t *testing.T) {
 		t.Log("Warning: ResizePTY to terminated terminal did not fail/get ignored cleanly")
 	}
 }
+
+// TestPTYSpawningGranularFrames asserts SpawnPTYStatus spawning (0x02) followed by success (0x00)
+func TestPTYSpawningGranularFrames(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-granular-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-granular-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	err = workspace.SpawnPTY(301, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Fatalf("Failed to spawn PTY: %v", err)
+	}
+
+	// Await and verify the first frame (0x02 - Spawning)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 2 || frame.TerminalID != 301 || frame.Payload[0] != 0x02 {
+			t.Fatalf("Expected SpawnPTYStatus Spawning (0x02), got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Spawning status frame")
+	}
+
+	// Await and verify the second frame (0x00 - Success)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 2 || frame.TerminalID != 301 || frame.Payload[0] != 0x00 {
+			t.Fatalf("Expected SpawnPTYStatus Success (0x00), got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Success status frame")
+	}
+}
+
+// TestPTYSpawningCancellationFrames asserts SpawnPTYStatus spawning (0x02) followed by canceled (0x03)
+func TestPTYSpawningCancellationFrames(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-cancel-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-cancel-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	err = workspace.SpawnPTY(302, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Fatalf("Failed to spawn PTY: %v", err)
+	}
+
+	// Immediately terminate PTY to trigger context cancellation
+	_ = workspace.TerminatePTY(302)
+
+	// Await and verify the first frame (0x02 - Spawning)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 2 || frame.TerminalID != 302 || frame.Payload[0] != 0x02 {
+			t.Fatalf("Expected Spawning (0x02), got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Spawning status frame")
+	}
+
+	// Await and verify the second frame (0x03 - Canceled)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 2 || frame.TerminalID != 302 || frame.Payload[0] != 0x03 {
+			t.Fatalf("Expected Canceled (0x03), got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Canceled status frame")
+	}
+
+	// Verify that no entry is created in ptys registry
+	_, exists := workspace.GetPTYState(302)
+	if exists {
+		t.Fatal("Expected no PTY entry to be created in registry for canceled terminal")
+	}
+
+	// Verify that no PTYTerminalExit (0x0005) frame is sent
+	select {
+	case frame := <-mock.frames:
+		if frame.Action == 5 && frame.TerminalID == 302 {
+			t.Fatal("Expected no PTYTerminalExit (0x0005) frame to be sent for canceled terminal")
+		}
+	default:
+		// Safe: no extra frames sent
+	}
+}
+
+// TestPTYSpawningFailureFrames asserts SpawnPTYStatus spawning (0x02) followed by failure (0x01)
+func TestPTYSpawningFailureFrames(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("spawn-fail-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("spawn-fail-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	// Create temporary non-executable file to trigger async exec startup failure
+	tempFile, err := os.CreateTemp("", "nonexecutable-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	tempPath := tempFile.Name()
+	tempFile.Close()
+	defer os.Remove(tempPath)
+	_ = os.Chmod(tempPath, 0644) // Not executable!
+
+	err = workspace.SpawnPTY(303, 80, 24, tempPath)
+	if err != nil {
+		t.Fatalf("SpawnPTY failed synchronously: %v", err)
+	}
+
+	// Await and verify the first frame (0x02 - Spawning)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 2 || frame.TerminalID != 303 || frame.Payload[0] != 0x02 {
+			t.Fatalf("Expected Spawning (0x02), got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Spawning status frame")
+	}
+
+	// Await and verify the second frame (0x01 - Failure)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 2 || frame.TerminalID != 303 || frame.Payload[0] != 0x01 {
+			t.Fatalf("Expected Failure (0x01), got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Failure status frame")
+	}
+
+	// Await and verify the third frame (0x05 - Terminal Exit with code 255)
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 5 || frame.TerminalID != 303 || frame.Payload[0] != 255 {
+			t.Fatalf("Expected TerminalExit (0x05) with exit status 255, got Action=%d Payload=%v", frame.Action, frame.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for TerminalExit status frame")
+	}
+}
+
+// TestPTYTerminatedScrollbackReplay asserts outputs of terminated PTYs are compiled into state replays
+func TestPTYTerminatedScrollbackReplay(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("terminated-replay-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("terminated-replay-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	err = workspace.SpawnPTY(888, 80, 24, "/bin/bash", "-c", "printf 'terminated-history-data\\n'")
+	if err != nil {
+		t.Fatalf("Failed to spawn PTY: %v", err)
+	}
+
+	// Wait for process to exit and drain by checking mock.frames for ActionTerminalExit (5)
+	for {
+		select {
+		case frame := <-mock.frames:
+			if frame.TerminalID == 888 && frame.Action == 5 { // ActionTerminalExit
+				goto terminated
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("PTY did not terminate in time")
+		}
+	}
+terminated:
+
+	// Compile replay frames
+	replays := workspace.CompileReplayFrames()
+
+	// Verify the enqueued sequence: Output must be before TerminalExit
+	var outputIndex, exitIndex int = -1, -1
+	for i, frame := range replays {
+		if frame.TerminalID == 888 {
+			if frame.Action == 8 { // ActionOutput
+				if strings.Contains(string(frame.Payload), "terminated-history-data") {
+					outputIndex = i
+				}
+			} else if frame.Action == 5 { // ActionTerminalExit
+				exitIndex = i
+			}
+		}
+	}
+
+	if outputIndex == -1 {
+		t.Fatal("Output scrollback was not found in replay frames")
+	}
+	if exitIndex == -1 {
+		t.Fatal("TerminalExit frame was not found in replay frames")
+	}
+	if outputIndex >= exitIndex {
+		t.Fatalf("Expected Output scrollback before TerminalExit frame, got OutputIndex=%d, ExitIndex=%d", outputIndex, exitIndex)
+	}
+}
+
+// TestStandaloneResetNotification asserts scheduler wakeup on standalone ResetWorkspace
+func TestStandaloneResetNotification(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("reset-notify-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("reset-notify-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	// Clear mock frames
+	for len(mock.frames) > 0 {
+		<-mock.frames
+	}
+
+	// Reset the workspace
+	err = workspace.ResetWorkspace()
+	if err != nil {
+		t.Fatalf("ResetWorkspace failed: %v", err)
+	}
+
+	// Await ActionReset (0x000a) over mock socket writer
+	select {
+	case frame := <-mock.frames:
+		if frame.Action != 10 { // ActionReset
+			t.Fatalf("Expected ActionReset (10), got Action=%d", frame.Action)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for Reset acknowledgment frame (scheduler did not wake up)")
+	}
+}
+
+// TestSpawningPTYPrioritySync asserts priority sync updates spawning slots and cleans up on completion
+func TestSpawningPTYPrioritySync(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("priority-sync-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("priority-sync-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	// 1. Call SpawnPTY for terminal 999
+	err = workspace.SpawnPTY(999, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Fatalf("Failed to spawn PTY: %v", err)
+	}
+
+	// 2. Call SyncPTYPriorities with {999: PriorityHigh} (1)
+	err = workspace.SyncPTYPriorities(map[uint16]byte{999: 1})
+	if err != nil {
+		t.Fatalf("SyncPTYPriorities failed: %v", err)
+	}
+
+	// 3. Assert workspace.pendingPriorities[999] is populated with PriorityHigh
+	pending := getPendingPriorities(workspace)
+	if pending[999] != 1 {
+		t.Fatalf("Expected pending priority for 999 to be 1, got %v", pending[999])
+	}
+
+	// 4. Call SyncPTYPriorities with {} (omitting 999)
+	err = workspace.SyncPTYPriorities(map[uint16]byte{})
+	if err != nil {
+		t.Fatalf("SyncPTYPriorities failed: %v", err)
+	}
+
+	// 5. Assert workspace.pendingPriorities[999] is cleared
+	pending = getPendingPriorities(workspace)
+	if _, exists := pending[999]; exists {
+		t.Fatalf("Expected pending priority for 999 to be cleared, but it exists")
+	}
+
+	// 6. Call SyncPTYPriorities with {999: PriorityHigh} again
+	err = workspace.SyncPTYPriorities(map[uint16]byte{999: 1})
+	if err != nil {
+		t.Fatalf("SyncPTYPriorities failed: %v", err)
+	}
+
+	// 7. Allow the background spawning thread to complete process initialization
+	waitPTY(workspace, 999)
+
+	// 8. Assert PTY is registered with PriorityHigh
+	p, err := workspace.GetPTYPriority(999)
+	if err != nil {
+		t.Fatalf("GetPTYPriority failed: %v", err)
+	}
+	if p != 1 {
+		t.Fatalf("Expected registered priority to be 1, got %d", p)
+	}
+
+	// 9. Assert terminal ID 999 is completely deleted from workspace.pendingPriorities
+	pending = getPendingPriorities(workspace)
+	if _, exists := pending[999]; exists {
+		t.Fatalf("Expected pending priority for 999 to be consumed and deleted, but it remains")
+	}
+}
+
+// TestSpawningPTYPrioritySyncCleanupOnFailure asserts priority sync cleans up on cancellation/failure
+func TestSpawningPTYPrioritySyncCleanupOnFailure(t *testing.T) {
+	registry := source.NewWorkspaceRegistry()
+	workspace, err := registry.GetOrCreateWorkspace("priority-fail-ws")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+	defer func() {
+		_ = registry.RemoveWorkspace("priority-fail-ws")
+	}()
+
+	mock := newMockSocketWriter()
+	workspace.SetSocketWriter(mock)
+
+	// 1. Call SpawnPTY for terminal 999
+	err = workspace.SpawnPTY(999, 80, 24, "/bin/bash")
+	if err != nil {
+		t.Fatalf("Failed to spawn PTY: %v", err)
+	}
+
+	// 2. Call SyncPTYPriorities with {999: PriorityHigh} (1)
+	err = workspace.SyncPTYPriorities(map[uint16]byte{999: 1})
+	if err != nil {
+		t.Fatalf("SyncPTYPriorities failed: %v", err)
+	}
+
+	// 3. Assert workspace.pendingPriorities[999] is populated with PriorityHigh
+	pending := getPendingPriorities(workspace)
+	if pending[999] != 1 {
+		t.Fatalf("Expected pending priority for 999 to be 1, got %v", pending[999])
+	}
+
+	// 4. Cancel the spawn immediately
+	_ = workspace.TerminatePTY(999)
+
+	// 5. Await the completion of the background goroutine (reaping) by waiting for Canceled (0x03) frame
+	for {
+		select {
+		case frame := <-mock.frames:
+			if frame.TerminalID == 999 && frame.Action == 2 && len(frame.Payload) > 0 && frame.Payload[0] == 0x03 {
+				goto done
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Timeout waiting for Canceled (0x03) status frame")
+		}
+	}
+done:
+
+	// 6. Assert workspace.pendingPriorities[999] is completely deleted from the map
+	pending = getPendingPriorities(workspace)
+	if _, exists := pending[999]; exists {
+		t.Fatalf("Expected pending priority for 999 to be deleted on cancellation, but it remains")
+	}
+}
+

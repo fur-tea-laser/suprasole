@@ -4,6 +4,6 @@
     "@std/path": "jsr:@std/path@^1.1.4"
   },
   "tasks": {
-    "test": "./run_tests.sh"
+    "test": "./run_e2e_tests.sh"
   }
 }
