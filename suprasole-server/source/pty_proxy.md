@@ -83,6 +83,53 @@ User stdin bytes are transmitted directly to the OS PTY master file descriptor v
  6. Kernel FIFO Byte Ordering & Wait-Queue Serialization:
     Sequential and concurrent calls to Pty_MasterFileDescriptor.Write maintain strict First-In, First-Out (FIFO) byte ordering. The Linux kernel TTY driver appends incoming bytes to the write ring buffer in exact order of system call commitment. If multiple Write calls block concurrently due to kernel ring buffer backpressure, the kernel manages blocked threads in a FIFO wait queue, waking them sequentially as buffer space becomes available to ensure byte streams are never scrambled or reordered.
 
+## File Descriptor Blocking Mode Architecture (Blocking vs. Non-Blocking & POSIX Symmetry Constraints)
+
+PtyProxy configures its underlying OS master PTY file descriptor in standard **Blocking Mode** (default descriptor flags without `O_NONBLOCK`).
+
+### 1. Architectural Rationale for Current Blocking Choice
+- **Simplified High-Throughput Reader Loop**: `PtyReader` relies on a zero-overhead, single-threaded blocking `read()` loop over `Pty_MasterFileDescriptor`. Operating in blocking mode ensures `PtyReader` sleeps efficiently on kernel wait queues when stdout is idle, eliminating CPU-spinning, polling loops, or spurious `syscall.EAGAIN` retry handling.
+- **Pragmatic Initial Baseline Execution Semantics**: Writing to `Pty_MasterFileDescriptor` copies data into the kernel's in-memory TTY buffer in RAM, returning to the caller in microseconds without waiting on external hardware or network transmission. Because the slave child process (`bash`, `readline`) continuously drains `stdin` while human keypresses and client frame bursts consume only a small fraction of the kernel's ~64 KB buffer, buffer headroom remains well above blocking thresholds during standard interactive sessions. Consequently, direct blocking writes execute near-instantaneously without stalling calling threads, providing a sound, low-complexity baseline for initial deployment.
+
+### 2. POSIX File Descriptor Symmetry Constraint (The Symmetrical `O_NONBLOCK` Limitation)
+For engineers evaluating future write pipeline enhancements or investigating non-blocking write semantics, POSIX file descriptor architecture imposes a key structural constraint:
+- **Symmetrical Application Across Operations**: Non-blocking flags (`O_NONBLOCK`) are attached directly to the open file handle in operating system memory. Executing `fcntl(fd, F_SETFL, O_NONBLOCK)` forces **both `read()` and `write()` operations** on that descriptor handle to inherit non-blocking behavior.
+- **Impact on `PtyReader`'s Read Loop**: POSIX does not permit assigning `O_NONBLOCK` exclusively to `write()` calls on a shared descriptor handle. If future engineers attempt to set `O_NONBLOCK` directly on `Pty_MasterFileDescriptor`, doing so will force `PtyReader`'s background `read()` loop to also become non-blocking (requiring `EAGAIN` polling or CPU-spinning).
+- **Architectural Consideration for Non-Blocking Exploration**: If non-blocking write semantics are ever evaluated for future production needs, engineers exploring `O_NONBLOCK` directly on `Pty_MasterFileDescriptor` should note that doing so would require re-architecting `PtyReader` to handle non-blocking read polling; also, other architectural options exist for enabling non-blocking write semantics beyond modifying descriptor flags directly.
+
+---
+
+## Analysis of Master PTY Write Blocking Scenarios for Proxy Engineers
+
+Although master PTY writes complete near-instantaneously during interactive usage, executing `Pty_MasterFileDescriptor.Write(data)` can block the calling goroutine under specific operational conditions. Server engineers must understand these five macro-level scenarios when designing upstream write pipelines:
+
+### 1. Kernel TTY Buffer Watermark Saturation
+- **Buffer Quotas**: The kernel allocates an in-memory input buffer quota (typically ~64 KB) for the PTY pair.
+- **High Watermark Threshold**: Writes do **NOT** wait until the buffer is 100% full before blocking. The kernel enforces a high watermark threshold (blocking when remaining free headroom drops below ~4 KB).
+- **Automatic Unblocking**: When free space drops below the high watermark, the kernel puts the calling write thread to sleep. As soon as the slave child process reads pending input and free space crosses back below the low watermark, the kernel automatically wakes the waiting writer thread.
+
+### 2. Software Flow Control Suspension
+- **User-Space Triggered Flow Control**: When software flow control is active, user-space callers or keypresses can instruct the operating system to pause or resume terminal output processing.
+- **Writer Pause State**: While output is suspended, master writes block on kernel wait queues regardless of available buffer space until a resume command is received.
+- **Technical APIs & Control Character Aliases**:
+  - *Pause Command*: `Ctrl-S` (STOP / `XOFF` / byte `0x13` / `tcflow(fd, TCOOFF)`).
+  - *Resume Command*: `Ctrl-Q` (START / `XON` / byte `0x11` / `tcflow(fd, TCOON)`).
+
+### 3. Slow, Unresponsive, or Suspended Slave Child Process
+- **Unresponsive Child Process**: If the child process (`bash`, `cat`, `gdb`) pauses input reading (due to heavy CPU work, blocking file I/O, or internal application locks), user input accumulates in the buffer until the watermark threshold is reached.
+- **Background Process Suspension**: If the child process is suspended in the background, input reading stops entirely. Subsequent master writes fill the buffer watermark and block until the process is resumed.
+- **Technical APIs & Control Signal Aliases**:
+  - *Suspension Commands*: `Ctrl-Z` (Job Control Suspend / `SIGTSTP` / `SIGSTOP`).
+  - *Resume Commands*: `fg` (Foreground Resume / `SIGCONT`).
+
+### 4. Kernel System Write Serialization
+- **Sequential OS Kernel Locks**: Operating system write calls on a single file descriptor are internally serialized by kernel locks (executing one write at a time). If a write system call is currently in progress, any subsequent write call to the same descriptor handle must wait for the preceding write to release the kernel lock before committing its payload.
+
+### 5. OS Resource Exhaustion & Scheduling Delays
+- Under severe system RAM exhaustion or CPU starvation, buffer memory allocation and thread wakeups experience OS scheduling delays, increasing overall write latency.
+
+---
+
 ## Administrative PTY Master Descriptor Closure (Pty_MasterFileDescriptor.Close)
 
 Closing the master PTY file descriptor via Pty_MasterFileDescriptor.Close() initiates an administrative session teardown from the parent process:
