@@ -39,17 +39,17 @@ type _WebsocketProxy_ struct {
 	Websocket_Mutex                  _SYNC.Mutex
 	Websocket_Status                 WebsocketStatus
 	Websocket_IsTakeoverPending      bool
+	Websocket_Connection             *_WEBSOCKET.Conn
 	Websocket_ReadDeadlineTimeout    _TIME.Duration
 	Websocket_WriteDeadlineTimeout   _TIME.Duration
-	Websocket_SubmissionQueue        chan _Submission_GetWebsocketConnection_
 	Websocket_LifecycleLoopContext   _CONTEXT.Context
 	Websocket_LifecycleLoopCancel    _CONTEXT.CancelFunc
+	Websocket_SubmissionQueue        chan _Submission_GetWebsocketConnection_
 	Websocket_OnConnected            func()
 	Websocket_OnTakeoverConnected    func()
-	Websocket_OnDisconnected         func(err error)
+	Websocket_OnDisconnected         func(readMessageError error)
 	Websocket_OnTakeoverDisconnected func()
-	Websocket_OnBinaryMessage        func(frame []byte)
-	Websocket_Connection             *_WEBSOCKET.Conn
+	Websocket_OnBinaryMessage        func(binaryMessageFrame []byte)
 }
 
 var SUPERSEDED_ERROR__GET_WEBSOCKET_CONNECTION_SUBMISSION = _ERRORS.New("get websocket connection submission superseded by newer entry")
@@ -67,7 +67,10 @@ func (thisWebsocket *_WebsocketProxy_) Websocket_HandleGetPtyRequest(
 		)
 	}
 	thisWebsocket.Websocket_Mutex.Unlock()
-	submissionReplyChannel_getWebsocketConnection := make(chan _Reply_GetWebsocketConnection_, 1)
+	submissionReplyChannel_getWebsocketConnection := make(
+		chan _Reply_GetWebsocketConnection_,
+		1,
+	)
 	submission_getWebsocketConnection := _Submission_GetWebsocketConnection_{
 		Submission_ReplyChannel:   submissionReplyChannel_getWebsocketConnection,
 		Submission_HttpRequest:    request_getPty,

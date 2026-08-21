@@ -18,15 +18,18 @@ type NewWorkspaceNetworkApi struct {
 	Server_HostPortAddress           string
 	Websocket_OnConnected            func()
 	Websocket_OnTakeoverConnected    func()
-	Websocket_OnDisconnected         func(err error)
+	Websocket_OnDisconnected         func(readMessageError error)
 	Websocket_OnTakeoverDisconnected func()
-	Websocket_OnBinaryMessage        func(frame []byte)
+	Websocket_OnBinaryMessage        func(binaryMessageFrame []byte)
 }
 
 func NewWorkspaceNetwork(
 	networkApi NewWorkspaceNetworkApi,
 ) *WorkspaceNetwork {
-	submissionQueue := make(chan _Submission_GetWebsocketConnection_, 16)
+	submissionQueue := make(
+		chan _Submission_GetWebsocketConnection_,
+		16,
+	)
 	lifecycleContext, lifecycleCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	__Network_PtyWebsocket := &_WebsocketProxy_{
 		Websocket_Mutex:                  _SYNC.Mutex{},
@@ -34,9 +37,9 @@ func NewWorkspaceNetwork(
 		Websocket_IsTakeoverPending:      false,
 		Websocket_ReadDeadlineTimeout:    60 * _TIME.Second,
 		Websocket_WriteDeadlineTimeout:   10 * _TIME.Second,
-		Websocket_SubmissionQueue:        submissionQueue,
 		Websocket_LifecycleLoopContext:   lifecycleContext,
 		Websocket_LifecycleLoopCancel:    lifecycleCancel,
+		Websocket_SubmissionQueue:        submissionQueue,
 		Websocket_OnConnected:            networkApi.Websocket_OnConnected,
 		Websocket_OnTakeoverConnected:    networkApi.Websocket_OnTakeoverConnected,
 		Websocket_OnDisconnected:         networkApi.Websocket_OnDisconnected,
