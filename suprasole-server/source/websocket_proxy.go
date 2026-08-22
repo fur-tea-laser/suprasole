@@ -1,14 +1,14 @@
 package source
 
 import (
-	_CONTEXT "context"
-	_ERRORS "errors"
-	_FMT "fmt"
-	_IO "io"
-	_NET "net"
-	_HTTP "net/http"
-	_SYNC "sync"
-	_TIME "time"
+	_CONTEXT   "context"
+	_ERRORS    "errors"
+	_FMT       "fmt"
+	_IO        "io"
+	_NET       "net"
+	_HTTP      "net/http"
+	_SYNC      "sync"
+	_TIME      "time"
 
 	_WEBSOCKET "github.com/gorilla/websocket"
 )
@@ -37,6 +37,7 @@ type _Submission_GetWebsocketConnection_ struct {
 
 type _WebsocketProxy_ struct {
 	Websocket_Mutex                  _SYNC.Mutex
+	Websocket_WriteMutex             _SYNC.Mutex
 	Websocket_Status                 WebsocketStatus
 	Websocket_IsTakeoverPending      bool
 	Websocket_Connection             *_WEBSOCKET.Conn
@@ -59,14 +60,17 @@ func (thisWebsocket *_WebsocketProxy_) Websocket_HandleGetPtyRequest(
 	request_getPty *_HTTP.Request,
 ) {
 	thisWebsocket.Websocket_Mutex.Lock()
-	if WebsocketStatus_Connected == thisWebsocket.Websocket_Status {
+	shouldCloseForTakeover := WebsocketStatus_Connected == thisWebsocket.Websocket_Status
+	if shouldCloseForTakeover {
 		thisWebsocket.Websocket_IsTakeoverPending = true
+	}
+	thisWebsocket.Websocket_Mutex.Unlock()
+	if shouldCloseForTakeover {
 		thisWebsocket.Websocket_CloseWithCode(
 			4000,
 			"Session Taken Over",
 		)
 	}
-	thisWebsocket.Websocket_Mutex.Unlock()
 	submissionReplyChannel_getWebsocketConnection := make(
 		chan _Reply_GetWebsocketConnection_,
 		1,
@@ -135,7 +139,11 @@ func (thisWebsocket *_WebsocketProxy_) Websocket_RunLifecycleLoop() {
 						thisWebsocket.Websocket_HandleConnectionTeardown(readMessageError)
 						break
 					} else if _WEBSOCKET.TextMessage == messageType {
-						_FMT.Println("unsupported websocket message type: text messages are not supported, only binary messages are supported")
+						thisWebsocket.Websocket_CloseWithCode(
+							1003,
+							"Text Frames Unsupported",
+						)
+						break
 					} else {
 						_FMT.Println("invalid path: Websocket_RunLifecycleLoop read loop")
 					}
@@ -250,16 +258,23 @@ func (thisWebsocket *_WebsocketProxy_) Websocket_HandleConnectionTeardown(
 func (thisWebsocket *_WebsocketProxy_) Websocket_WriteBinaryMessage(
 	binaryMessageData []byte,
 ) error {
+	var capturedWebsocketConnection *_WEBSOCKET.Conn
 	thisWebsocket.Websocket_Mutex.Lock()
-	defer thisWebsocket.Websocket_Mutex.Unlock()
 	if WebsocketStatus_Connected == thisWebsocket.Websocket_Status {
-		_ = thisWebsocket.Websocket_Connection.SetWriteDeadline(
+		capturedWebsocketConnection = thisWebsocket.Websocket_Connection
+	}
+	thisWebsocket.Websocket_Mutex.Unlock()
+	if capturedWebsocketConnection != nil {
+		thisWebsocket.Websocket_WriteMutex.Lock()
+		_ = capturedWebsocketConnection.SetWriteDeadline(
 			_TIME.Now().Add(thisWebsocket.Websocket_WriteDeadlineTimeout),
 		)
-		return thisWebsocket.Websocket_Connection.WriteMessage(
+		writeMessageError := capturedWebsocketConnection.WriteMessage(
 			_WEBSOCKET.BinaryMessage,
 			binaryMessageData,
 		)
+		thisWebsocket.Websocket_WriteMutex.Unlock()
+		return writeMessageError
 	}
 	return _ERRORS.New("websocket is not connected")
 }
@@ -268,10 +283,15 @@ func (thisWebsocket *_WebsocketProxy_) Websocket_CloseWithCode(
 	websocketCloseCode int,
 	websocketCloseReason string,
 ) {
+	var capturedWebsocketConnection *_WEBSOCKET.Conn
 	thisWebsocket.Websocket_Mutex.Lock()
-	defer thisWebsocket.Websocket_Mutex.Unlock()
 	if WebsocketStatus_Connected == thisWebsocket.Websocket_Status {
-		_ = thisWebsocket.Websocket_Connection.WriteControl(
+		capturedWebsocketConnection = thisWebsocket.Websocket_Connection
+	}
+	thisWebsocket.Websocket_Mutex.Unlock()
+	if capturedWebsocketConnection != nil {
+		thisWebsocket.Websocket_WriteMutex.Lock()
+		_ = capturedWebsocketConnection.WriteControl(
 			_WEBSOCKET.CloseMessage,
 			_WEBSOCKET.FormatCloseMessage(
 				websocketCloseCode,
@@ -279,6 +299,7 @@ func (thisWebsocket *_WebsocketProxy_) Websocket_CloseWithCode(
 			),
 			_TIME.Now().Add(thisWebsocket.Websocket_WriteDeadlineTimeout),
 		)
-		_ = thisWebsocket.Websocket_Connection.Close()
+		_ = capturedWebsocketConnection.Close()
+		thisWebsocket.Websocket_WriteMutex.Unlock()
 	}
 }

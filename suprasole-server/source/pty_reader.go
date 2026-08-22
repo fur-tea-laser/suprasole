@@ -1,12 +1,13 @@
 package source
 
 import (
-	_ERRORS "errors"
-	_OS "os"
+	_ERRORS  "errors"
+	_FMT     "fmt"
+	_OS      "os"
 	_SYSCALL "syscall"
 )
 
-type PtyReader struct {
+type _PtyReader_ struct {
 	Pty_MasterFileDescriptor               *_OS.File
 	Reader_StagingBuffer                   []byte
 	Reader_UnflushedStagingBufferSliceSize int
@@ -17,7 +18,7 @@ type PtyReader struct {
 	Reader_OnExited_SystemError            func(readerTerminalSignal error)
 }
 
-func (thisReader *PtyReader) Reader_StartReading() {
+func (thisReader *_PtyReader_) Reader_StartReading() {
 	var ptyBytesRed int
 	var terminalSignal error
 	for {
@@ -25,7 +26,8 @@ func (thisReader *PtyReader) Reader_StartReading() {
 		thisReader.Reader_UnflushedStagingBufferSliceSize += ptyBytesRed
 		if thisReader.Reader_UnflushedStagingBufferSliceSize > 0 && thisReader.Reader_OnTryFlush(thisReader.Reader_StagingBuffer[:thisReader.Reader_UnflushedStagingBufferSliceSize]) {
 			thisReader.Reader_UnflushedStagingBufferSliceSize = 0
-		} else if len(thisReader.Reader_StagingBuffer) == thisReader.Reader_UnflushedStagingBufferSliceSize {
+		} 
+		if len(thisReader.Reader_StagingBuffer) == thisReader.Reader_UnflushedStagingBufferSliceSize {
 			thisReader.Reader_OnBlockingFlush(thisReader.Reader_StagingBuffer[:thisReader.Reader_UnflushedStagingBufferSliceSize])
 			thisReader.Reader_UnflushedStagingBufferSliceSize = 0
 		}
@@ -39,5 +41,8 @@ func (thisReader *PtyReader) Reader_StartReading() {
 		thisReader.Reader_OnExited_Eio(terminalSignal)
 	} else if terminalSignal != nil {
 		thisReader.Reader_OnExited_SystemError(terminalSignal)
+	} else {
+		// terminalSignal is guaranteed non-nil because a non-nil terminalSignal is required to break out of the for loop above
+		_FMT.Println("invalid path: _PtyReader_ Reader_StartReading")
 	}
 }

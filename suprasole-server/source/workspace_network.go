@@ -2,10 +2,10 @@ package source
 
 import (
 	_CONTEXT "context"
-	_NET "net"
-	_HTTP "net/http"
-	_SYNC "sync"
-	_TIME "time"
+	_NET     "net"
+	_HTTP    "net/http"
+	_SYNC    "sync"
+	_TIME    "time"
 )
 
 type WorkspaceNetwork struct {
