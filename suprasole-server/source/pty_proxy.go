@@ -23,43 +23,43 @@ const (
 )
 
 type _PtyProxy_ struct {
-	PtyMasterFileDescriptor            *_OS.File
-	Id                                 uint32
-	Mutex                              _SYNC.Mutex
-	ProxyMode                          PtyProxyMode
-	TerminalCommand                    *_EXEC.Cmd
-	TerminalState                      *_XTERM.Terminal
-	PtyReader                          *_PtyReader_
-	PostSnapshotBuffer                 *_BYTES.Buffer
-	OnOutput_Live                      func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnOutput_Snapshot                  func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnOutput_PostSnapshotBuffer        func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnExited_Eio_Success               func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Failure               func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Killed                func(ptyProxy *_PtyProxy_)
-	OnExited_Closed                    func(ptyProxy *_PtyProxy_)
-	OnExited_SystemError               func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
+	PtyMasterFileDescriptor     *_OS.File
+	Id                          uint32
+	Mutex                       _SYNC.Mutex
+	ProxyMode                   PtyProxyMode
+	TerminalCommand             *_EXEC.Cmd
+	TerminalState               *_XTERM.Terminal
+	PtyReader                   *_PtyReader_
+	PostSnapshotBuffer          *_BYTES.Buffer
+	OnOutput_Live               func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnOutput_Snapshot           func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnOutput_PostSnapshotBuffer func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnExited_Eio_Success        func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Failure        func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Killed         func(ptyProxy *_PtyProxy_)
+	OnExited_Closed             func(ptyProxy *_PtyProxy_)
+	OnExited_SystemError        func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
 }
 
 type _NewPtyProxyApi_ struct {
-	ShellBinaryPath           string
-	ReaderStagingBufferSize   int
-	ScrollbackLineCount       int
-	Id                        uint32
-	ColumnCount               int
-	RowCount                  int
-	EnvironmentVariables      []string
-	DirectoryPath             string
-	PostSnapshotBufferSize    int
-	OnPtySpawned              func(ptyProxy *_PtyProxy_)
-	OnOutput_Live             func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnOutput_Snapshot         func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	ShellBinaryPath             string
+	ReaderStagingBufferSize     int
+	ScrollbackLineCount         int
+	Id                          uint32
+	ColumnCount                 int
+	RowCount                    int
+	EnvironmentVariables        []string
+	DirectoryPath               string
+	PostSnapshotBufferSize      int
+	OnPtySpawned                func(ptyProxy *_PtyProxy_)
+	OnOutput_Live               func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnOutput_Snapshot           func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
 	OnOutput_PostSnapshotBuffer func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnExited_Eio_Success      func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Failure      func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Killed       func(ptyProxy *_PtyProxy_)
-	OnExited_Closed           func(ptyProxy *_PtyProxy_)
-	OnExited_SystemError      func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
+	OnExited_Eio_Success        func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Failure        func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Killed         func(ptyProxy *_PtyProxy_)
+	OnExited_Closed             func(ptyProxy *_PtyProxy_)
+	OnExited_SystemError        func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
 }
 
 func NewPtyProxy(api _NewPtyProxyApi_) (*_PtyProxy_, error) {

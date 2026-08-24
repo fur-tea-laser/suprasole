@@ -178,11 +178,12 @@ func (this *_WebsocketController_) UpdateWebsocketConnection(
 		this.ConnectionStatus = CONNECTING__WebsocketConnectionStatus
 	}
 	this.Mutex.Unlock()
+	var nilUpgradeResponseHeader _HTTP.Header = nil
 	websocketRequestUpgrader := _WEBSOCKET.Upgrader{}
 	newWebsocketConnection, upgradeRequestError := websocketRequestUpgrader.Upgrade(
 		latestSubmission_getWebsocketConnection.ResponseWriter,
 		latestSubmission_getWebsocketConnection.HttpRequest,
-		nil,
+		nilUpgradeResponseHeader,
 	)
 	latestSubmission_getWebsocketConnection.ReplyChannel <- _Reply_GetWebsocketConnection_{
 		MaybeSubmissionError: upgradeRequestError,
