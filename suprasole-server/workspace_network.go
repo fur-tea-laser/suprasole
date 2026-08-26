@@ -1,4 +1,4 @@
-package source
+package main
 
 import (
 	_CONTEXT "context"
@@ -15,12 +15,12 @@ type _WorkspaceNetwork_ struct {
 }
 
 type _NewWorkspaceNetworkApi_ struct {
-	HostPortAddress        string
-	OnConnected            func()
-	OnTakeoverConnected    func()
-	OnDisconnected         func(readMessageError error)
-	OnTakeoverDisconnected func()
-	OnBinaryMessage        func(binaryMessageFrame []byte)
+	HostPortAddress                     string
+	OnConnected_PtyWebsocket            func()
+	OnTakeoverConnected_PtyWebsocket    func()
+	OnDisconnected_PtyWebsocket         func(readMessageError error)
+	OnTakeoverDisconnected_PtyWebsocket func()
+	OnBinaryMessageFrame_PtyWebsocket   func(binaryMessageFrame []byte)
 }
 
 func NewWorkspaceNetwork(
@@ -31,36 +31,36 @@ func NewWorkspaceNetwork(
 		16,
 	)
 	lifecycleContext, lifecycleCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
-	__Network_PtyWebsocket := &_WebsocketController_{
+	__PtyWebsocketController_Network := &_WebsocketController_{
 		Mutex:                  _SYNC.Mutex{},
 		EgressMutex:            _SYNC.Mutex{},
 		ConnectionStatus:       STANDBY__WebsocketConnectionStatus,
 		IsTakeoverPending:      false,
-		WebsocketConnection:    nil,
 		ReadDeadlineTimeout:    60 * _TIME.Second,
 		WriteDeadlineTimeout:   10 * _TIME.Second,
 		LifecycleLoopContext:   lifecycleContext,
 		LifecycleLoopCancel:    lifecycleCancel,
 		SubmissionQueue:        submissionQueue,
-		OnConnected:            networkApi.OnConnected,
-		OnTakeoverConnected:    networkApi.OnTakeoverConnected,
-		OnDisconnected:         networkApi.OnDisconnected,
-		OnTakeoverDisconnected: networkApi.OnTakeoverDisconnected,
-		OnBinaryMessage:        networkApi.OnBinaryMessage,
+		OnConnected:            networkApi.OnConnected_PtyWebsocket,
+		OnTakeoverConnected:    networkApi.OnTakeoverConnected_PtyWebsocket,
+		OnDisconnected:         networkApi.OnDisconnected_PtyWebsocket,
+		OnTakeoverDisconnected: networkApi.OnTakeoverDisconnected_PtyWebsocket,
+		OnBinaryMessageFrame:   networkApi.OnBinaryMessageFrame_PtyWebsocket,
+		WebsocketConnection:    nil,
 	}
 	requestHandlerRouter := _HTTP.NewServeMux()
 	requestHandlerRouter.HandleFunc(
 		"/pty",
-		__Network_PtyWebsocket.HandleGetPtyRequest,
+		__PtyWebsocketController_Network.HandleRequest_GetWebsocketConnection,
 	)
-	__Network_HttpServer := &_HTTP.Server{
+	__HttpServer_Network := &_HTTP.Server{
 		Addr:    networkApi.HostPortAddress,
 		Handler: requestHandlerRouter,
 	}
 	return &_WorkspaceNetwork_{
 		Mutex:                  _SYNC.Mutex{},
-		HttpServer:             __Network_HttpServer,
-		PtyWebsocketController: __Network_PtyWebsocket,
+		HttpServer:             __HttpServer_Network,
+		PtyWebsocketController: __PtyWebsocketController_Network,
 	}
 }
 

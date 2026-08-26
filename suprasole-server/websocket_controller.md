@@ -4,9 +4,9 @@
 
 This section documents the architectural design principles, race-prevention invariants, and thread-synchronization mechanics behind WebsocketController.
 
-### 1. Ingress Concurrency Decoupling (HandleGetPtyRequest)
+### 1. Ingress Concurrency Decoupling (HandleRequest_GetWebsocketConnection)
 * **HTTP Multi-Threading vs. Single-Worker Lifecycle Ownership**: Go's net/http handles incoming client requests across arbitrary worker goroutines. Allowing HTTP handlers to directly mutate socket pointers or execute upgrades triggers data races and split-brain session states.
-* **Invariant: Single-Source Takeover Signalling**: When a new connection arrives while an active session exists (CONNECTED__WebsocketConnectionStatus), HandleGetPtyRequest does not perform socket teardown directly on the HTTP handler thread. Instead, it flags IsTakeoverPending = true under lock and sends a Close control frame. This forces the active read loop to exit cleanly and delegates teardown exclusively to the background worker thread, eliminating teardown-versus-upgrade race conditions.
+* **Invariant: Single-Source Takeover Signalling**: When a new connection arrives while an active session exists (CONNECTED__WebsocketConnectionStatus), HandleRequest_GetWebsocketConnection does not perform socket teardown directly on the HTTP handler thread. Instead, it flags IsTakeoverPending = true under lock and sends a Close control frame. This forces the active read loop to exit cleanly and delegates teardown exclusively to the background worker thread, eliminating teardown-versus-upgrade race conditions.
 * **Invariant: Bounded Queue Backpressure & Resiliency**: Bounding SubmissionQueue via non-blocking select fallback prevents server memory exhaustion during reconnect storms. Synchronous reply channels paired with context monitoring guarantee that client cancellations and obsolete requests release HTTP worker threads cleanly.
 
 ### 2. The Single-Threaded Core & Thread-Safe State Machine Isolation (RunLifecycleLoop)
@@ -36,13 +36,13 @@ This section documents the architectural design principles, race-prevention inva
 ## Inherent System Realities & Architectural Trade-Offs
 
 ### 1. Ingress Byte Discarding on Administrative Socket Closure
-* **Mechanism**: When an administrative teardown or session takeover occurs, HandleGetPtyRequest flags IsTakeoverPending = true and invokes CloseWithCode (or Close).
+* **Mechanism**: When an administrative teardown or session takeover occurs, HandleRequest_GetWebsocketConnection flags IsTakeoverPending = true and invokes CloseWithCode (or Close).
 * **Inherent System Reality**: Any WebSocket binary message frames (e.g., client stdin keypresses or control frames) that were successfully transmitted across the TCP network and received into the OS kernel socket receive buffer (or Gorilla's internal buffer), but **not yet popped by ReadMessage()**, are discarded when Close() invalidates the underlying OS net descriptor.
 * **Network Delivery vs. Application Processing**: Even though network transmission succeeded, closing the descriptor terminates kernel receive queues (recv()) before RunLifecycleLoop can invoke ReadMessage() to process the queued frames into OnBinaryMessage.
 * **Library vs. Kernel Bounds**: Replacing Gorilla WebSocket with a custom WebSocket implementation would not prevent this, as closing the underlying socket connection at the OS level inherently purges unread kernel receive buffers.
 
 ### 2. Pre-Upgrade Eviction During Session Takeover
-* **Mechanism**: When HandleGetPtyRequest receives a takeover connection request while an active session exists (CONNECTED__WebsocketConnectionStatus), it immediately sends a Close frame (4000, "Session Taken Over") to evict the active connection **before** the incoming HTTP request undergoes its WebSocket upgrade.
+* **Mechanism**: When HandleRequest_GetWebsocketConnection receives a takeover connection request while an active session exists (CONNECTED__WebsocketConnectionStatus), it immediately sends a Close frame (4000, "Session Taken Over") to evict the active connection **before** the incoming HTTP request undergoes its WebSocket upgrade.
 * **Inherent System Reality**: If the incoming takeover request fails its HTTP 101 WebSocket upgrade (e.g., due to an aborted HTTP handshake, invalid headers, or client network drop during upgrade), the pre-existing healthy session has already been closed.
 * **Telemetry & State Outcome**: The worker transitions to TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus, leaving the system with no active connection. The controller prioritizes immediate takeover responsiveness over optimistic pre-validation; completely eliminating this risk would require performing HTTP upgrade validation *before* signaling eviction on the active session.
 
@@ -132,14 +132,14 @@ WriteBinaryMessage safely serializes outbound binary payload frames over the act
 
    * **Current Application Close Codes**:
      * **1001 (Going Away)**: Sent during graceful server termination.
-     * **4000 (Session Takeover)**: Custom application code sent during session takeover eviction in HandleGetPtyRequest when a newer client connects.
+     * **4000 (Session Takeover)**: Custom application code sent during session takeover eviction in HandleRequest_GetWebsocketConnection when a newer client connects.
 
 2. **websocketCloseReason**:
    * **Payload Size Limit**: WebSocket Close control frames are subject to RFC 6455 Section 5.5.1, capping total control frame payloads at 125 bytes. Subtracting the 2-byte websocketCloseCode leaves a strict maximum of **123 bytes** for the UTF-8 encoded websocketCloseReason string.
    * **Encoding Requirements**: Must consist of valid UTF-8 text data.
    * **Current Application Close Reasons**:
      * **"Server Shutting Down"**: Sent during graceful server termination (paired with status code 1001).
-     * **"Session Taken Over"**: Sent during session takeover eviction in HandleGetPtyRequest when a newer client connects (paired with status code 4000).
+     * **"Session Taken Over"**: Sent during session takeover eviction in HandleRequest_GetWebsocketConnection when a newer client connects (paired with status code 4000).
 
 #### conn.WriteControl Egress Failure Modes
 * **Write Deadline Timeout (i/o timeout)**: Client network congestion or slow consumption prevents TCP socket buffers from accepting bytes before deadline expires (*net.OpError wrapping os.ErrDeadlineExceeded). [*Also same for conn.WriteMessage*]

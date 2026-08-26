@@ -1,4 +1,4 @@
-package source
+package main
 
 import (
 	_CONTEXT   "context"
@@ -52,12 +52,12 @@ type _WebsocketController_ struct {
 	OnTakeoverConnected         func()
 	OnDisconnected              func(readMessageError error)
 	OnTakeoverDisconnected      func()
-	OnBinaryMessage             func(binaryMessageFrame []byte)
+	OnBinaryMessageFrame        func(binaryMessageFrame []byte)
 }
 
-func (this *_WebsocketController_) HandleGetPtyRequest(
-	responseWriter_getPty _HTTP.ResponseWriter,
-	request_getPty *_HTTP.Request,
+func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
+	responseWriter_getWebsocketConnection _HTTP.ResponseWriter,
+	request_getWebsocketConnection *_HTTP.Request,
 ) {
 	this.Mutex.Lock()
 	shouldCloseForTakeover := CONNECTED__WebsocketConnectionStatus == this.ConnectionStatus
@@ -77,23 +77,23 @@ func (this *_WebsocketController_) HandleGetPtyRequest(
 	)
 	submission_getWebsocketConnection := _Submission_GetWebsocketConnection_{
 		ReplyChannel:   submissionReplyChannel_getWebsocketConnection,
-		HttpRequest:    request_getPty,
-		ResponseWriter: responseWriter_getPty,
+		HttpRequest:    request_getWebsocketConnection,
+		ResponseWriter: responseWriter_getWebsocketConnection,
 	}
 	select {
 	case this.SubmissionQueue <- submission_getWebsocketConnection:
 	default:
 		_HTTP.Error(
-			responseWriter_getPty,
+			responseWriter_getWebsocketConnection,
 			"server busy",
 			_HTTP.StatusServiceUnavailable,
 		)
 		return
 	}
 	select {
-	case <-request_getPty.Context().Done():
+	case <-request_getWebsocketConnection.Context().Done():
 		_HTTP.Error(
-			responseWriter_getPty,
+			responseWriter_getWebsocketConnection,
 			"request canceled",
 			499,
 		)
@@ -103,7 +103,7 @@ func (this *_WebsocketController_) HandleGetPtyRequest(
 			return
 		} else if _ERRORS.Is(submissionReply_getWebsocketConnection.MaybeSubmissionError, SUPERSEDED_ERROR__GET_WEBSOCKET_CONNECTION_SUBMISSION) {
 			_HTTP.Error(
-				responseWriter_getPty,
+				responseWriter_getWebsocketConnection,
 				submissionReply_getWebsocketConnection.MaybeSubmissionError.Error(),
 				_HTTP.StatusConflict,
 			)
@@ -117,7 +117,7 @@ func (this *_WebsocketController_) HandleGetPtyRequest(
 			return
 		} else {
 			// submissionReply_getWebsocketConnection.MaybeSubmissionError != nil
-			_FMT.Println("invalid path: HandleGetPtyRequest")
+			_FMT.Println("invalid path: HandleRequest_GetWebsocketConnection")
 			return
 		}
 	}
@@ -134,7 +134,7 @@ func (this *_WebsocketController_) RunLifecycleLoop() {
 				for {
 					messageType, binaryMessageFrame, readMessageError := this.WebsocketConnection.ReadMessage()
 					if _WEBSOCKET.BinaryMessage == messageType {
-						this.OnBinaryMessage(binaryMessageFrame)
+						this.OnBinaryMessageFrame(binaryMessageFrame)
 					} else if readMessageError != nil {
 						this.HandleConnectionTeardown(readMessageError)
 						break
