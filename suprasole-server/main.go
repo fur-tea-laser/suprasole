@@ -2,12 +2,12 @@ package main
 
 import (
 	_CONTEXT "context"
-	_FLAG    "flag"
-	_FMT     "fmt"
-	_OS      "os"
-	_SIGNAL  "os/signal"
+	_FLAG "flag"
+	_FMT "fmt"
+	_OS "os"
+	_SIGNAL "os/signal"
 	_SYSCALL "syscall"
-	_TIME    "time"
+	_TIME "time"
 )
 
 func main() {

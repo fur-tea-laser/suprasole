@@ -26,6 +26,29 @@ PtyProxy continuously maintains full headless VTE terminal screen state (Termina
  4. Unlocked Replay & Downstream Decoupling Rationale (PostSnapshotToLive Stage):
     Transitioning back to RUNNING_LIVE__PtyProxyMode requires extracting and cloning PostSnapshotBuffer.Bytes() under lock before releasing Mutex. Cloning staged bytes under lock allows OnOutput_PostSnapshotBuffer to be dispatched 100% unlocked outside Mutex, eliminating downstream lock coupling and circular-wait deadlocks while seamlessly resynchronizing the stdout stream prior to resuming direct live output.
 
+## Initialization & Process Spawning Synchronization Architecture (NewPtyProxy & OnPtySpawned)
+
+When initializing a new terminal instance via NewPtyProxy, PtyProxy enforces a strict 3-stage synchronous construction pipeline:
+
+ 1. Synchronous OS Process Creation & PTY Allocation (pty.Start):
+    Allocates the Linux pseudo-terminal master/slave descriptor pair and forks the child process (fork/execve). Upon completion, the kernel PTY master descriptor is bound to newPtyProxyResult and PtyReader.
+
+ 2. Upstream Synchronous Handshake Hook (OnPtySpawned):
+    Prior to launching background stream draining, NewPtyProxy synchronously invokes api.OnPtySpawned(newPtyProxyResult). This callback hook enables the upstream workspace orchestrator to:
+      - Register the _WorkspacePty_ session wrapper in the active PtyPool under mutex.
+      - Emit the SpawnPtyStatusEvent (0x0002) frame over WebSocket egress.
+
+ 3. Background Reader Goroutine Launch (go PtyReader.StartReading):
+    Only after OnPtySpawned completes does NewPtyProxy spawn the background goroutine to execute PtyReader.StartReading().
+
+### Critical Concurrency Protections of the OnPtySpawned Handshake:
+
+ 1. Wire Protocol Ingress/Egress Determinism:
+    On the client-server WebSocket transport, downstream protocol decoders require that SpawnPtyStatusEvent (0x0002) precedes any PtyOutputEvent (0x0008) or PtyExitEvent (0x0005) for a given PTY ID. Launching PtyReader.StartReading() before session registration and status frame emission would allow fast child process output (e.g. bash startup banners, echo commands) to emit 0x0008 frames to the client before the client is notified of session creation (0x0002).
+
+ 2. Fast Process Exit & Race-Free Teardown Registration:
+    If a child process terminates near-instantaneously (e.g., nonexistent binary, immediate exit 1, invalid shell script), the kernel PTY master descriptor triggers an instantaneous EIO/EOF on PtyReader, invoking OnExited_Eio_* and calling upstream HandleProcessExit. Invoking OnPtySpawned before launching StartReading guarantees that _WorkspacePty_ is already fully registered in PtyPool before any exit teardown callback can execute, preventing dropped exit events and unindexed terminal states.
+
 ## Flush Handling Callback Complexity & Lock Scoping Strategy
 
 The primary architectural complexity in PtyProxy centers on its flush handling callbacks (HandleTryFlush and HandleBlockingFlush) and their underlying helper __flushReaderStagingBufferSliceIfLockAcquired. This pipeline bridges PtyReader's lock-free background read loop with PtyProxy's thread-safe state machine across four critical boundaries:
@@ -329,3 +352,4 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
   - 4. Unidirectional Callback Coupling: PtyProxy owns PtyReader with zero struct back-pointers; PtyReader delegates stream events to PtyProxy strictly through function values.
   - 5. Atomic Lifecycle State Machine: ProxyMode evaluates atomically under Mutex. Once a teardown path is triggered upon read loop termination, PtyProxy transitions to EXITED__PtyProxyMode and no further stdout flushes can ever occur.
   - 6. Callback Execution Contracts: Stdout egress callbacks (OnOutput_*) MUST be non-blocking to prevent stalling stream draining. Teardown pipelines execute synchronously on the background reader thread post-loop, blocking on TerminalCommand.Wait() outside Mutex to reap child process exit status before dispatching exit callbacks.
+  - 7. Spawning Handshake Contract: NewPtyProxy synchronously executes OnPtySpawned to complete session registry insertion and initial wire status emission BEFORE launching go PtyReader.StartReading(), guaranteeing strict network frame ordering and preventing race conditions with fast child process exits.

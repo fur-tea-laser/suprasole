@@ -1,15 +1,15 @@
 package main
 
 import (
-	_BYTES   "bytes"
-	_FMT     "fmt"
-	_OS      "os"
-	_EXEC    "os/exec"
-	_SYNC    "sync"
+	_BYTES "bytes"
+	_FMT "fmt"
+	_OS "os"
+	_EXEC "os/exec"
+	_SYNC "sync"
 	_SYSCALL "syscall"
 
-	_PTY     "github.com/creack/pty"
-	_XTERM   "github.com/gitpod-io/xterm-go"
+	_PTY "github.com/creack/pty"
+	_XTERM "github.com/gitpod-io/xterm-go"
 )
 
 type PtyProxyMode int

@@ -1,14 +1,14 @@
 package main
 
 import (
-	_CONTEXT   "context"
-	_ERRORS    "errors"
-	_FMT       "fmt"
-	_IO        "io"
-	_NET       "net"
-	_HTTP      "net/http"
-	_SYNC      "sync"
-	_TIME      "time"
+	_CONTEXT "context"
+	_ERRORS "errors"
+	_FMT "fmt"
+	_IO "io"
+	_NET "net"
+	_HTTP "net/http"
+	_SYNC "sync"
+	_TIME "time"
 
 	_WEBSOCKET "github.com/gorilla/websocket"
 )
@@ -38,21 +38,21 @@ type _Submission_GetWebsocketConnection_ struct {
 }
 
 type _WebsocketController_ struct {
-	Mutex                       _SYNC.Mutex
-	EgressMutex                 _SYNC.Mutex
-	ConnectionStatus            WebsocketConnectionStatus
-	IsTakeoverPending           bool
-	WebsocketConnection         *_WEBSOCKET.Conn
-	ReadDeadlineTimeout         _TIME.Duration
-	WriteDeadlineTimeout        _TIME.Duration
-	LifecycleLoopContext        _CONTEXT.Context
-	LifecycleLoopCancel         _CONTEXT.CancelFunc
-	SubmissionQueue             chan _Submission_GetWebsocketConnection_
-	OnConnected                 func()
-	OnTakeoverConnected         func()
-	OnDisconnected              func(readMessageError error)
-	OnTakeoverDisconnected      func()
-	OnBinaryMessageFrame        func(binaryMessageFrame []byte)
+	Mutex                  _SYNC.Mutex
+	EgressMutex            _SYNC.Mutex
+	ConnectionStatus       WebsocketConnectionStatus
+	IsTakeoverPending      bool
+	WebsocketConnection    *_WEBSOCKET.Conn
+	ReadDeadlineTimeout    _TIME.Duration
+	WriteDeadlineTimeout   _TIME.Duration
+	LifecycleLoopContext   _CONTEXT.Context
+	LifecycleLoopCancel    _CONTEXT.CancelFunc
+	SubmissionQueue        chan _Submission_GetWebsocketConnection_
+	OnConnected            func()
+	OnTakeoverConnected    func()
+	OnDisconnected         func(readMessageError error)
+	OnTakeoverDisconnected func()
+	OnBinaryMessageFrame   func(binaryMessageFrame []byte)
 }
 
 func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(

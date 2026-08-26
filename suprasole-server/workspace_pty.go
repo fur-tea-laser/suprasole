@@ -41,7 +41,6 @@ type _PtyExitResult_SystemError_ struct {
 func (_PtyExitResult_SystemError_) compiletimemarker_PtyExitResult() {}
 
 type _WorkspacePty_ struct {
-	Id              uint32
 	PtyProxy        *_PtyProxy_
 	IsActive        bool
 	MaybeExitResult _PtyExitResult_

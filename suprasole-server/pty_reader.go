@@ -1,9 +1,9 @@
 package main
 
 import (
-	_ERRORS  "errors"
-	_FMT     "fmt"
-	_OS      "os"
+	_ERRORS "errors"
+	_FMT "fmt"
+	_OS "os"
 	_SYSCALL "syscall"
 )
 
@@ -26,7 +26,7 @@ func (this *_PtyReader_) StartReading() {
 		this.UnflushedStagingBufferSliceSize += ptyBytesRed
 		if this.UnflushedStagingBufferSliceSize > 0 && this.OnTryFlush(this.StagingBuffer[:this.UnflushedStagingBufferSliceSize]) {
 			this.UnflushedStagingBufferSliceSize = 0
-		} 
+		}
 		if len(this.StagingBuffer) == this.UnflushedStagingBufferSliceSize {
 			this.OnBlockingFlush(this.StagingBuffer[:this.UnflushedStagingBufferSliceSize])
 			this.UnflushedStagingBufferSliceSize = 0
