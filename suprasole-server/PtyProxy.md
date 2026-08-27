@@ -322,16 +322,41 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 13: Terminal Window Resizing Call Tree
       Resize
-        -> pty.Setsize
         -> Mutex.Lock
-        -> TerminalState.Resize
+        -> PtyTerminal.Resize
         -> Mutex.Unlock
+        -> pty.Setsize
 
     - Path 14: Terminal User Input / Stdin Writing Call Tree
       PtyMasterFileDescriptor.Write
 
     - Path 15: Master Descriptor Administrative Closure Call Tree
       PtyMasterFileDescriptor.Close
+
+## Terminal Window Resizing Synchronization & Order of Operations (Resize)
+
+When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCount)`, `PtyProxy` enforces a strict 2-phase execution sequence:
+
+ 1. In-Memory VTE Grid Resize Under Lock (PtyTerminal.Resize):
+    `PtyProxy` acquires `Mutex` and synchronously resizes the headless `*xterm.Terminal` emulator grid buffers and line wrap pointers before releasing `Mutex`.
+
+ 2. Kernel Window Size Syscall Outside Lock (pty.Setsize):
+    After releasing `Mutex`, `PtyProxy` issues the `ioctl(TIOCSWINSZ)` syscall via `pty.Setsize` on `PtyMasterFileDescriptor` 100% unlocked.
+
+### Critical Invariants of the Resize Sequence:
+
+ 1. Elimination of the SIGWINCH Redraw Race Hazard:
+    Issuing `pty.Setsize` triggers the Linux kernel to send `SIGWINCH` to the child process (`vim`, `htop`, `tmux`), which immediately emits full-screen redraw bytes over stdout. Resizing `PtyTerminal` **first** guarantees that the in-memory emulator is already sized and ready to consume the incoming redraw output, preventing visual wrapping corruption that would occur if stdout arrived while the grid was still at the old geometry.
+
+ 2. Zero Syscall Blocking Under Mutex:
+    Executing `pty.Setsize` outside `Mutex` ensures that kernel `ioctl` operations never hold the in-memory state lock, eliminating lock contention and circular-wait deadlocks with background reader flushes.
+
+ 3. Exited Session Visual Integrity & The Absence of SIGWINCH Egress:
+    - **The Exited Resizing Asymmetry**: For a running session, the client receives visual updates because the child process catches `SIGWINCH` and actively emits ANSI redraw chunks over stdout. When a process has exited, the child is dead and `PtyMasterFileDescriptor` is closed. No `SIGWINCH` is caught, and zero stdout bytes are produced.
+    - **Current Dual-Sided Resolution Strategy**:
+      1. *Client-Side Local Reflow (Visible Sessions)*: For sessions currently focused in the UI, the client-side terminal engine (`xterm.js`) retains the scrollback buffer locally and natively reflows text on the DOM upon viewport resize with 0ms latency, eliminating the need for server-driven redraw streams.
+      2. *Server-Side Authoritative VTE Grid*: Executing `PtyTerminal.Resize` synchronously under lock keeps the server's in-memory emulator strictly synchronized with the client viewport geometry. Any `EBADF` descriptor error from `pty.Setsize` on the closed file descriptor is cleanly ignored.
+      3. *On-Demand Catch-Up Snapshots (Hidden & Reconnect Flows)*: If an exited tab was backgrounded during resizing or if the client drops/reconnects, switching visibility to the tab triggers `TransitionMode_PreToPostSnapshot`. Because `ProxyMode == EXITED`, it serializes the newly reflowed `PtyTerminal` state and dispatches a full ANSI snapshot (`OnOutput_Snapshot`) to establish pristine visual parity.
 
 ## Isolated Execution Spheres (Where Mutex IS NOT Required)
 

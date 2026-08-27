@@ -236,14 +236,18 @@ func __executeExitedTeardownPipeline(
 
 func (this *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
 	this.Mutex.Lock()
-	this.ProxyMode = RUNNING_PRE_SNAPSHOT__PtyProxyMode
+	if this.ProxyMode != EXITED__PtyProxyMode {
+		this.ProxyMode = RUNNING_PRE_SNAPSHOT__PtyProxyMode
+	}
 	this.Mutex.Unlock()
 }
 
 func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 	this.Mutex.Lock()
 	this.PostSnapshotBuffer.Reset()
-	this.ProxyMode = RUNNING_POST_SNAPSHOT__PtyProxyMode
+	if this.ProxyMode != EXITED__PtyProxyMode {
+		this.ProxyMode = RUNNING_POST_SNAPSHOT__PtyProxyMode
+	}
 	serializeAddon := _XTERM.NewSerializeAddon(this.PtyTerminal)
 	snapshotBytes := serializeAddon.Serialize(nil)
 	this.Mutex.Unlock()
@@ -256,7 +260,9 @@ func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 func (this *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
 	this.Mutex.Lock()
 	clonedPostSnapshotBuffer := _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
-	this.ProxyMode = RUNNING_LIVE__PtyProxyMode
+	if this.ProxyMode != EXITED__PtyProxyMode {
+		this.ProxyMode = RUNNING_LIVE__PtyProxyMode
+	}
 	this.Mutex.Unlock()
 	if len(clonedPostSnapshotBuffer) > 0 {
 		this.OnOutput_PostSnapshotBuffer(
@@ -270,22 +276,17 @@ func (this *_PtyProxy_) Resize(
 	nextColumnCount int,
 	nextRowCount int,
 ) error {
-	nextWinsize := &_PTY.Winsize{
-		Rows: uint16(nextRowCount),
-		Cols: uint16(nextColumnCount),
-	}
-	ptySetSizeError := _PTY.Setsize(
-		this.PtyMasterFileDescriptor,
-		nextWinsize,
-	)
-	if ptySetSizeError != nil {
-		return ptySetSizeError
-	}
 	this.Mutex.Lock()
 	this.PtyTerminal.Resize(
 		nextColumnCount,
 		nextRowCount,
 	)
 	this.Mutex.Unlock()
-	return nil
+	return _PTY.Setsize(
+		this.PtyMasterFileDescriptor,
+		&_PTY.Winsize{
+			Rows: uint16(nextRowCount),
+			Cols: uint16(nextColumnCount),
+		},
+	)
 }

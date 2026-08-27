@@ -3,13 +3,13 @@ package main
 type Code_PtyMessage_Ingress uint16
 
 const (
-	SPAWN_PTY__Code_PtyMessage_Ingress          Code_PtyMessage_Ingress = 0x0001
-	RESIZE_PTYS__Code_PtyMessage_Ingress        Code_PtyMessage_Ingress = 0x0003
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress    Code_PtyMessage_Ingress = 0x0007
-	TERMINATE_PTY__Code_PtyMessage_Ingress      Code_PtyMessage_Ingress = 0x0004
-	REMOVE_PTY__Code_PtyMessage_Ingress         Code_PtyMessage_Ingress = 0x0006
-	SET_PTY_PRIORITIES__Code_PtyMessage_Ingress Code_PtyMessage_Ingress = 0x0009
-	RESYNC_WORKSPACE__Code_PtyMessage_Ingress   Code_PtyMessage_Ingress = 0x000e
+	SPAWN_PTY__Code_PtyMessage_Ingress            Code_PtyMessage_Ingress = 0x0001
+	RESIZE_PTYS__Code_PtyMessage_Ingress          Code_PtyMessage_Ingress = 0x0003
+	WRITE_PTY_INPUT__Code_PtyMessage_Ingress      Code_PtyMessage_Ingress = 0x0007
+	TERMINATE_PTY__Code_PtyMessage_Ingress        Code_PtyMessage_Ingress = 0x0004
+	REMOVE_PTY__Code_PtyMessage_Ingress           Code_PtyMessage_Ingress = 0x0006
+	SET_PTY_VISIBILITIES__Code_PtyMessage_Ingress Code_PtyMessage_Ingress = 0x0009
+	RESYNC_WORKSPACE__Code_PtyMessage_Ingress     Code_PtyMessage_Ingress = 0x000e
 )
 
 type _PtyMessage_Ingress_ interface {
@@ -20,13 +20,13 @@ type _PtyMessage_Ingress_ interface {
 var DECODE_MESSAGE_MAP__PTY_MESSAGE_INGRESS = map[Code_PtyMessage_Ingress]func(
 	binaryMessageFrame []byte,
 ) (_PtyMessage_Ingress_, error){
-	SPAWN_PTY__Code_PtyMessage_Ingress:          decodeMessage_SpawnPty,
-	RESIZE_PTYS__Code_PtyMessage_Ingress:        decodeMessage_ResizePtys,
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress:    decodeMessage_WritePtyInput,
-	TERMINATE_PTY__Code_PtyMessage_Ingress:      decodeMessage_TerminatePty,
-	REMOVE_PTY__Code_PtyMessage_Ingress:         decodeMessage_RemovePty,
-	SET_PTY_PRIORITIES__Code_PtyMessage_Ingress: decodeMessage_SetPtyPriorities,
-	RESYNC_WORKSPACE__Code_PtyMessage_Ingress:   decodeMessage_ResyncWorkspace,
+	SPAWN_PTY__Code_PtyMessage_Ingress:            decodeMessage_SpawnPty,
+	RESIZE_PTYS__Code_PtyMessage_Ingress:          decodeMessage_ResizePtys,
+	WRITE_PTY_INPUT__Code_PtyMessage_Ingress:      decodeMessage_WritePtyInput,
+	TERMINATE_PTY__Code_PtyMessage_Ingress:        decodeMessage_TerminatePty,
+	REMOVE_PTY__Code_PtyMessage_Ingress:           decodeMessage_RemovePty,
+	SET_PTY_VISIBILITIES__Code_PtyMessage_Ingress: decodeMessage_SetPtyVisibilities,
+	RESYNC_WORKSPACE__Code_PtyMessage_Ingress:     decodeMessage_ResyncWorkspace,
 }
 
 func decodeMessage_SpawnPty(
@@ -202,19 +202,19 @@ func (this _RemovePty_Message_) Execute(
 ) {
 }
 
-func decodeMessage_SetPtyPriorities(
+func decodeMessage_SetPtyVisibilities(
 	binaryMessageFrame []byte,
 ) (_PtyMessage_Ingress_, error) {
 	return nil, nil
 }
 
-type _SetPtyPriorities_Message_ struct {
-	ActivePtyIds []uint32
+type _SetPtyVisibilities_Message_ struct {
+	VisiblePtyIds []uint32
 }
 
-func (_SetPtyPriorities_Message_) compiletimemarker_PtyMessage_Ingress() {}
+func (_SetPtyVisibilities_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
-func (this _SetPtyPriorities_Message_) Execute(
+func (this _SetPtyVisibilities_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 }
@@ -229,7 +229,7 @@ type _ResyncWorkspace_Entry_ struct {
 	Id_PtyProxy             uint32
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
-	IsActive_WorkspacePty   bool
+	IsVisible_WorkspacePty  bool
 }
 
 type _ResyncWorkspace_Message_ struct {

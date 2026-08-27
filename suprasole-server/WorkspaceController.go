@@ -5,6 +5,7 @@ import (
 	_BINARY "encoding/binary"
 	_FMT "fmt"
 	_SYNC "sync"
+	_SYSCALL "syscall"
 	_TIME "time"
 )
 
@@ -137,7 +138,7 @@ func (this *_WorkspaceController_) HandleSpawned_Pty(
 ) {
 	workspacePty := &_WorkspacePty_{
 		PtyProxy:        ptyProxy,
-		IsActive:        true,
+		IsVisible:       true,
 		MaybeExitResult: nil,
 	}
 	this.Mutex.Lock()
@@ -171,33 +172,72 @@ func (this *_WorkspaceController_) HandleOutput_Pty(
 func (this *_WorkspaceController_) HandleExited_Eio_Success__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
+	this.HandleProcessExit(
+		ptyProxy.Id,
+		_PtyExitResult_Success_{},
+	)
 }
 
 func (this *_WorkspaceController_) HandleExited_Eio_Failure__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
+	processState := ptyProxy.PtyCommand.ProcessState
+	this.HandleProcessExit(
+		ptyProxy.Id,
+		_PtyExitResult_Failure_{
+			ExitCode: processState.ExitCode(),
+		},
+	)
 }
 
 func (this *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
+	processWaitStatus := ptyProxy.PtyCommand.ProcessState.Sys().(_SYSCALL.WaitStatus)
+	this.HandleProcessExit(
+		ptyProxy.Id,
+		_PtyExitResult_Killed_{
+			ExitSignal: int(processWaitStatus.Signal()),
+		},
+	)
 }
 
 func (this *_WorkspaceController_) HandleExited_Closed__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
+	this.HandleProcessExit(
+		ptyProxy.Id,
+		_PtyExitResult_Closed_{},
+	)
 }
 
 func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 	ptyProxy *_PtyProxy_,
 	readerTerminalSignal error,
 ) {
+	this.HandleProcessExit(
+		ptyProxy.Id,
+		_PtyExitResult_SystemError_{
+			SystemError: readerTerminalSignal,
+		},
+	)
 }
 
 func (this *_WorkspaceController_) HandleProcessExit(
 	ptyId uint32,
 	exitResult _PtyExitResult_,
 ) {
+	this.Mutex.Lock()
+	targetWorkspacePty := this.PtyPool[ptyId]
+	this.Mutex.Unlock()
+	if targetWorkspacePty == nil {
+		return
+	}
+	targetWorkspacePty.MaybeExitResult = exitResult
+	_PtyExit_Message_{
+		Id_PtyProxy: ptyId,
+		ExitResult:  exitResult,
+	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 
 func (this *_WorkspaceController_) HandleResizePtys_Debouncer(

@@ -42,6 +42,6 @@ func (_PtyExitResult_SystemError_) compiletimemarker_PtyExitResult() {}
 
 type _WorkspacePty_ struct {
 	PtyProxy        *_PtyProxy_
-	IsActive        bool
+	IsVisible       bool
 	MaybeExitResult _PtyExitResult_
 }
