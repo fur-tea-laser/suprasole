@@ -8,23 +8,23 @@ and atomic mode-driven stdout egress routing with zero-loss PostSnapshotBuffer s
 
 ## State Machine & Operational Mode Transition Complexity
 
-PtyProxy continuously maintains full headless VTE terminal screen state (TerminalState) and uses a formal state machine (PtyProxyMode) to synchronize background stdout stream processing with baseline snapshot serialization and session teardown:
+PtyProxy continuously maintains full headless VTE terminal screen state (TerminalState) and uses a formal state machine (Mode_PtyProxy) to synchronize background stdout stream processing with baseline snapshot serialization and session teardown:
 
  1. Operational State Enum Definitions:
-    - SPAWNING__PtyProxyMode: Initializing OS child process, PTY descriptors, and callback bindings.
-    - RUNNING_LIVE__PtyProxyMode: Direct live streaming mode; incoming stdout bytes update VTE state and dispatch live via OnOutput_Live.
-    - RUNNING_PRE_SNAPSHOT__PtyProxyMode: Pre-snapshot mode; incoming stdout bytes update VTE state while live egress is suppressed in preparation for baseline snapshot serialization.
-    - RUNNING_POST_SNAPSHOT__PtyProxyMode: Post-snapshot mode; serializing baseline ANSI snapshot under lock while incoming stdout bytes update VTE state and accumulate in PostSnapshotBuffer.
-    - EXITED__PtyProxyMode: Teardown mode; read loop termination triggers reader cleanup, PTY descriptor cleanup, process reaping (TerminalCommand.Wait()), and exit callback dispatch.
+    - SPAWNING__Mode_PtyProxy: Initializing OS child process, PTY descriptors, and callback bindings.
+    - RUNNING_LIVE__Mode_PtyProxy: Direct live streaming mode; incoming stdout bytes update VTE state and dispatch live via OnOutput_Live.
+    - RUNNING_PRE_SNAPSHOT__Mode_PtyProxy: Pre-snapshot mode; incoming stdout bytes update VTE state while live egress is suppressed in preparation for baseline snapshot serialization.
+    - RUNNING_POST_SNAPSHOT__Mode_PtyProxy: Post-snapshot mode; serializing baseline ANSI snapshot under lock while incoming stdout bytes update VTE state and accumulate in PostSnapshotBuffer.
+    - EXITED__Mode_PtyProxy: Teardown mode; read loop termination triggers reader cleanup, PTY descriptor cleanup, process reaping (TerminalCommand.Wait()), and exit callback dispatch.
 
  2. Live Egress Suppression Rationale (LiveToPreSnapshot Stage):
-    Transitioning from RUNNING_LIVE__PtyProxyMode to RUNNING_PRE_SNAPSHOT__PtyProxyMode represents a mode transition from online live streaming to offline snapshot preparation. It suppresses live egress callbacks (OnOutput_Live) while continuing background VTE grid updates under lock, pausing live output streaming while ensuring that TerminalState remains continuously updated prior to baseline snapshot serialization.
+    Transitioning from RUNNING_LIVE__Mode_PtyProxy to RUNNING_PRE_SNAPSHOT__Mode_PtyProxy represents a mode transition from online live streaming to offline snapshot preparation. It suppresses live egress callbacks (OnOutput_Live) while continuing background VTE grid updates under lock, pausing live output streaming while ensuring that TerminalState remains continuously updated prior to baseline snapshot serialization.
 
  3. Atomic Grid Serialization & Zero-Loss Staging Rationale (PreToPostSnapshot Stage):
-    Because xterm.NewSerializeAddon traverses internal grid line pointers and row buffers in TerminalState, concurrent VTE state updates (TerminalState.Write) driven by background stdout flushes during serialization would trigger fatal Go runtime data races and memory panics. Executing serialization strictly under Mutex guarantees snapshot consistency. Concurrently mutating ProxyMode to RUNNING_POST_SNAPSHOT__PtyProxyMode under the same lock hold ensures that any stdout bytes arriving during snapshot serialization immediately accumulate in PostSnapshotBuffer, preventing gap-data loss.
+    Because xterm.NewSerializeAddon traverses internal grid line pointers and row buffers in TerminalState, concurrent VTE state updates (TerminalState.Write) driven by background stdout flushes during serialization would trigger fatal Go runtime data races and memory panics. Executing serialization strictly under Mutex guarantees snapshot consistency. Concurrently mutating ProxyMode to RUNNING_POST_SNAPSHOT__Mode_PtyProxy under the same lock hold ensures that any stdout bytes arriving during snapshot serialization immediately accumulate in PostSnapshotBuffer, preventing gap-data loss.
 
  4. Unlocked Replay & Downstream Decoupling Rationale (PostSnapshotToLive Stage):
-    Transitioning back to RUNNING_LIVE__PtyProxyMode requires extracting and cloning PostSnapshotBuffer.Bytes() under lock before releasing Mutex. Cloning staged bytes under lock allows OnOutput_PostSnapshotBuffer to be dispatched 100% unlocked outside Mutex, eliminating downstream lock coupling and circular-wait deadlocks while seamlessly resynchronizing the stdout stream prior to resuming direct live output.
+    Transitioning back to RUNNING_LIVE__Mode_PtyProxy requires extracting and cloning PostSnapshotBuffer.Bytes() under lock before releasing Mutex. Cloning staged bytes under lock allows OnOutput_PostSnapshotBuffer to be dispatched 100% unlocked outside Mutex, eliminating downstream lock coupling and circular-wait deadlocks while seamlessly resynchronizing the stdout stream prior to resuming direct live output.
 
 ## Initialization & Process Spawning Synchronization Architecture (NewPtyProxy & OnPtySpawned)
 
@@ -61,16 +61,16 @@ The primary architectural complexity in PtyProxy centers on its flush handling c
     - Asynchronous Egress Callbacks (OnOutput_Live): MUST receive bytes.Clone(unflushedStagingBufferSlice). Because egress callbacks execute outside Mutex, PtyReader could immediately overwrite its reusable staging buffer on the next read iteration. Cloning guarantees complete memory safety across goroutines.
  4. Dynamic Dual-Egress Routing:
     Routes stdout bytes to dual targets (VTE Grid + Secondary Destination) depending on ProxyMode:
-      - RUNNING_LIVE__PtyProxyMode: Dual Target -> VTE Grid + Live Callback (direct stdout streaming).
-      - RUNNING_POST_SNAPSHOT__PtyProxyMode: Dual Target -> VTE Grid + PostSnapshotBuffer (PostSnapshotBuffer staging during snapshot delivery).
-      - RUNNING_PRE_SNAPSHOT__PtyProxyMode / EXITED__PtyProxyMode: Single Target -> VTE Grid only (live egress suppressed).
+      - RUNNING_LIVE__Mode_PtyProxy: Dual Target -> VTE Grid + Live Callback (direct stdout streaming).
+      - RUNNING_POST_SNAPSHOT__Mode_PtyProxy: Dual Target -> VTE Grid + PostSnapshotBuffer (PostSnapshotBuffer staging during snapshot delivery).
+      - RUNNING_PRE_SNAPSHOT__Mode_PtyProxy / EXITED__Mode_PtyProxy: Single Target -> VTE Grid only (live egress suppressed).
 
 ## Exit Handling, Process Reaping & Signal Propagation Pipeline
 
 When background PtyReader stream draining terminates, PtyProxy executes a 3-stage teardown pipeline (__executeExitedTeardownPipeline) to safely reap the OS process and dispatch terminal signal notifications:
 
  1. Atomic Mode Transition & Lock Release Stage:
-    PtyProxy acquires Mutex, mutates ProxyMode = EXITED__PtyProxyMode, and immediately releases Mutex. Because PtyReader's read loop has already terminated and drained all stdout bytes prior to invoking the exit handler, mutating ProxyMode to EXITED__PtyProxyMode aligns instance state with mechanical reality, ensuring any concurrent goroutine querying ProxyMode observes the terminal EXITED__PtyProxyMode state. Unlocking Mutex prior to process reaping ensures zero lock hold times during kernel process synchronization.
+    PtyProxy acquires Mutex, mutates ProxyMode = EXITED__Mode_PtyProxy, and immediately releases Mutex. Because PtyReader's read loop has already terminated and drained all stdout bytes prior to invoking the exit handler, mutating ProxyMode to EXITED__Mode_PtyProxy aligns instance state with mechanical reality, ensuring any concurrent goroutine querying ProxyMode observes the terminal EXITED__Mode_PtyProxy state. Unlocking Mutex prior to process reaping ensures zero lock hold times during kernel process synchronization.
 
  2. Lock-Free OS Process Reaping Stage (TerminalCommand.Wait()):
     PtyProxy invokes TerminalCommand.Wait() strictly UNLOCKED outside Mutex. This blocks the background reader thread until the operating system reaps the child process and populates ProcessState, preventing zombie processes without coupling kernel process waits to Mutex.
@@ -98,7 +98,7 @@ User stdin bytes are transmitted directly to the OS PTY master file descriptor v
     If PtyMasterFileDescriptor.Close() has executed during administrative teardown, subsequent calls to Write() immediately return (0, os.ErrClosed) synchronously without issuing a kernel system call.
 
  4. Terminal Mode Ignorance & OS Kernel Error Determinism:
-    The underlying *os.File descriptor operates independently of PtyProxy's internal ProxyMode. Calling PtyMasterFileDescriptor.Write while ProxyMode is EXITED__PtyProxyMode executes the OS system call directly, with return behavior governed entirely by kernel PTY stream state regardless of the instance mode.
+    The underlying *os.File descriptor operates independently of PtyProxy's internal ProxyMode. Calling PtyMasterFileDescriptor.Write while ProxyMode is EXITED__Mode_PtyProxy executes the OS system call directly, with return behavior governed entirely by kernel PTY stream state regardless of the instance mode.
 
  5. Synchronous Execution & Kernel Backpressure Blocking Semantics:
     PtyMasterFileDescriptor.Write executes synchronously on the calling goroutine, incurring user-to-kernel context switch latency. Under normal system load with available kernel write ring buffer capacity, Write completes near-instantaneously (though subject to OS CPU scheduling and TTY driver lock contention). However, if the child process stops reading stdin and the kernel write ring buffer saturates, Write BLOCKS on kernel ring buffer backpressure until the child process drains stdin bytes or teardown invalidates the descriptor.
@@ -252,7 +252,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> OnExited_Closed
           -> HandleExited_Closed
             -> __executeExitedTeardownPipeline
-              -> Mutex.Lock (ProxyMode = EXITED__PtyProxyMode)
+              -> Mutex.Lock (ProxyMode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> PtyMasterFileDescriptor.Close
               -> TerminalCommand.Wait
@@ -264,7 +264,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> OnExited_Eio
           -> HandleExited_Eio
             -> __executeExitedTeardownPipeline
-              -> Mutex.Lock (ProxyMode = EXITED__PtyProxyMode)
+              -> Mutex.Lock (ProxyMode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> PtyMasterFileDescriptor.Close
               -> TerminalCommand.Wait
@@ -279,7 +279,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> OnExited_SystemError
           -> HandleExited_SystemError
             -> __executeExitedTeardownPipeline
-              -> Mutex.Lock (ProxyMode = EXITED__PtyProxyMode)
+              -> Mutex.Lock (ProxyMode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> PtyMasterFileDescriptor.Close
               -> TerminalCommand.Wait
@@ -301,12 +301,12 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 10: Pre-Snapshot Mode Transition Call Tree
       TransitionMode_LiveToPreSnapshot
-        -> Mutex.Lock (ProxyMode = RUNNING_PRE_SNAPSHOT__PtyProxyMode)
+        -> Mutex.Lock (ProxyMode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy)
         -> Mutex.Unlock
 
     - Path 11: Baseline Snapshot Serialization Call Tree
       TransitionMode_PreToPostSnapshot
-        -> Mutex.Lock (ProxyMode = RUNNING_POST_SNAPSHOT__PtyProxyMode)
+        -> Mutex.Lock (ProxyMode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy)
         -> PostSnapshotBuffer.Reset
         -> xterm.NewSerializeAddon
         -> serializeAddon.Serialize
@@ -315,7 +315,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 12: PostSnapshotBuffer Replay Call Tree
       TransitionMode_PostSnapshotToLive
-        -> Mutex.Lock (ProxyMode = RUNNING_LIVE__PtyProxyMode)
+        -> Mutex.Lock (ProxyMode = RUNNING_LIVE__Mode_PtyProxy)
         -> bytes.Clone(PostSnapshotBuffer)
         -> Mutex.Unlock
         -> OnOutput_PostSnapshotBuffer
@@ -375,6 +375,6 @@ When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCoun
   - 2. Lock-Scoped Memory Integrity & Unlocked Egress: Mutex protects in-memory state mutations (TerminalState, PostSnapshotBuffer, ProxyMode) exclusively. All external callbacks (OnOutput_*, OnExited_*) are dispatched 100% unlocked outside Mutex with cloned allocations (bytes.Clone), eliminating downstream lock coupling and circular-wait deadlocks.
   - 3. Lossless Mode-Driven Resynchronization: Stdout bytes arriving while serializing and outputting baseline snapshots accumulate in PostSnapshotBuffer under lock, ensuring zero stdout data loss across mode transitions.
   - 4. Unidirectional Callback Coupling: PtyProxy owns PtyReader with zero struct back-pointers; PtyReader delegates stream events to PtyProxy strictly through function values.
-  - 5. Atomic Lifecycle State Machine: ProxyMode evaluates atomically under Mutex. Once a teardown path is triggered upon read loop termination, PtyProxy transitions to EXITED__PtyProxyMode and no further stdout flushes can ever occur.
+  - 5. Atomic Lifecycle State Machine: ProxyMode evaluates atomically under Mutex. Once a teardown path is triggered upon read loop termination, PtyProxy transitions to EXITED__Mode_PtyProxy and no further stdout flushes can ever occur.
   - 6. Callback Execution Contracts: Stdout egress callbacks (OnOutput_*) MUST be non-blocking to prevent stalling stream draining. Teardown pipelines execute synchronously on the background reader thread post-loop, blocking on TerminalCommand.Wait() outside Mutex to reap child process exit status before dispatching exit callbacks.
   - 7. Spawning Handshake Contract: NewPtyProxy synchronously executes OnPtySpawned to complete session registry insertion and initial wire status emission BEFORE launching go PtyReader.StartReading(), guaranteeing strict network frame ordering and preventing race conditions with fast child process exits.

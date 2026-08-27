@@ -10,9 +10,10 @@ import (
 )
 
 type _PtyProxyDefaults_ struct {
-	ScrollbackLineCount_PtyTerminal int
-	StagingBufferSize_PtyReader     int
-	PostSnapshotBufferSize_PtyProxy int
+	ScrollbackLineCount_PtyTerminal      int
+	StagingBufferSize_PtyReader          int
+	PostSnapshotBufferSize_PtyProxy      int
+	QueueBufferSize_InputOrder_PtyWriter int
 }
 
 type _WorkspaceController_ struct {

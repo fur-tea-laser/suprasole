@@ -12,24 +12,25 @@ import (
 	_XTERM "github.com/gitpod-io/xterm-go"
 )
 
-type PtyProxyMode int
+type Mode_PtyProxy int
 
 const (
-	SPAWNING__PtyProxyMode PtyProxyMode = iota
-	RUNNING_LIVE__PtyProxyMode
-	RUNNING_PRE_SNAPSHOT__PtyProxyMode
-	RUNNING_POST_SNAPSHOT__PtyProxyMode
-	EXITED__PtyProxyMode
+	SPAWNING__Mode_PtyProxy Mode_PtyProxy = iota
+	RUNNING_LIVE__Mode_PtyProxy
+	RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
+	RUNNING_POST_SNAPSHOT__Mode_PtyProxy
+	EXITED__Mode_PtyProxy
 )
 
 type _PtyProxy_ struct {
 	PtyMasterFileDescriptor     *_OS.File
 	Id                          uint32
 	Mutex                       _SYNC.Mutex
-	ProxyMode                   PtyProxyMode
+	ProxyMode                   Mode_PtyProxy
 	PtyCommand                  *_EXEC.Cmd
 	PtyTerminal                 *_XTERM.Terminal
 	PtyReader                   *_PtyReader_
+	PtyWriter                   *_PtyWriter_
 	PostSnapshotBuffer          *_BYTES.Buffer
 	OnOutput_Live               func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
 	OnOutput_Snapshot           func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
@@ -42,30 +43,31 @@ type _PtyProxy_ struct {
 }
 
 type _SpawnApi__PtyProxy_ struct {
-	Id                              uint32
-	ColumnCount_PtyTerminal         int
-	RowCount_PtyTerminal            int
-	ShellBinaryPath_PtyCommand      string
-	DirectoryPath_PtyCommand        string
-	EnvironmentVariables_PtyCommand []string
-	StagingBufferSize_PtyReader     int
-	ScrollbackLineCount_PtyTerminal int
-	PostSnapshotBufferSize_PtyProxy int
-	OnSpawned                       func(ptyProxy *_PtyProxy_)
-	OnOutput_Live                   func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnOutput_Snapshot               func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnOutput_PostSnapshotBuffer     func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
-	OnExited_Eio_Success            func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Failure            func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Killed             func(ptyProxy *_PtyProxy_)
-	OnExited_Closed                 func(ptyProxy *_PtyProxy_)
-	OnExited_SystemError            func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
+	Id                                   uint32
+	ColumnCount_PtyTerminal              int
+	RowCount_PtyTerminal                 int
+	ShellBinaryPath_PtyCommand           string
+	DirectoryPath_PtyCommand             string
+	EnvironmentVariables_PtyCommand      []string
+	StagingBufferSize_PtyReader          int
+	ScrollbackLineCount_PtyTerminal      int
+	PostSnapshotBufferSize_PtyProxy      int
+	QueueBufferSize_InputOrder_PtyWriter int
+	OnSpawned                            func(ptyProxy *_PtyProxy_)
+	OnOutput_Live                        func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnOutput_Snapshot                    func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnOutput_PostSnapshotBuffer          func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
+	OnExited_Eio_Success                 func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Failure                 func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Killed                  func(ptyProxy *_PtyProxy_)
+	OnExited_Closed                      func(ptyProxy *_PtyProxy_)
+	OnExited_SystemError                 func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
 }
 
 func Spawn__PtyProxy(api _SpawnApi__PtyProxy_) error {
 	newPtyProxyResult := &_PtyProxy_{
 		Id:                          api.Id,
-		ProxyMode:                   SPAWNING__PtyProxyMode,
+		ProxyMode:                   SPAWNING__Mode_PtyProxy,
 		OnOutput_Live:               api.OnOutput_Live,
 		OnOutput_Snapshot:           api.OnOutput_Snapshot,
 		OnOutput_PostSnapshotBuffer: api.OnOutput_PostSnapshotBuffer,
@@ -93,6 +95,13 @@ func Spawn__PtyProxy(api _SpawnApi__PtyProxy_) error {
 		[]byte,
 		api.StagingBufferSize_PtyReader,
 	)
+	newPtyProxyResult.PtyWriter = &_PtyWriter_{
+		PtyMasterFileDescriptor: nil,
+		QueueChannel_InputOrder: make(
+			chan _InputOrder_PtyWriter_,
+			api.QueueBufferSize_InputOrder_PtyWriter,
+		),
+	}
 	newPtyProxyResult.PostSnapshotBuffer = _BYTES.NewBuffer(
 		make(
 			[]byte,
@@ -112,12 +121,14 @@ func Spawn__PtyProxy(api _SpawnApi__PtyProxy_) error {
 	if ptyStartError != nil {
 		return ptyStartError
 	}
-	newPtyProxyResult.ProxyMode = RUNNING_LIVE__PtyProxyMode
+	newPtyProxyResult.ProxyMode = RUNNING_LIVE__Mode_PtyProxy
 	newPtyProxyResult.PtyCommand = __PtyCommand_Proxy
 	newPtyProxyResult.PtyMasterFileDescriptor = __PtyMasterFileDescriptor
 	newPtyProxyResult.PtyReader.PtyMasterFileDescriptor = __PtyMasterFileDescriptor
+	newPtyProxyResult.PtyWriter.PtyMasterFileDescriptor = __PtyMasterFileDescriptor
 	api.OnSpawned(newPtyProxyResult)
 	go newPtyProxyResult.PtyReader.RunWorker()
+	go newPtyProxyResult.PtyWriter.RunWorker()
 	return nil
 }
 
@@ -150,14 +161,14 @@ func __flushReaderStagingBufferSliceIfLockAcquired(
 	if maybeAcquirePtyProxyMutexLock() {
 		var isWasPtyProxyModeRunningLive bool
 		ptyProxy.PtyTerminal.Write(unflushedStagingBufferSlice)
-		if RUNNING_LIVE__PtyProxyMode == ptyProxy.ProxyMode {
+		if RUNNING_LIVE__Mode_PtyProxy == ptyProxy.ProxyMode {
 			isWasPtyProxyModeRunningLive = true
-		} else if RUNNING_POST_SNAPSHOT__PtyProxyMode == ptyProxy.ProxyMode {
+		} else if RUNNING_POST_SNAPSHOT__Mode_PtyProxy == ptyProxy.ProxyMode {
 			ptyProxy.PostSnapshotBuffer.Write(unflushedStagingBufferSlice)
-		} else if RUNNING_PRE_SNAPSHOT__PtyProxyMode == ptyProxy.ProxyMode {
+		} else if RUNNING_PRE_SNAPSHOT__Mode_PtyProxy == ptyProxy.ProxyMode {
 		} else {
-			// SPAWNING__PtyProxyMode == ptyProxy.ProxyMode
-			// EXITED__PtyProxyMode == ptyProxy.ProxyMode
+			// SPAWNING__Mode_PtyProxy == ptyProxy.ProxyMode
+			// EXITED__Mode_PtyProxy == ptyProxy.ProxyMode
 			_FMT.Println("invalid path: _PtyProxy_ __flushReaderStagingBufferSliceIfLockAcquired")
 		}
 		ptyProxy.Mutex.Unlock()
@@ -227,7 +238,7 @@ func __executeExitedTeardownPipeline(
 	readerTerminalSignal error,
 ) {
 	ptyProxy.Mutex.Lock()
-	ptyProxy.ProxyMode = EXITED__PtyProxyMode
+	ptyProxy.ProxyMode = EXITED__Mode_PtyProxy
 	ptyProxy.Mutex.Unlock()
 	_ = ptyProxy.PtyMasterFileDescriptor.Close()
 	_ = ptyProxy.PtyCommand.Wait()
@@ -236,8 +247,8 @@ func __executeExitedTeardownPipeline(
 
 func (this *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
 	this.Mutex.Lock()
-	if this.ProxyMode != EXITED__PtyProxyMode {
-		this.ProxyMode = RUNNING_PRE_SNAPSHOT__PtyProxyMode
+	if this.ProxyMode != EXITED__Mode_PtyProxy {
+		this.ProxyMode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
 	}
 	this.Mutex.Unlock()
 }
@@ -245,8 +256,8 @@ func (this *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
 func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 	this.Mutex.Lock()
 	this.PostSnapshotBuffer.Reset()
-	if this.ProxyMode != EXITED__PtyProxyMode {
-		this.ProxyMode = RUNNING_POST_SNAPSHOT__PtyProxyMode
+	if this.ProxyMode != EXITED__Mode_PtyProxy {
+		this.ProxyMode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy
 	}
 	serializeAddon := _XTERM.NewSerializeAddon(this.PtyTerminal)
 	snapshotBytes := serializeAddon.Serialize(nil)
@@ -260,8 +271,8 @@ func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 func (this *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
 	this.Mutex.Lock()
 	clonedPostSnapshotBuffer := _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
-	if this.ProxyMode != EXITED__PtyProxyMode {
-		this.ProxyMode = RUNNING_LIVE__PtyProxyMode
+	if this.ProxyMode != EXITED__Mode_PtyProxy {
+		this.ProxyMode = RUNNING_LIVE__Mode_PtyProxy
 	}
 	this.Mutex.Unlock()
 	if len(clonedPostSnapshotBuffer) > 0 {

@@ -14,7 +14,6 @@ const (
 
 type _PtyMessage_Ingress_ interface {
 	Execute(workspaceController *_WorkspaceController_)
-	compiletimemarker_PtyMessage_Ingress()
 }
 
 var DECODE_MESSAGE_MAP__PTY_MESSAGE_INGRESS = map[Code_PtyMessage_Ingress]func(
@@ -76,6 +75,18 @@ func (this _PtyProxyOption_PostSnapshotBufferSize_) UpdateOptionsResult(
 
 func (_PtyProxyOption_PostSnapshotBufferSize_) compiletimemarker_PtyProxyOption() {}
 
+type _PtyProxyOption_QueueBufferSize_InputOrder_PtyWriter_ struct {
+	QueueBufferSize_InputOrder_PtyWriter int
+}
+
+func (this _PtyProxyOption_QueueBufferSize_InputOrder_PtyWriter_) UpdateOptionsResult(
+	optionsResult_ptyProxy *_PtyProxyDefaults_,
+) {
+	optionsResult_ptyProxy.QueueBufferSize_InputOrder_PtyWriter = this.QueueBufferSize_InputOrder_PtyWriter
+}
+
+func (_PtyProxyOption_QueueBufferSize_InputOrder_PtyWriter_) compiletimemarker_PtyProxyOption() {}
+
 type _SpawnPty_Message_ struct {
 	ColumnCount_PtyTerminal         int
 	RowCount_PtyTerminal            int
@@ -84,8 +95,6 @@ type _SpawnPty_Message_ struct {
 	EnvironmentVariables_PtyCommand []string
 	Options_PtyProxy                []_PtyProxyOption_
 }
-
-func (_SpawnPty_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
 func (this _SpawnPty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
@@ -100,24 +109,25 @@ func (this _SpawnPty_Message_) Execute(
 	workspaceController.Mutex.Unlock()
 	go func() {
 		ptyStartError := Spawn__PtyProxy(_SpawnApi__PtyProxy_{
-			Id:                              newPtyId,
-			ColumnCount_PtyTerminal:         this.ColumnCount_PtyTerminal,
-			RowCount_PtyTerminal:            this.RowCount_PtyTerminal,
-			ShellBinaryPath_PtyCommand:      this.ShellBinaryPath_PtyCommand,
-			DirectoryPath_PtyCommand:        this.DirectoryPath_PtyCommand,
-			EnvironmentVariables_PtyCommand: this.EnvironmentVariables_PtyCommand,
-			ScrollbackLineCount_PtyTerminal: optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal,
-			StagingBufferSize_PtyReader:     optionsResult_ptyProxy.StagingBufferSize_PtyReader,
-			PostSnapshotBufferSize_PtyProxy: optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy,
-			OnSpawned:                       workspaceController.HandleSpawned_Pty,
-			OnOutput_Live:                   workspaceController.HandleOutput_Pty,
-			OnOutput_Snapshot:               workspaceController.HandleOutput_Pty,
-			OnOutput_PostSnapshotBuffer:     workspaceController.HandleOutput_Pty,
-			OnExited_Eio_Success:            workspaceController.HandleExited_Eio_Success__Pty,
-			OnExited_Eio_Failure:            workspaceController.HandleExited_Eio_Failure__Pty,
-			OnExited_Eio_Killed:             workspaceController.HandleExited_Eio_Killed__Pty,
-			OnExited_Closed:                 workspaceController.HandleExited_Closed__Pty,
-			OnExited_SystemError:            workspaceController.HandleExited_SystemError__Pty,
+			Id:                                   newPtyId,
+			ColumnCount_PtyTerminal:              this.ColumnCount_PtyTerminal,
+			RowCount_PtyTerminal:                 this.RowCount_PtyTerminal,
+			ShellBinaryPath_PtyCommand:           this.ShellBinaryPath_PtyCommand,
+			DirectoryPath_PtyCommand:             this.DirectoryPath_PtyCommand,
+			EnvironmentVariables_PtyCommand:      this.EnvironmentVariables_PtyCommand,
+			ScrollbackLineCount_PtyTerminal:      optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal,
+			StagingBufferSize_PtyReader:          optionsResult_ptyProxy.StagingBufferSize_PtyReader,
+			PostSnapshotBufferSize_PtyProxy:      optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy,
+			QueueBufferSize_InputOrder_PtyWriter: optionsResult_ptyProxy.QueueBufferSize_InputOrder_PtyWriter,
+			OnSpawned:                            workspaceController.HandleSpawned_Pty,
+			OnOutput_Live:                        workspaceController.HandleOutput_Pty,
+			OnOutput_Snapshot:                    workspaceController.HandleOutput_Pty,
+			OnOutput_PostSnapshotBuffer:          workspaceController.HandleOutput_Pty,
+			OnExited_Eio_Success:                 workspaceController.HandleExited_Eio_Success__Pty,
+			OnExited_Eio_Failure:                 workspaceController.HandleExited_Eio_Failure__Pty,
+			OnExited_Eio_Killed:                  workspaceController.HandleExited_Eio_Killed__Pty,
+			OnExited_Closed:                      workspaceController.HandleExited_Closed__Pty,
+			OnExited_SystemError:                 workspaceController.HandleExited_SystemError__Pty,
 		})
 		if ptyStartError != nil {
 			workspaceController.HandleSpawnFailed_Pty(newPtyId)
@@ -141,8 +151,6 @@ type _ResizePtys_Message_ struct {
 	Entries_PtyProxy []_ResizePtys_Entry_
 }
 
-func (_ResizePtys_Message_) compiletimemarker_PtyMessage_Ingress() {}
-
 func (this _ResizePtys_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
@@ -156,15 +164,19 @@ func decodeMessage_WritePtyInput(
 }
 
 type _WritePtyInput_Message_ struct {
-	Id_PtyProxy                       uint32
-	InputData_PtyMasterFileDescriptor []byte
+	Id_PtyProxy          uint32
+	InputOrder_PtyWriter _InputOrder_PtyWriter_
 }
-
-func (_WritePtyInput_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
 func (this _WritePtyInput_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
+	workspaceController.Mutex.Lock()
+	targetWorkspacePty := workspaceController.PtyPool[this.Id_PtyProxy]
+	workspaceController.Mutex.Unlock()
+	if targetWorkspacePty != nil {
+		targetWorkspacePty.PtyProxy.PtyWriter.QueueChannel_InputOrder <- this.InputOrder_PtyWriter
+	}
 }
 
 func decodeMessage_TerminatePty(
@@ -177,8 +189,6 @@ type _TerminatePty_Message_ struct {
 	Id_PtyProxy uint32
 	Signal      int
 }
-
-func (_TerminatePty_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
 func (this _TerminatePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
@@ -195,8 +205,6 @@ type _RemovePty_Message_ struct {
 	TargetPtyIds []uint32
 }
 
-func (_RemovePty_Message_) compiletimemarker_PtyMessage_Ingress() {}
-
 func (this _RemovePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
@@ -211,8 +219,6 @@ func decodeMessage_SetPtyVisibilities(
 type _SetPtyVisibilities_Message_ struct {
 	VisiblePtyIds []uint32
 }
-
-func (_SetPtyVisibilities_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
 func (this _SetPtyVisibilities_Message_) Execute(
 	workspaceController *_WorkspaceController_,
@@ -235,8 +241,6 @@ type _ResyncWorkspace_Entry_ struct {
 type _ResyncWorkspace_Message_ struct {
 	Entries []_ResyncWorkspace_Entry_
 }
-
-func (_ResyncWorkspace_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
 func (this _ResyncWorkspace_Message_) Execute(
 	workspaceController *_WorkspaceController_,

@@ -13,7 +13,6 @@ const (
 
 type _PtyMessage_Egress_ interface {
 	Emit(websocketController *_WebsocketController_)
-	compiletimemarker_PtyMessage_Egress()
 }
 
 type Status_SpawnPty byte
@@ -33,8 +32,6 @@ func (this _SpawnPtyStatus_Message_) Emit(
 ) {
 }
 
-func (_SpawnPtyStatus_Message_) compiletimemarker_PtyMessage_Egress() {}
-
 type _PtyExit_Message_ struct {
 	Id_PtyProxy uint32
 	ExitResult  _PtyExitResult_
@@ -45,8 +42,6 @@ func (this _PtyExit_Message_) Emit(
 ) {
 }
 
-func (_PtyExit_Message_) compiletimemarker_PtyMessage_Egress() {}
-
 type _PtyOutput_Message_ struct {
 	Id_PtyProxy uint32
 	OutputData  []byte
@@ -56,8 +51,6 @@ func (this _PtyOutput_Message_) Emit(
 	websocketController *_WebsocketController_,
 ) {
 }
-
-func (_PtyOutput_Message_) compiletimemarker_PtyMessage_Egress() {}
 
 type _ResyncPtyStart_Message_ struct {
 	Id_PtyProxy             uint32
@@ -70,8 +63,6 @@ func (this _ResyncPtyStart_Message_) Emit(
 ) {
 }
 
-func (_ResyncPtyStart_Message_) compiletimemarker_PtyMessage_Egress() {}
-
 type _ResyncPtyComplete_Message_ struct {
 	Id_PtyProxy uint32
 }
@@ -80,8 +71,6 @@ func (this _ResyncPtyComplete_Message_) Emit(
 	websocketController *_WebsocketController_,
 ) {
 }
-
-func (_ResyncPtyComplete_Message_) compiletimemarker_PtyMessage_Egress() {}
 
 type _ResyncPtyFailed_Message_ struct {
 	Id_PtyProxy uint32
@@ -93,5 +82,3 @@ func (this _ResyncPtyFailed_Message_) Emit(
 	websocketController *_WebsocketController_,
 ) {
 }
-
-func (_ResyncPtyFailed_Message_) compiletimemarker_PtyMessage_Egress() {}
