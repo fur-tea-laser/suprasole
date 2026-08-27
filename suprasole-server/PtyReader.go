@@ -18,7 +18,7 @@ type _PtyReader_ struct {
 	OnExited_SystemError            func(readerTerminalSignal error)
 }
 
-func (this *_PtyReader_) StartReading() {
+func (this *_PtyReader_) RunWorker() {
 	var ptyBytesRed int
 	var terminalSignal error
 	for {
@@ -43,6 +43,6 @@ func (this *_PtyReader_) StartReading() {
 		this.OnExited_SystemError(terminalSignal)
 	} else {
 		// terminalSignal is guaranteed non-nil because a non-nil terminalSignal is required to break out of the for loop above
-		_FMT.Println("invalid path: _PtyReader_ StartReading")
+		_FMT.Println("invalid path: _PtyReader_ RunWorker")
 	}
 }

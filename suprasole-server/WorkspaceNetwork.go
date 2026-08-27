@@ -9,12 +9,12 @@ import (
 )
 
 type _WorkspaceNetwork_ struct {
-	Mutex                  _SYNC.Mutex
-	HttpServer             *_HTTP.Server
-	PtyWebsocketController *_WebsocketController_
+	Mutex                   _SYNC.Mutex
+	HttpServer              *_HTTP.Server
+	WebsocketController_Pty *_WebsocketController_
 }
 
-type _NewWorkspaceNetworkApi_ struct {
+type _NewApi__WorkspaceNetwork_ struct {
 	HostPortAddress                     string
 	OnConnected_PtyWebsocket            func()
 	OnTakeoverConnected_PtyWebsocket    func()
@@ -23,24 +23,24 @@ type _NewWorkspaceNetworkApi_ struct {
 	OnBinaryMessageFrame_PtyWebsocket   func(binaryMessageFrame []byte)
 }
 
-func NewWorkspaceNetwork(
-	networkApi _NewWorkspaceNetworkApi_,
+func New__WorkspaceNetwork(
+	networkApi _NewApi__WorkspaceNetwork_,
 ) *_WorkspaceNetwork_ {
-	submissionQueue := make(
+	__QueueChannel__Submission_GetWebsocketConnection := make(
 		chan _Submission_GetWebsocketConnection_,
 		16,
 	)
-	lifecycleContext, lifecycleCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
-	__PtyWebsocketController_Network := &_WebsocketController_{
-		Mutex:                  _SYNC.Mutex{},
-		EgressMutex:            _SYNC.Mutex{},
-		ConnectionStatus:       STANDBY__WebsocketConnectionStatus,
-		IsTakeoverPending:      false,
-		ReadDeadlineTimeout:    60 * _TIME.Second,
-		WriteDeadlineTimeout:   10 * _TIME.Second,
-		LifecycleLoopContext:   lifecycleContext,
-		LifecycleLoopCancel:    lifecycleCancel,
-		SubmissionQueue:        submissionQueue,
+	__WorkerContext__Submission_GetWebsocketConnection, __WorkerCancel__Submission_GetWebsocketConnection := _CONTEXT.WithCancel(_CONTEXT.Background())
+	__WebsocketController_Pty__Network := &_WebsocketController_{
+		Mutex:                _SYNC.Mutex{},
+		EgressMutex:          _SYNC.Mutex{},
+		ConnectionStatus:     STANDBY__WebsocketConnectionStatus,
+		IsTakeoverPending:    false,
+		ReadDeadlineTimeout:  60 * _TIME.Second,
+		WriteDeadlineTimeout: 10 * _TIME.Second,
+		WorkerContext__Submission_GetWebsocketConnection: __WorkerContext__Submission_GetWebsocketConnection,
+		WorkerCancel__Submission_GetWebsocketConnection:  __WorkerCancel__Submission_GetWebsocketConnection,
+		QueueChannel__Submission_GetWebsocketConnection:  __QueueChannel__Submission_GetWebsocketConnection,
 		OnConnected:            networkApi.OnConnected_PtyWebsocket,
 		OnTakeoverConnected:    networkApi.OnTakeoverConnected_PtyWebsocket,
 		OnDisconnected:         networkApi.OnDisconnected_PtyWebsocket,
@@ -51,16 +51,16 @@ func NewWorkspaceNetwork(
 	requestHandlerRouter := _HTTP.NewServeMux()
 	requestHandlerRouter.HandleFunc(
 		"/pty",
-		__PtyWebsocketController_Network.HandleRequest_GetWebsocketConnection,
+		__WebsocketController_Pty__Network.HandleRequest_GetWebsocketConnection,
 	)
 	__HttpServer_Network := &_HTTP.Server{
 		Addr:    networkApi.HostPortAddress,
 		Handler: requestHandlerRouter,
 	}
 	return &_WorkspaceNetwork_{
-		Mutex:                  _SYNC.Mutex{},
-		HttpServer:             __HttpServer_Network,
-		PtyWebsocketController: __PtyWebsocketController_Network,
+		Mutex:                   _SYNC.Mutex{},
+		HttpServer:              __HttpServer_Network,
+		WebsocketController_Pty: __WebsocketController_Pty__Network,
 	}
 }
 
@@ -72,7 +72,7 @@ func (this *_WorkspaceNetwork_) StartServer() error {
 	if listenError != nil {
 		return listenError
 	}
-	go this.PtyWebsocketController.RunLifecycleLoop()
+	go this.WebsocketController_Pty.RunWorker__Submission_GetWebsocketConnection()
 	go this.HttpServer.Serve(serverListener)
 	return nil
 }
@@ -80,8 +80,8 @@ func (this *_WorkspaceNetwork_) StartServer() error {
 func (this *_WorkspaceNetwork_) StopServer(
 	shutdownDeadlineContext _CONTEXT.Context,
 ) error {
-	this.PtyWebsocketController.LifecycleLoopCancel()
-	this.PtyWebsocketController.CloseWithCode(
+	this.WebsocketController_Pty.WorkerCancel__Submission_GetWebsocketConnection()
+	this.WebsocketController_Pty.CloseWithCode(
 		1001,
 		"Server Shutting Down",
 	)

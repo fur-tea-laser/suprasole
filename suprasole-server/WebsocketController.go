@@ -38,21 +38,21 @@ type _Submission_GetWebsocketConnection_ struct {
 }
 
 type _WebsocketController_ struct {
-	Mutex                  _SYNC.Mutex
-	EgressMutex            _SYNC.Mutex
-	ConnectionStatus       WebsocketConnectionStatus
-	IsTakeoverPending      bool
-	WebsocketConnection    *_WEBSOCKET.Conn
-	ReadDeadlineTimeout    _TIME.Duration
-	WriteDeadlineTimeout   _TIME.Duration
-	LifecycleLoopContext   _CONTEXT.Context
-	LifecycleLoopCancel    _CONTEXT.CancelFunc
-	SubmissionQueue        chan _Submission_GetWebsocketConnection_
-	OnConnected            func()
-	OnTakeoverConnected    func()
-	OnDisconnected         func(readMessageError error)
-	OnTakeoverDisconnected func()
-	OnBinaryMessageFrame   func(binaryMessageFrame []byte)
+	Mutex                                            _SYNC.Mutex
+	EgressMutex                                      _SYNC.Mutex
+	ConnectionStatus                                 WebsocketConnectionStatus
+	IsTakeoverPending                                bool
+	WebsocketConnection                              *_WEBSOCKET.Conn
+	ReadDeadlineTimeout                              _TIME.Duration
+	WriteDeadlineTimeout                             _TIME.Duration
+	WorkerContext__Submission_GetWebsocketConnection _CONTEXT.Context
+	WorkerCancel__Submission_GetWebsocketConnection  _CONTEXT.CancelFunc
+	QueueChannel__Submission_GetWebsocketConnection  chan _Submission_GetWebsocketConnection_
+	OnConnected                                      func()
+	OnTakeoverConnected                              func()
+	OnDisconnected                                   func(readMessageError error)
+	OnTakeoverDisconnected                           func()
+	OnBinaryMessageFrame                             func(binaryMessageFrame []byte)
 }
 
 func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
@@ -81,7 +81,7 @@ func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
 		ResponseWriter: responseWriter_getWebsocketConnection,
 	}
 	select {
-	case this.SubmissionQueue <- submission_getWebsocketConnection:
+	case this.QueueChannel__Submission_GetWebsocketConnection <- submission_getWebsocketConnection:
 	default:
 		_HTTP.Error(
 			responseWriter_getWebsocketConnection,
@@ -123,13 +123,13 @@ func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
 	}
 }
 
-func (this *_WebsocketController_) RunLifecycleLoop() {
+func (this *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection() {
 	for {
 		select {
-		case <-this.LifecycleLoopContext.Done():
+		case <-this.WorkerContext__Submission_GetWebsocketConnection.Done():
 			return
-		case leadingSubmission_getWebsocketConnection := <-this.SubmissionQueue:
-			latestSubmission_getWebsocketConnection := this.GetLatestSubmissionAndRejectPreceding_SubmissionQueue(leadingSubmission_getWebsocketConnection)
+		case leadingSubmission_getWebsocketConnection := <-this.QueueChannel__Submission_GetWebsocketConnection:
+			latestSubmission_getWebsocketConnection := this.GetLatestSubmissionAndRejectPreceding__Submission_GetWebsocketConnection(leadingSubmission_getWebsocketConnection)
 			if this.UpdateWebsocketConnection(latestSubmission_getWebsocketConnection) {
 				for {
 					messageType, binaryMessageFrame, readMessageError := this.WebsocketConnection.ReadMessage()
@@ -145,7 +145,7 @@ func (this *_WebsocketController_) RunLifecycleLoop() {
 						)
 						break
 					} else {
-						_FMT.Println("invalid path: RunLifecycleLoop read loop")
+						_FMT.Println("invalid path: RunWorker__Submission_GetWebsocketConnection read loop")
 					}
 				}
 			}
@@ -153,13 +153,13 @@ func (this *_WebsocketController_) RunLifecycleLoop() {
 	}
 }
 
-func (this *_WebsocketController_) GetLatestSubmissionAndRejectPreceding_SubmissionQueue(
+func (this *_WebsocketController_) GetLatestSubmissionAndRejectPreceding__Submission_GetWebsocketConnection(
 	leadingSubmission_getWebsocketConnection _Submission_GetWebsocketConnection_,
 ) _Submission_GetWebsocketConnection_ {
 	latestSubmission_getWebsocketConnection := leadingSubmission_getWebsocketConnection
 	for {
 		select {
-		case nextSubmission_getWebsocketConnection := <-this.SubmissionQueue:
+		case nextSubmission_getWebsocketConnection := <-this.QueueChannel__Submission_GetWebsocketConnection:
 			latestSubmission_getWebsocketConnection.ReplyChannel <- _Reply_GetWebsocketConnection_{
 				MaybeSubmissionError: SUPERSEDED_ERROR__GET_WEBSOCKET_CONNECTION_SUBMISSION,
 			}

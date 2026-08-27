@@ -17,7 +17,7 @@ func main() {
 		"Host and port address to listen on",
 	)
 	_FLAG.Parse()
-	workspaceController := NewWorkspaceController(_NewWorkspaceControllerApi_{
+	workspaceController := New__WorkspaceController(_NewApi__WorkspaceController_{
 		HostPortAddress: *hostPortAddressFlag,
 		PtyProxyDefaults: _PtyProxyDefaults_{
 			ScrollbackLineCount_PtyTerminal: 10000,
@@ -25,12 +25,12 @@ func main() {
 			PostSnapshotBufferSize_PtyProxy: 64 * 1024,
 		},
 	})
-	startServerError := workspaceController.WorkspaceNetwork.StartServer()
-	if startServerError != nil {
+	startSessionError := workspaceController.StartSession()
+	if startSessionError != nil {
 		_FMT.Fprintf(
 			_OS.Stderr,
-			"Error starting server: %v\n",
-			startServerError,
+			"Error starting session: %v\n",
+			startSessionError,
 		)
 		_OS.Exit(1)
 	}
@@ -53,6 +53,6 @@ func main() {
 		_CONTEXT.Background(),
 		5*_TIME.Second,
 	)
-	_ = workspaceController.WorkspaceNetwork.StopServer(shutdownContext)
+	_ = workspaceController.StopSession(shutdownContext)
 	cancelShutdownDeadline()
 }

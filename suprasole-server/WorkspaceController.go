@@ -1,9 +1,11 @@
 package main
 
 import (
+	_CONTEXT "context"
 	_BINARY "encoding/binary"
 	_FMT "fmt"
 	_SYNC "sync"
+	_TIME "time"
 )
 
 type _PtyProxyDefaults_ struct {
@@ -13,29 +15,35 @@ type _PtyProxyDefaults_ struct {
 }
 
 type _WorkspaceController_ struct {
-	Mutex            _SYNC.Mutex
-	WorkspaceNetwork *_WorkspaceNetwork_
-	PtyPool          map[uint32]*_WorkspacePty_
-	NextPtyId        uint32
-	PtyProxyDefaults _PtyProxyDefaults_
+	Mutex                       _SYNC.Mutex
+	WorkspaceNetwork            *_WorkspaceNetwork_
+	PtyPool                     map[uint32]*_WorkspacePty_
+	NextId_PtyProxy             uint32
+	PtyProxyDefaults            _PtyProxyDefaults_
+	MessageDebouncer_ResizePtys *_MessageDebouncer_ResizePtys_
 }
 
-type _NewWorkspaceControllerApi_ struct {
+type _NewApi__WorkspaceController_ struct {
 	HostPortAddress  string
 	PtyProxyDefaults _PtyProxyDefaults_
 }
 
-func NewWorkspaceController(
-	api _NewWorkspaceControllerApi_,
+func New__WorkspaceController(
+	api _NewApi__WorkspaceController_,
 ) *_WorkspaceController_ {
 	newWorkspaceControllerResult := &_WorkspaceController_{
-		Mutex:            _SYNC.Mutex{},
-		PtyPool:          make(map[uint32]*_WorkspacePty_),
-		NextPtyId:        1,
-		PtyProxyDefaults: api.PtyProxyDefaults,
-		WorkspaceNetwork: nil,
+		Mutex:                       _SYNC.Mutex{},
+		PtyPool:                     make(map[uint32]*_WorkspacePty_),
+		NextId_PtyProxy:             1,
+		PtyProxyDefaults:            api.PtyProxyDefaults,
+		MessageDebouncer_ResizePtys: nil,
+		WorkspaceNetwork:            nil,
 	}
-	newWorkspaceControllerResult.WorkspaceNetwork = NewWorkspaceNetwork(_NewWorkspaceNetworkApi_{
+	newWorkspaceControllerResult.MessageDebouncer_ResizePtys = New__MessageDebouncer_ResizePtys(_NewApi__MessageDebouncer_ResizePtys_{
+		DebounceTimeout: 50 * _TIME.Millisecond,
+		OnResizePtys:    newWorkspaceControllerResult.HandleResizePtys_Debouncer,
+	})
+	newWorkspaceControllerResult.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
 		HostPortAddress:                     api.HostPortAddress,
 		OnConnected_PtyWebsocket:            newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
 		OnTakeoverConnected_PtyWebsocket:    newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
@@ -44,6 +52,18 @@ func NewWorkspaceController(
 		OnBinaryMessageFrame_PtyWebsocket:   newWorkspaceControllerResult.HandleBinaryMessageFrame_PtyWebsocket,
 	})
 	return newWorkspaceControllerResult
+}
+
+func (this *_WorkspaceController_) StartSession() error {
+	go this.MessageDebouncer_ResizePtys.RunWorker()
+	return this.WorkspaceNetwork.StartServer()
+}
+
+func (this *_WorkspaceController_) StopSession(
+	shutdownContext _CONTEXT.Context,
+) error {
+	this.MessageDebouncer_ResizePtys.WorkerCancel()
+	return this.WorkspaceNetwork.StopServer(shutdownContext)
 }
 
 func (this *_WorkspaceController_) HandleConnected_PtyWebsocket() {
@@ -112,7 +132,7 @@ func __decodeBinaryMessageFrame[
 	websocketMessage.Execute(workspaceController)
 }
 
-func (this *_WorkspaceController_) HandlePtySpawned(
+func (this *_WorkspaceController_) HandleSpawned_Pty(
 	ptyProxy *_PtyProxy_,
 ) {
 	workspacePty := &_WorkspacePty_{
@@ -123,52 +143,52 @@ func (this *_WorkspaceController_) HandlePtySpawned(
 	this.Mutex.Lock()
 	this.PtyPool[ptyProxy.Id] = workspacePty
 	this.Mutex.Unlock()
-	_SpawnPtyStatusMessage_{
-		PtyId:  ptyProxy.Id,
-		Status: SUCCESS__Status_SpawnPty,
-	}.Emit(this.WorkspaceNetwork.PtyWebsocketController)
+	_SpawnPtyStatus_Message_{
+		Id_PtyProxy: ptyProxy.Id,
+		Status:      SUCCESS__Status_SpawnPty,
+	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 
-func (this *_WorkspaceController_) HandlePtySpawnFailed(
+func (this *_WorkspaceController_) HandleSpawnFailed_Pty(
 	ptyId uint32,
 ) {
-	_SpawnPtyStatusMessage_{
-		PtyId:  ptyId,
-		Status: FAILURE__Status_SpawnPty,
-	}.Emit(this.WorkspaceNetwork.PtyWebsocketController)
+	_SpawnPtyStatus_Message_{
+		Id_PtyProxy: ptyId,
+		Status:      FAILURE__Status_SpawnPty,
+	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 
-func (this *_WorkspaceController_) HandlePtyOutput(
+func (this *_WorkspaceController_) HandleOutput_Pty(
 	ptyProxy *_PtyProxy_,
 	ptyOutputData []byte,
 ) {
-	_PtyOutputMessage_{
-		PtyId:      ptyProxy.Id,
-		OutputData: ptyOutputData,
-	}.Emit(this.WorkspaceNetwork.PtyWebsocketController)
+	_PtyOutput_Message_{
+		Id_PtyProxy: ptyProxy.Id,
+		OutputData:  ptyOutputData,
+	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 
-func (this *_WorkspaceController_) HandlePtyExited_Eio_Success(
+func (this *_WorkspaceController_) HandleExited_Eio_Success__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
 }
 
-func (this *_WorkspaceController_) HandlePtyExited_Eio_Failure(
+func (this *_WorkspaceController_) HandleExited_Eio_Failure__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
 }
 
-func (this *_WorkspaceController_) HandlePtyExited_Eio_Killed(
+func (this *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
 }
 
-func (this *_WorkspaceController_) HandlePtyExited_Closed(
+func (this *_WorkspaceController_) HandleExited_Closed__Pty(
 	ptyProxy *_PtyProxy_,
 ) {
 }
 
-func (this *_WorkspaceController_) HandlePtyExited_SystemError(
+func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 	ptyProxy *_PtyProxy_,
 	readerTerminalSignal error,
 ) {
@@ -178,4 +198,20 @@ func (this *_WorkspaceController_) HandleProcessExit(
 	ptyId uint32,
 	exitResult _PtyExitResult_,
 ) {
+}
+
+func (this *_WorkspaceController_) HandleResizePtys_Debouncer(
+	pendingEntries_ResizePtys map[uint32]_ResizePtys_Entry_,
+) {
+	for _, somePendingEntry := range pendingEntries_ResizePtys {
+		this.Mutex.Lock()
+		targetWorkspacePty := this.PtyPool[somePendingEntry.Id_PtyProxy]
+		this.Mutex.Unlock()
+		if targetWorkspacePty != nil {
+			_ = targetWorkspacePty.PtyProxy.Resize(
+				somePendingEntry.ColumnCount_PtyTerminal,
+				somePendingEntry.RowCount_PtyTerminal,
+			)
+		}
+	}
 }

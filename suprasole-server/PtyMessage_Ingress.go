@@ -4,10 +4,10 @@ type Code_PtyMessage_Ingress uint16
 
 const (
 	SPAWN_PTY__Code_PtyMessage_Ingress          Code_PtyMessage_Ingress = 0x0001
-	RESIZE_PTY__Code_PtyMessage_Ingress         Code_PtyMessage_Ingress = 0x0003
+	RESIZE_PTYS__Code_PtyMessage_Ingress        Code_PtyMessage_Ingress = 0x0003
+	WRITE_PTY_INPUT__Code_PtyMessage_Ingress    Code_PtyMessage_Ingress = 0x0007
 	TERMINATE_PTY__Code_PtyMessage_Ingress      Code_PtyMessage_Ingress = 0x0004
 	REMOVE_PTY__Code_PtyMessage_Ingress         Code_PtyMessage_Ingress = 0x0006
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress    Code_PtyMessage_Ingress = 0x0007
 	SET_PTY_PRIORITIES__Code_PtyMessage_Ingress Code_PtyMessage_Ingress = 0x0009
 	RESYNC_WORKSPACE__Code_PtyMessage_Ingress   Code_PtyMessage_Ingress = 0x000e
 )
@@ -21,10 +21,10 @@ var DECODE_MESSAGE_MAP__PTY_MESSAGE_INGRESS = map[Code_PtyMessage_Ingress]func(
 	binaryMessageFrame []byte,
 ) (_PtyMessage_Ingress_, error){
 	SPAWN_PTY__Code_PtyMessage_Ingress:          decodeMessage_SpawnPty,
-	RESIZE_PTY__Code_PtyMessage_Ingress:         decodeMessage_ResizePty,
+	RESIZE_PTYS__Code_PtyMessage_Ingress:        decodeMessage_ResizePtys,
+	WRITE_PTY_INPUT__Code_PtyMessage_Ingress:    decodeMessage_WritePtyInput,
 	TERMINATE_PTY__Code_PtyMessage_Ingress:      decodeMessage_TerminatePty,
 	REMOVE_PTY__Code_PtyMessage_Ingress:         decodeMessage_RemovePty,
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress:    decodeMessage_WritePtyInput,
 	SET_PTY_PRIORITIES__Code_PtyMessage_Ingress: decodeMessage_SetPtyPriorities,
 	RESYNC_WORKSPACE__Code_PtyMessage_Ingress:   decodeMessage_ResyncWorkspace,
 }
@@ -76,7 +76,7 @@ func (this _PtyProxyOption_PostSnapshotBufferSize_) UpdateOptionsResult(
 
 func (_PtyProxyOption_PostSnapshotBufferSize_) compiletimemarker_PtyProxyOption() {}
 
-type _SpawnPtyMessage_ struct {
+type _SpawnPty_Message_ struct {
 	ColumnCount_PtyTerminal         int
 	RowCount_PtyTerminal            int
 	ShellBinaryPath_PtyCommand      string
@@ -85,9 +85,9 @@ type _SpawnPtyMessage_ struct {
 	Options_PtyProxy                []_PtyProxyOption_
 }
 
-func (_SpawnPtyMessage_) compiletimemarker_PtyMessage_Ingress() {}
+func (_SpawnPty_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
-func (this _SpawnPtyMessage_) Execute(
+func (this _SpawnPty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 	optionsResult_ptyProxy := workspaceController.PtyProxyDefaults
@@ -95,11 +95,11 @@ func (this _SpawnPtyMessage_) Execute(
 		option_ptyProxy.UpdateOptionsResult(&optionsResult_ptyProxy)
 	}
 	workspaceController.Mutex.Lock()
-	newPtyId := workspaceController.NextPtyId
-	workspaceController.NextPtyId++
+	newPtyId := workspaceController.NextId_PtyProxy
+	workspaceController.NextId_PtyProxy++
 	workspaceController.Mutex.Unlock()
 	go func() {
-		_, ptyStartError := NewPtyProxy(_NewPtyProxyApi_{
+		ptyStartError := Spawn__PtyProxy(_SpawnApi__PtyProxy_{
 			Id:                              newPtyId,
 			ColumnCount_PtyTerminal:         this.ColumnCount_PtyTerminal,
 			RowCount_PtyTerminal:            this.RowCount_PtyTerminal,
@@ -109,37 +109,60 @@ func (this _SpawnPtyMessage_) Execute(
 			ScrollbackLineCount_PtyTerminal: optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal,
 			StagingBufferSize_PtyReader:     optionsResult_ptyProxy.StagingBufferSize_PtyReader,
 			PostSnapshotBufferSize_PtyProxy: optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy,
-			OnPtySpawned:                    workspaceController.HandlePtySpawned,
-			OnOutput_Live:                   workspaceController.HandlePtyOutput,
-			OnOutput_Snapshot:               workspaceController.HandlePtyOutput,
-			OnOutput_PostSnapshotBuffer:     workspaceController.HandlePtyOutput,
-			OnExited_Eio_Success:            workspaceController.HandlePtyExited_Eio_Success,
-			OnExited_Eio_Failure:            workspaceController.HandlePtyExited_Eio_Failure,
-			OnExited_Eio_Killed:             workspaceController.HandlePtyExited_Eio_Killed,
-			OnExited_Closed:                 workspaceController.HandlePtyExited_Closed,
-			OnExited_SystemError:            workspaceController.HandlePtyExited_SystemError,
+			OnSpawned:                       workspaceController.HandleSpawned_Pty,
+			OnOutput_Live:                   workspaceController.HandleOutput_Pty,
+			OnOutput_Snapshot:               workspaceController.HandleOutput_Pty,
+			OnOutput_PostSnapshotBuffer:     workspaceController.HandleOutput_Pty,
+			OnExited_Eio_Success:            workspaceController.HandleExited_Eio_Success__Pty,
+			OnExited_Eio_Failure:            workspaceController.HandleExited_Eio_Failure__Pty,
+			OnExited_Eio_Killed:             workspaceController.HandleExited_Eio_Killed__Pty,
+			OnExited_Closed:                 workspaceController.HandleExited_Closed__Pty,
+			OnExited_SystemError:            workspaceController.HandleExited_SystemError__Pty,
 		})
 		if ptyStartError != nil {
-			workspaceController.HandlePtySpawnFailed(newPtyId)
+			workspaceController.HandleSpawnFailed_Pty(newPtyId)
 		}
 	}()
 }
 
-func decodeMessage_ResizePty(
+func decodeMessage_ResizePtys(
 	binaryMessageFrame []byte,
 ) (_PtyMessage_Ingress_, error) {
 	return nil, nil
 }
 
-type _ResizePtyMessage_ struct {
-	TargetPtyId             uint32
+type _ResizePtys_Entry_ struct {
+	Id_PtyProxy             uint32
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 }
 
-func (_ResizePtyMessage_) compiletimemarker_PtyMessage_Ingress() {}
+type _ResizePtys_Message_ struct {
+	Entries_PtyProxy []_ResizePtys_Entry_
+}
 
-func (this _ResizePtyMessage_) Execute(
+func (_ResizePtys_Message_) compiletimemarker_PtyMessage_Ingress() {}
+
+func (this _ResizePtys_Message_) Execute(
+	workspaceController *_WorkspaceController_,
+) {
+	workspaceController.MessageDebouncer_ResizePtys.QueueChannel <- this
+}
+
+func decodeMessage_WritePtyInput(
+	binaryMessageFrame []byte,
+) (_PtyMessage_Ingress_, error) {
+	return nil, nil
+}
+
+type _WritePtyInput_Message_ struct {
+	Id_PtyProxy                       uint32
+	InputData_PtyMasterFileDescriptor []byte
+}
+
+func (_WritePtyInput_Message_) compiletimemarker_PtyMessage_Ingress() {}
+
+func (this _WritePtyInput_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 }
@@ -150,14 +173,14 @@ func decodeMessage_TerminatePty(
 	return nil, nil
 }
 
-type _TerminatePtyMessage_ struct {
-	TargetPtyId uint32
+type _TerminatePty_Message_ struct {
+	Id_PtyProxy uint32
 	Signal      int
 }
 
-func (_TerminatePtyMessage_) compiletimemarker_PtyMessage_Ingress() {}
+func (_TerminatePty_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
-func (this _TerminatePtyMessage_) Execute(
+func (this _TerminatePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 }
@@ -168,31 +191,13 @@ func decodeMessage_RemovePty(
 	return nil, nil
 }
 
-type _RemovePtyMessage_ struct {
+type _RemovePty_Message_ struct {
 	TargetPtyIds []uint32
 }
 
-func (_RemovePtyMessage_) compiletimemarker_PtyMessage_Ingress() {}
+func (_RemovePty_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
-func (this _RemovePtyMessage_) Execute(
-	workspaceController *_WorkspaceController_,
-) {
-}
-
-func decodeMessage_WritePtyInput(
-	binaryMessageFrame []byte,
-) (_PtyMessage_Ingress_, error) {
-	return nil, nil
-}
-
-type _WritePtyInputMessage_ struct {
-	TargetPtyId uint32
-	StdinData   []byte
-}
-
-func (_WritePtyInputMessage_) compiletimemarker_PtyMessage_Ingress() {}
-
-func (this _WritePtyInputMessage_) Execute(
+func (this _RemovePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 }
@@ -203,13 +208,13 @@ func decodeMessage_SetPtyPriorities(
 	return nil, nil
 }
 
-type _SetPtyPrioritiesMessage_ struct {
+type _SetPtyPriorities_Message_ struct {
 	ActivePtyIds []uint32
 }
 
-func (_SetPtyPrioritiesMessage_) compiletimemarker_PtyMessage_Ingress() {}
+func (_SetPtyPriorities_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
-func (this _SetPtyPrioritiesMessage_) Execute(
+func (this _SetPtyPriorities_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 }
@@ -220,20 +225,20 @@ func decodeMessage_ResyncWorkspace(
 	return nil, nil
 }
 
-type _ResyncWorkspaceTerminalDescriptor_ struct {
-	PtyId                   uint32
+type _ResyncWorkspace_Entry_ struct {
+	Id_PtyProxy             uint32
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 	IsActive_WorkspacePty   bool
 }
 
-type _ResyncWorkspaceMessage_ struct {
-	Terminals []_ResyncWorkspaceTerminalDescriptor_
+type _ResyncWorkspace_Message_ struct {
+	Entries []_ResyncWorkspace_Entry_
 }
 
-func (_ResyncWorkspaceMessage_) compiletimemarker_PtyMessage_Ingress() {}
+func (_ResyncWorkspace_Message_) compiletimemarker_PtyMessage_Ingress() {}
 
-func (this _ResyncWorkspaceMessage_) Execute(
+func (this _ResyncWorkspace_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 }

@@ -41,7 +41,7 @@ type _PtyProxy_ struct {
 	OnExited_SystemError        func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
 }
 
-type _NewPtyProxyApi_ struct {
+type _SpawnApi__PtyProxy_ struct {
 	Id                              uint32
 	ColumnCount_PtyTerminal         int
 	RowCount_PtyTerminal            int
@@ -51,7 +51,7 @@ type _NewPtyProxyApi_ struct {
 	StagingBufferSize_PtyReader     int
 	ScrollbackLineCount_PtyTerminal int
 	PostSnapshotBufferSize_PtyProxy int
-	OnPtySpawned                    func(ptyProxy *_PtyProxy_)
+	OnSpawned                       func(ptyProxy *_PtyProxy_)
 	OnOutput_Live                   func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
 	OnOutput_Snapshot               func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
 	OnOutput_PostSnapshotBuffer     func(ptyProxy *_PtyProxy_, ptyOutputData []byte)
@@ -62,7 +62,7 @@ type _NewPtyProxyApi_ struct {
 	OnExited_SystemError            func(ptyProxy *_PtyProxy_, readerTerminalSignal error)
 }
 
-func NewPtyProxy(api _NewPtyProxyApi_) (*_PtyProxy_, error) {
+func Spawn__PtyProxy(api _SpawnApi__PtyProxy_) error {
 	newPtyProxyResult := &_PtyProxy_{
 		Id:                          api.Id,
 		ProxyMode:                   SPAWNING__PtyProxyMode,
@@ -110,15 +110,15 @@ func NewPtyProxy(api _NewPtyProxyApi_) (*_PtyProxy_, error) {
 	__PtyCommand_Proxy.Dir = api.DirectoryPath_PtyCommand
 	__PtyMasterFileDescriptor, ptyStartError := _PTY.Start(__PtyCommand_Proxy)
 	if ptyStartError != nil {
-		return nil, ptyStartError
+		return ptyStartError
 	}
 	newPtyProxyResult.ProxyMode = RUNNING_LIVE__PtyProxyMode
 	newPtyProxyResult.PtyCommand = __PtyCommand_Proxy
 	newPtyProxyResult.PtyMasterFileDescriptor = __PtyMasterFileDescriptor
 	newPtyProxyResult.PtyReader.PtyMasterFileDescriptor = __PtyMasterFileDescriptor
-	api.OnPtySpawned(newPtyProxyResult)
-	go newPtyProxyResult.PtyReader.StartReading()
-	return newPtyProxyResult, nil
+	api.OnSpawned(newPtyProxyResult)
+	go newPtyProxyResult.PtyReader.RunWorker()
+	return nil
 }
 
 func (this *_PtyProxy_) HandleTryFlush(unflushedStagingBufferSlice []byte) bool {
