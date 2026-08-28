@@ -21,7 +21,7 @@ PtyProxy continuously maintains full headless VTE terminal screen state (Termina
     Transitioning from RUNNING_LIVE__Mode_PtyProxy to RUNNING_PRE_SNAPSHOT__Mode_PtyProxy represents a mode transition from online live streaming to offline snapshot preparation. It suppresses live egress callbacks (OnOutput_Live) while continuing background VTE grid updates under lock, pausing live output streaming while ensuring that TerminalState remains continuously updated prior to baseline snapshot serialization.
 
  3. Atomic Grid Serialization & Zero-Loss Staging Rationale (PreToPostSnapshot Stage):
-    Because xterm.NewSerializeAddon traverses internal grid line pointers and row buffers in TerminalState, concurrent VTE state updates (TerminalState.Write) driven by background stdout flushes during serialization would trigger fatal Go runtime data races and memory panics. Executing serialization strictly under Mutex guarantees snapshot consistency. Concurrently mutating ProxyMode to RUNNING_POST_SNAPSHOT__Mode_PtyProxy under the same lock hold ensures that any stdout bytes arriving during snapshot serialization immediately accumulate in PostSnapshotBuffer, preventing gap-data loss.
+    Because xterm.NewSerializeAddon traverses internal grid line pointers and row buffers in TerminalState, concurrent VTE state updates (TerminalState.Write) driven by background stdout flushes during serialization would trigger fatal Go runtime data races and memory panics. Executing serialization strictly under Mutex guarantees snapshot consistency. Concurrently mutating Mode to RUNNING_POST_SNAPSHOT__Mode_PtyProxy under the same lock hold ensures that any stdout bytes arriving during snapshot serialization immediately accumulate in PostSnapshotBuffer, preventing gap-data loss.
 
  4. Unlocked Replay & Downstream Decoupling Rationale (PostSnapshotToLive Stage):
     Transitioning back to RUNNING_LIVE__Mode_PtyProxy requires extracting and cloning PostSnapshotBuffer.Bytes() under lock before releasing Mutex. Cloning staged bytes under lock allows OnOutput_PostSnapshotBuffer to be dispatched 100% unlocked outside Mutex, eliminating downstream lock coupling and circular-wait deadlocks while seamlessly resynchronizing the stdout stream prior to resuming direct live output.
@@ -55,12 +55,12 @@ The primary architectural complexity in PtyProxy centers on its flush handling c
  1. Downstream Coupling to PtyReader Staging Cushion:
     PtyReader drains the OS PTY descriptor into its pre-allocated staging cushion unlocked. It calls HandleTryFlush via TryLock(). If Mutex is contended, TryLock() returns false immediately, allowing PtyReader to continue absorbing PTY stdout without stalling kernel pipe draining. Only when the staging cushion saturates does PtyReader call HandleBlockingFlush to wait on Mutex.Lock().
  2. Lock Scoping & Deadlock Avoidance:
-    __flushReaderStagingBufferSliceIfLockAcquired updates the VTE grid (*xterm.Terminal) and evaluates ProxyMode strictly under Mutex. However, it MUST unlock Mutex BEFORE calling OnOutput_Live. Dispatching egress callbacks outside Mutex eliminates downstream lock coupling and minimizes lock contention.
+    __flushReaderStagingBufferSliceIfLockAcquired updates the VTE grid (*xterm.Terminal) and evaluates Mode strictly under Mutex. However, it MUST unlock Mutex BEFORE calling OnOutput_Live. Dispatching egress callbacks outside Mutex eliminates downstream lock coupling and minimizes lock contention.
  3. Memory Safety & Allocation Nuances Across Staging Buffer Consumers:
     - Synchronous In-Memory Writers (TerminalState.Write & PostSnapshotBuffer.Write): Do NOT require byte cloning. Both methods synchronously consume or copy incoming bytes into their own backing memory during the locked execution window, leaving the caller's slice untouched.
     - Asynchronous Egress Callbacks (OnOutput_Live): MUST receive bytes.Clone(unflushedStagingBufferSlice). Because egress callbacks execute outside Mutex, PtyReader could immediately overwrite its reusable staging buffer on the next read iteration. Cloning guarantees complete memory safety across goroutines.
  4. Dynamic Dual-Egress Routing:
-    Routes stdout bytes to dual targets (VTE Grid + Secondary Destination) depending on ProxyMode:
+    Routes stdout bytes to dual targets (VTE Grid + Secondary Destination) depending on Mode:
       - RUNNING_LIVE__Mode_PtyProxy: Dual Target -> VTE Grid + Live Callback (direct stdout streaming).
       - RUNNING_POST_SNAPSHOT__Mode_PtyProxy: Dual Target -> VTE Grid + PostSnapshotBuffer (PostSnapshotBuffer staging during snapshot delivery).
       - RUNNING_PRE_SNAPSHOT__Mode_PtyProxy / EXITED__Mode_PtyProxy: Single Target -> VTE Grid only (live egress suppressed).
@@ -70,7 +70,7 @@ The primary architectural complexity in PtyProxy centers on its flush handling c
 When background PtyReader stream draining terminates, PtyProxy executes a 3-stage teardown pipeline (__executeExitedTeardownPipeline) to safely reap the OS process and dispatch terminal signal notifications:
 
  1. Atomic Mode Transition & Lock Release Stage:
-    PtyProxy acquires Mutex, mutates ProxyMode = EXITED__Mode_PtyProxy, and immediately releases Mutex. Because PtyReader's read loop has already terminated and drained all stdout bytes prior to invoking the exit handler, mutating ProxyMode to EXITED__Mode_PtyProxy aligns instance state with mechanical reality, ensuring any concurrent goroutine querying ProxyMode observes the terminal EXITED__Mode_PtyProxy state. Unlocking Mutex prior to process reaping ensures zero lock hold times during kernel process synchronization.
+    PtyProxy acquires Mutex, mutates Mode = EXITED__Mode_PtyProxy, and immediately releases Mutex. Because PtyReader's read loop has already terminated and drained all stdout bytes prior to invoking the exit handler, mutating Mode to EXITED__Mode_PtyProxy aligns instance state with mechanical reality, ensuring any concurrent goroutine querying Mode observes the terminal EXITED__Mode_PtyProxy state. Unlocking Mutex prior to process reaping ensures zero lock hold times during kernel process synchronization.
 
  2. Lock-Free OS Process Reaping Stage (TerminalCommand.Wait()):
     PtyProxy invokes TerminalCommand.Wait() strictly UNLOCKED outside Mutex. This blocks the background reader thread until the operating system reaps the child process and populates ProcessState, preventing zombie processes without coupling kernel process waits to Mutex.
@@ -84,47 +84,47 @@ When background PtyReader stream draining terminates, PtyProxy executes a 3-stag
           - Success Exit (processState.Success()): Invokes OnExited_Eio_Success, signaling clean process exit with status code 0.
           - Failure Exit (non-zero exit code): Invokes OnExited_Eio_Failure, signaling child process execution failure.
 
-## Direct OS Kernel Stdin Writing & Error Semantics (PtyMasterFileDescriptor.Write)
+## Direct OS Kernel Stdin Writing & Error Semantics (MasterFileDescriptor_PtyDevice.Write)
 
-User stdin bytes are transmitted directly to the OS PTY master file descriptor via PtyMasterFileDescriptor.Write(data). This operation bridges user input to the child process across both normal and edge-case execution states:
+User stdin bytes are transmitted directly to the OS PTY master file descriptor via MasterFileDescriptor_PtyDevice.Write(data). This operation bridges user input to the child process across both normal and edge-case execution states:
 
  1. Normal Operational Path (Unlocked Direct Kernel Write):
-    PtyMasterFileDescriptor.Write executes 100% UNLOCKED without acquiring Mutex. Operating system kernel write() system calls on file descriptors are atomic and thread-safe at the OS level, allowing user input to pass directly to the child process stdin stream without contending with background VTE grid updates. On successful write, Write returns (len(data), nil).
+    MasterFileDescriptor_PtyDevice.Write executes 100% UNLOCKED without acquiring Mutex. Operating system kernel write() system calls on file descriptors are atomic and thread-safe at the OS level, allowing user input to pass directly to the child process stdin stream without contending with background VTE grid updates. On successful write, Write returns (len(data), nil).
 
  2. Post-Exit Write Edge Case (syscall.EIO / syscall.EPIPE):
-    If a caller writes to PtyMasterFileDescriptor after the slave process has exited (hung up), the kernel write() system call returns (0, syscall.EIO) or (0, syscall.EPIPE). Because the Go runtime ignores SIGPIPE on file descriptors by default, post-exit writes return a standard Go error (*os.PathError) and NEVER crash or panic the server process.
+    If a caller writes to MasterFileDescriptor_PtyDevice after the slave process has exited (hung up), the kernel write() system call returns (0, syscall.EIO) or (0, syscall.EPIPE). Because the Go runtime ignores SIGPIPE on file descriptors by default, post-exit writes return a standard Go error (*os.PathError) and NEVER crash or panic the server process.
 
  3. Post-Closure Write Edge Case (os.ErrClosed):
-    If PtyMasterFileDescriptor.Close() has executed during administrative teardown, subsequent calls to Write() immediately return (0, os.ErrClosed) synchronously without issuing a kernel system call.
+    If MasterFileDescriptor_PtyDevice.Close() has executed during administrative teardown, subsequent calls to Write() immediately return (0, os.ErrClosed) synchronously without issuing a kernel system call.
 
  4. Terminal Mode Ignorance & OS Kernel Error Determinism:
-    The underlying *os.File descriptor operates independently of PtyProxy's internal ProxyMode. Calling PtyMasterFileDescriptor.Write while ProxyMode is EXITED__Mode_PtyProxy executes the OS system call directly, with return behavior governed entirely by kernel PTY stream state regardless of the instance mode.
+    The underlying *os.File descriptor operates independently of PtyProxy's internal Mode. Calling MasterFileDescriptor_PtyDevice.Write while Mode is EXITED__Mode_PtyProxy executes the OS system call directly, with return behavior governed entirely by kernel PTY stream state regardless of the instance mode.
 
  5. Synchronous Execution & Kernel Backpressure Blocking Semantics:
-    PtyMasterFileDescriptor.Write executes synchronously on the calling goroutine, incurring user-to-kernel context switch latency. Under normal system load with available kernel write ring buffer capacity, Write completes near-instantaneously (though subject to OS CPU scheduling and TTY driver lock contention). However, if the child process stops reading stdin and the kernel write ring buffer saturates, Write BLOCKS on kernel ring buffer backpressure until the child process drains stdin bytes or teardown invalidates the descriptor.
+    MasterFileDescriptor_PtyDevice.Write executes synchronously on the calling goroutine, incurring user-to-kernel context switch latency. Under normal system load with available kernel write ring buffer capacity, Write completes near-instantaneously (though subject to OS CPU scheduling and TTY driver lock contention). However, if the child process stops reading stdin and the kernel write ring buffer saturates, Write BLOCKS on kernel ring buffer backpressure until the child process drains stdin bytes or teardown invalidates the descriptor.
 
  6. Kernel FIFO Byte Ordering & Wait-Queue Serialization:
-    Sequential and concurrent calls to PtyMasterFileDescriptor.Write maintain strict First-In, First-Out (FIFO) byte ordering. The Linux kernel TTY driver appends incoming bytes to the write ring buffer in exact order of system call commitment. If multiple Write calls block concurrently due to kernel ring buffer backpressure, the kernel manages blocked threads in a FIFO wait queue, waking them sequentially as buffer space becomes available to ensure byte streams are never scrambled or reordered.
+    Sequential and concurrent calls to MasterFileDescriptor_PtyDevice.Write maintain strict First-In, First-Out (FIFO) byte ordering. The Linux kernel TTY driver appends incoming bytes to the write ring buffer in exact order of system call commitment. If multiple Write calls block concurrently due to kernel ring buffer backpressure, the kernel manages blocked threads in a FIFO wait queue, waking them sequentially as buffer space becomes available to ensure byte streams are never scrambled or reordered.
 
 ## File Descriptor Blocking Mode Architecture (Blocking vs. Non-Blocking & POSIX Symmetry Constraints)
 
 PtyProxy configures its underlying OS master PTY file descriptor in standard **Blocking Mode** (default descriptor flags without O_NONBLOCK).
 
 ### 1. Architectural Rationale for Current Blocking Choice
-- **Simplified High-Throughput Reader Loop**: PtyReader relies on a zero-overhead, single-threaded blocking read() loop over PtyMasterFileDescriptor. Operating in blocking mode ensures PtyReader sleeps efficiently on kernel wait queues when stdout is idle, eliminating CPU-spinning, polling loops, or spurious syscall.EAGAIN retry handling.
-- **Pragmatic Initial Baseline Execution Semantics**: Writing to PtyMasterFileDescriptor copies data into the kernel's in-memory TTY buffer in RAM, returning to the caller in microseconds without waiting on external hardware or network transmission. Because the slave child process (bash, readline) continuously drains stdin while human keypresses and client frame bursts consume only a small fraction of the kernel's ~64 KB buffer, buffer headroom remains well above blocking thresholds during standard interactive sessions. Consequently, direct blocking writes execute near-instantaneously without stalling calling threads, providing a sound, low-complexity baseline for initial deployment.
+- **Simplified High-Throughput Reader Loop**: PtyReader relies on a zero-overhead, single-threaded blocking read() loop over MasterFileDescriptor_PtyDevice. Operating in blocking mode ensures PtyReader sleeps efficiently on kernel wait queues when stdout is idle, eliminating CPU-spinning, polling loops, or spurious syscall.EAGAIN retry handling.
+- **Pragmatic Initial Baseline Execution Semantics**: Writing to MasterFileDescriptor_PtyDevice copies data into the kernel's in-memory TTY buffer in RAM, returning to the caller in microseconds without waiting on external hardware or network transmission. Because the slave child process (bash, readline) continuously drains stdin while human keypresses and client frame bursts consume only a small fraction of the kernel's ~64 KB buffer, buffer headroom remains well above blocking thresholds during standard interactive sessions. Consequently, direct blocking writes execute near-instantaneously without stalling calling threads, providing a sound, low-complexity baseline for initial deployment.
 
 ### 2. POSIX File Descriptor Symmetry Constraint (The Symmetrical O_NONBLOCK Limitation)
 For engineers evaluating future write pipeline enhancements or investigating non-blocking write semantics, POSIX file descriptor architecture imposes a key structural constraint:
 - **Symmetrical Application Across Operations**: Non-blocking flags (O_NONBLOCK) are attached directly to the open file handle in operating system memory. Executing fcntl(fd, F_SETFL, O_NONBLOCK) forces **both read() and write() operations** on that descriptor handle to inherit non-blocking behavior.
-- **Impact on PtyReader's Read Loop**: POSIX does not permit assigning O_NONBLOCK exclusively to write() calls on a shared descriptor handle. If future engineers attempt to set O_NONBLOCK directly on PtyMasterFileDescriptor, doing so will force PtyReader's background read() loop to also become non-blocking (requiring EAGAIN polling or CPU-spinning).
-- **Architectural Consideration for Non-Blocking Exploration**: If non-blocking write semantics are ever evaluated for future production needs, engineers exploring O_NONBLOCK directly on PtyMasterFileDescriptor should note that doing so would require re-architecting PtyReader to handle non-blocking read polling; also, other architectural options exist for enabling non-blocking write semantics beyond modifying descriptor flags directly.
+- **Impact on PtyReader's Read Loop**: POSIX does not permit assigning O_NONBLOCK exclusively to write() calls on a shared descriptor handle. If future engineers attempt to set O_NONBLOCK directly on MasterFileDescriptor_PtyDevice, doing so will force PtyReader's background read() loop to also become non-blocking (requiring EAGAIN polling or CPU-spinning).
+- **Architectural Consideration for Non-Blocking Exploration**: If non-blocking write semantics are ever evaluated for future production needs, engineers exploring O_NONBLOCK directly on MasterFileDescriptor_PtyDevice should note that doing so would require re-architecting PtyReader to handle non-blocking read polling; also, other architectural options exist for enabling non-blocking write semantics beyond modifying descriptor flags directly.
 
 ---
 
 ## Analysis of Master PTY Write Blocking Scenarios for Proxy Engineers
 
-Although master PTY writes complete near-instantaneously during interactive usage, executing PtyMasterFileDescriptor.Write(data) can block the calling goroutine under specific operational conditions. Server engineers must understand these five macro-level scenarios when designing upstream write pipelines:
+Although master PTY writes complete near-instantaneously during interactive usage, executing MasterFileDescriptor_PtyDevice.Write(data) can block the calling goroutine under specific operational conditions. Server engineers must understand these five macro-level scenarios when designing upstream write pipelines:
 
 ### 1. Kernel TTY Buffer Watermark Saturation
 - **Buffer Quotas**: The kernel allocates an in-memory input buffer quota (typically ~64 KB) for the PTY pair.
@@ -153,27 +153,27 @@ Although master PTY writes complete near-instantaneously during interactive usag
 
 ---
 
-## Administrative PTY Master Descriptor Closure (PtyMasterFileDescriptor.Close)
+## Administrative PTY Master Descriptor Closure (MasterFileDescriptor_PtyDevice.Close)
 
-Closing the master PTY file descriptor via PtyMasterFileDescriptor.Close() initiates an administrative session teardown from the parent process:
+Closing the master PTY file descriptor via MasterFileDescriptor_PtyDevice.Close() initiates an administrative session teardown from the parent process:
 
  1. Unlocked Direct Kernel Descriptor Closure:
-    PtyMasterFileDescriptor.Close() executes 100% UNLOCKED without acquiring Mutex. Calling Close() invalidates the underlying OS master file descriptor handle immediately.
+    MasterFileDescriptor_PtyDevice.Close() executes 100% UNLOCKED without acquiring Mutex. Calling Close() invalidates the underlying OS master file descriptor handle immediately.
 
  2. Synchronous Non-Blocking Execution & Return Determinism:
-    PtyMasterFileDescriptor.Close() executes synchronously on the calling goroutine and returns immediately without blocking on child process exit (TerminalCommand.Wait()) or background PtyReader loop termination. On its initial invocation, Close() executes the OS close() system call and returns nil (even if the slave process has already exited with EIO); on any subsequent invocation on the closed file handle, Go's *os.File immediately returns os.ErrClosed without issuing a kernel system call or causing server panics.
+    MasterFileDescriptor_PtyDevice.Close() executes synchronously on the calling goroutine and returns immediately without blocking on child process exit (TerminalCommand.Wait()) or background PtyReader loop termination. On its initial invocation, Close() executes the OS close() system call and returns nil (even if the slave process has already exited with EIO); on any subsequent invocation on the closed file handle, Go's *os.File immediately returns os.ErrClosed without issuing a kernel system call or causing server panics.
 
  3. Instantaneous PtyReader Unblocking (os.ErrClosed Signal):
     If background PtyReader is currently blocked on a kernel read() system call, closing the master file descriptor invalidates the kernel file handle, forcing read() to unblock immediately and return os.ErrClosed ("file already closed").
 
  4. Reader Flow Propagation Ownership & Caller Return Value Irrelevance:
-    Callers MUST treat the return value of PtyMasterFileDescriptor.Close() as irrelevant and MUST NOT conditionally alter interactions with PtyProxy based on the return value. All teardown state mutations, OS process reaping, and exit notifications originate exclusively from background PtyReader flow propagation following read loop termination.
+    Callers MUST treat the return value of MasterFileDescriptor_PtyDevice.Close() as irrelevant and MUST NOT conditionally alter interactions with PtyProxy based on the return value. All teardown state mutations, OS process reaping, and exit notifications originate exclusively from background PtyReader flow propagation following read loop termination.
 
  5. Idempotent Execution Semantics:
-    PtyMasterFileDescriptor.Close() is idempotent; repeated invocations safely return os.ErrClosed without side-effects or resource leaks, though standard architectural lifecycle design requires calling Close() at most once per session.
+    MasterFileDescriptor_PtyDevice.Close() is idempotent; repeated invocations safely return os.ErrClosed without side-effects or resource leaks, though standard architectural lifecycle design requires calling Close() at most once per session.
 
  6. Dual Resource Reaping Invariant (Process vs. Descriptor Cleanup):
-    PtyMasterFileDescriptor.Close() and TerminalCommand.Wait() manage two completely independent OS kernel abstractions. Executing TerminalCommand.Wait() reaps the child process exit status to prevent zombie processes, but DOES NOT close the master PTY file descriptor handle. Conversely, calling Close() releases the OS file descriptor table handle. Complete session teardown requires both operations, which PtyProxy encapsulates completely inside __executeExitedTeardownPipeline.
+    MasterFileDescriptor_PtyDevice.Close() and TerminalCommand.Wait() manage two completely independent OS kernel abstractions. Executing TerminalCommand.Wait() reaps the child process exit status to prevent zombie processes, but DOES NOT close the master PTY file descriptor handle. Conversely, calling Close() releases the OS file descriptor table handle. Complete session teardown requires both operations, which PtyProxy encapsulates completely inside __executeExitedTeardownPipeline.
     - Consumer Abstraction & Manual Trigger Note: Consumers focus exclusively on triggering session closure via Close() and do not concern themselves with downstream OS resource cleanup side-effects. If a consumer manually calls Close(), PtyProxy's internal exit pipeline guarantees 100% complete process and descriptor reaping while handling redundant Close() calls safely.
 
 ## Multi-Threaded Concurrency Map & Synchronization Architecture
@@ -184,7 +184,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     Executes continuously on a single background goroutine, reading PTY stdout bytes from the OS master file descriptor unlocked into PtyReader.StagingBuffer. PTY output and process teardown propagate through nine distinct mutually exclusive code paths.
 
-    Note on Mutual Exclusivity: Because PtyReader.StartReading operates on a single background goroutine and ProxyMode evaluates atomically under Mutex, exactly one path executes per flush or exit event. Furthermore, once a teardown path (Paths 7-9) is triggered upon read loop termination, no further flushes can ever occur.
+    Note on Mutual Exclusivity: Because PtyReader.StartReading operates on a single background goroutine and Mode evaluates atomically under Mutex, exactly one path executes per flush or exit event. Furthermore, once a teardown path (Paths 7-9) is triggered upon read loop termination, no further flushes can ever occur.
 
     - Path 1: Optimistic Live Streaming Call Tree (Hot-Path TryFlush in Live Mode)
       PtyReader.StartReading
@@ -252,9 +252,9 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> OnExited_Closed
           -> HandleExited_Closed
             -> __executeExitedTeardownPipeline
-              -> Mutex.Lock (ProxyMode = EXITED__Mode_PtyProxy)
+              -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
-              -> PtyMasterFileDescriptor.Close
+              -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
               -> HandleDispatchExitedHandler_Closed
                 -> OnExited_Closed
@@ -264,9 +264,9 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> OnExited_Eio
           -> HandleExited_Eio
             -> __executeExitedTeardownPipeline
-              -> Mutex.Lock (ProxyMode = EXITED__Mode_PtyProxy)
+              -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
-              -> PtyMasterFileDescriptor.Close
+              -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
               -> HandleDispatchExitedHandler_Eio
                 -> [Mutually Exclusive Leaf Callback - Exactly 1 Dispatched]:
@@ -279,9 +279,9 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> OnExited_SystemError
           -> HandleExited_SystemError
             -> __executeExitedTeardownPipeline
-              -> Mutex.Lock (ProxyMode = EXITED__Mode_PtyProxy)
+              -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
-              -> PtyMasterFileDescriptor.Close
+              -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
               -> HandleDispatchExitedHandler_SystemError
                 -> OnExited_SystemError
@@ -297,16 +297,16 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
       Invoked on client terminal resizes. Executes pty.Setsize unlocked on the OS master descriptor, then acquires Mutex to atomically resize the VTE grid. Concurrent resizes are serialized under lock.
 
     - Direct OS Kernel I/O Category (Paths 14-15):
-      Unlocked OS kernel system calls executing directly on PtyMasterFileDescriptor. Path 14 (Write) passes stdin bytes to the kernel pipe unlocked (thread safety handled by Linux kernel I/O buffers). Path 15 (Close) atomically closes the master descriptor, inducing an OS EOF/closed failure on PtyReader and triggering Path 7 teardown on Goroutine 1.
+      Unlocked OS kernel system calls executing directly on MasterFileDescriptor_PtyDevice. Path 14 (Write) passes stdin bytes to the kernel pipe unlocked (thread safety handled by Linux kernel I/O buffers). Path 15 (Close) atomically closes the master descriptor, inducing an OS EOF/closed failure on PtyReader and triggering Path 7 teardown on Goroutine 1.
 
     - Path 10: Pre-Snapshot Mode Transition Call Tree
       TransitionMode_LiveToPreSnapshot
-        -> Mutex.Lock (ProxyMode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy)
+        -> Mutex.Lock (Mode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy)
         -> Mutex.Unlock
 
     - Path 11: Baseline Snapshot Serialization Call Tree
       TransitionMode_PreToPostSnapshot
-        -> Mutex.Lock (ProxyMode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy)
+        -> Mutex.Lock (Mode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy)
         -> PostSnapshotBuffer.Reset
         -> xterm.NewSerializeAddon
         -> serializeAddon.Serialize
@@ -315,7 +315,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 12: PostSnapshotBuffer Replay Call Tree
       TransitionMode_PostSnapshotToLive
-        -> Mutex.Lock (ProxyMode = RUNNING_LIVE__Mode_PtyProxy)
+        -> Mutex.Lock (Mode = RUNNING_LIVE__Mode_PtyProxy)
         -> bytes.Clone(PostSnapshotBuffer)
         -> Mutex.Unlock
         -> OnOutput_PostSnapshotBuffer
@@ -328,10 +328,10 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
         -> pty.Setsize
 
     - Path 14: Terminal User Input / Stdin Writing Call Tree
-      PtyMasterFileDescriptor.Write
+      MasterFileDescriptor_PtyDevice.Write
 
     - Path 15: Master Descriptor Administrative Closure Call Tree
-      PtyMasterFileDescriptor.Close
+      MasterFileDescriptor_PtyDevice.Close
 
 ## Terminal Window Resizing Synchronization & Order of Operations (Resize)
 
@@ -341,7 +341,7 @@ When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCoun
     `PtyProxy` acquires `Mutex` and synchronously resizes the headless `*xterm.Terminal` emulator grid buffers and line wrap pointers before releasing `Mutex`.
 
  2. Kernel Window Size Syscall Outside Lock (pty.Setsize):
-    After releasing `Mutex`, `PtyProxy` issues the `ioctl(TIOCSWINSZ)` syscall via `pty.Setsize` on `PtyMasterFileDescriptor` 100% unlocked.
+    After releasing `Mutex`, `PtyProxy` issues the `ioctl(TIOCSWINSZ)` syscall via `pty.Setsize` on `MasterFileDescriptor_PtyDevice` 100% unlocked.
 
 ### Critical Invariants of the Resize Sequence:
 
@@ -352,11 +352,11 @@ When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCoun
     Executing `pty.Setsize` outside `Mutex` ensures that kernel `ioctl` operations never hold the in-memory state lock, eliminating lock contention and circular-wait deadlocks with background reader flushes.
 
  3. Exited Session Visual Integrity & The Absence of SIGWINCH Egress:
-    - **The Exited Resizing Asymmetry**: For a running session, the client receives visual updates because the child process catches `SIGWINCH` and actively emits ANSI redraw chunks over stdout. When a process has exited, the child is dead and `PtyMasterFileDescriptor` is closed. No `SIGWINCH` is caught, and zero stdout bytes are produced.
+    - **The Exited Resizing Asymmetry**: For a running session, the client receives visual updates because the child process catches `SIGWINCH` and actively emits ANSI redraw chunks over stdout. When a process has exited, the child is dead and `MasterFileDescriptor_PtyDevice` is closed. No `SIGWINCH` is caught, and zero stdout bytes are produced.
     - **Current Dual-Sided Resolution Strategy**:
       1. *Client-Side Local Reflow (Visible Sessions)*: For sessions currently focused in the UI, the client-side terminal engine (`xterm.js`) retains the scrollback buffer locally and natively reflows text on the DOM upon viewport resize with 0ms latency, eliminating the need for server-driven redraw streams.
       2. *Server-Side Authoritative VTE Grid*: Executing `PtyTerminal.Resize` synchronously under lock keeps the server's in-memory emulator strictly synchronized with the client viewport geometry. Any `EBADF` descriptor error from `pty.Setsize` on the closed file descriptor is cleanly ignored.
-      3. *On-Demand Catch-Up Snapshots (Hidden & Reconnect Flows)*: If an exited tab was backgrounded during resizing or if the client drops/reconnects, switching visibility to the tab triggers `TransitionMode_PreToPostSnapshot`. Because `ProxyMode == EXITED`, it serializes the newly reflowed `PtyTerminal` state and dispatches a full ANSI snapshot (`OnOutput_Snapshot`) to establish pristine visual parity.
+      3. *On-Demand Catch-Up Snapshots (Hidden & Reconnect Flows)*: If an exited tab was backgrounded during resizing or if the client drops/reconnects, switching visibility to the tab triggers `TransitionMode_PreToPostSnapshot`. Because `Mode == EXITED`, it serializes the newly reflowed `PtyTerminal` state and dispatches a full ANSI snapshot (`OnOutput_Snapshot`) to establish pristine visual parity.
 
 ## Isolated Execution Spheres (Where Mutex IS NOT Required)
 
@@ -366,15 +366,15 @@ When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCoun
 ## State Mutation Concurrency Protections (Why Mutex Is Mandatory)
 
   - VTE Grid Memory Race Protection: Prevents concurrent data races between background PtyReader stdout updates (TerminalState.Write) and snapshot serialization (xterm.NewSerializeAddon) or window resizes (TerminalState.Resize).
-  - Mode Evaluation TOCTOU Protection: Prevents Time-Of-Check-To-Time-Of-Use races by evaluating ProxyMode and capturing the egress action (live dispatch flag vs. PostSnapshotBuffer accumulation) atomically under Mutex. This guarantees that stdout bytes arriving in Live mode are safely flagged for egress even if ProxyMode transitions on another goroutine before the callback completes outside lock.
+  - Mode Evaluation TOCTOU Protection: Prevents Time-Of-Check-To-Time-Of-Use races by evaluating Mode and capturing the egress action (live dispatch flag vs. PostSnapshotBuffer accumulation) atomically under Mutex. This guarantees that stdout bytes arriving in Live mode are safely flagged for egress even if Mode transitions on another goroutine before the callback completes outside lock.
   - PostSnapshotBuffer Buffer Race Protection: Prevents memory corruption when accumulating bytes in PostSnapshotBuffer during PostSnapshot mode while concurrent mode transitions reset or clone the buffer.
 
 ## Domain Invariants
 
   - 1. Single-Threaded Zero-Lock Reader Core: PtyReader operates 100% single-threaded on a dedicated background goroutine (StartReading), absorbing kernel PTY stdout bytes into reusable staging memory with zero internal lock acquisition.
-  - 2. Lock-Scoped Memory Integrity & Unlocked Egress: Mutex protects in-memory state mutations (TerminalState, PostSnapshotBuffer, ProxyMode) exclusively. All external callbacks (OnOutput_*, OnExited_*) are dispatched 100% unlocked outside Mutex with cloned allocations (bytes.Clone), eliminating downstream lock coupling and circular-wait deadlocks.
+  - 2. Lock-Scoped Memory Integrity & Unlocked Egress: Mutex protects in-memory state mutations (TerminalState, PostSnapshotBuffer, Mode) exclusively. All external callbacks (OnOutput_*, OnExited_*) are dispatched 100% unlocked outside Mutex with cloned allocations (bytes.Clone), eliminating downstream lock coupling and circular-wait deadlocks.
   - 3. Lossless Mode-Driven Resynchronization: Stdout bytes arriving while serializing and outputting baseline snapshots accumulate in PostSnapshotBuffer under lock, ensuring zero stdout data loss across mode transitions.
   - 4. Unidirectional Callback Coupling: PtyProxy owns PtyReader with zero struct back-pointers; PtyReader delegates stream events to PtyProxy strictly through function values.
-  - 5. Atomic Lifecycle State Machine: ProxyMode evaluates atomically under Mutex. Once a teardown path is triggered upon read loop termination, PtyProxy transitions to EXITED__Mode_PtyProxy and no further stdout flushes can ever occur.
+  - 5. Atomic Lifecycle State Machine: Mode evaluates atomically under Mutex. Once a teardown path is triggered upon read loop termination, PtyProxy transitions to EXITED__Mode_PtyProxy and no further stdout flushes can ever occur.
   - 6. Callback Execution Contracts: Stdout egress callbacks (OnOutput_*) MUST be non-blocking to prevent stalling stream draining. Teardown pipelines execute synchronously on the background reader thread post-loop, blocking on TerminalCommand.Wait() outside Mutex to reap child process exit status before dispatching exit callbacks.
   - 7. Spawning Handshake Contract: NewPtyProxy synchronously executes OnPtySpawned to complete session registry insertion and initial wire status emission BEFORE launching go PtyReader.StartReading(), guaranteeing strict network frame ordering and preventing race conditions with fast child process exits.

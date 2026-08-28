@@ -1,6 +1,7 @@
 package main
 
 import (
+	_CONTEXT "context"
 	_OS "os"
 )
 
@@ -12,18 +13,18 @@ const (
 )
 
 type _InputOrder_PtyWriter_ interface {
-	WriteInput(ptyMasterFileDescriptor *_OS.File)
+	WriteInput(masterFileDescriptor_ptyDevice *_OS.File)
 }
 
 type _Passthrough__InputOrder_PtyWriter_ struct {
-	InputData_PtyMasterFileDescriptor []byte
+	InputData_PtyMaster []byte
 }
 
 func (this *_Passthrough__InputOrder_PtyWriter_) WriteInput(
-	ptyMasterFileDescriptor *_OS.File,
+	masterFileDescriptor_ptyDevice *_OS.File,
 ) {
-	if len(this.InputData_PtyMasterFileDescriptor) > 0 {
-		_, _ = ptyMasterFileDescriptor.Write(this.InputData_PtyMasterFileDescriptor)
+	if len(this.InputData_PtyMaster) > 0 {
+		_, _ = masterFileDescriptor_ptyDevice.Write(this.InputData_PtyMaster)
 	}
 }
 
@@ -31,17 +32,24 @@ type _Paced__InputOrder_PtyWriter_ struct {
 }
 
 func (this *_Paced__InputOrder_PtyWriter_) WriteInput(
-	ptyMasterFileDescriptor *_OS.File,
+	masterFileDescriptor_ptyDevice *_OS.File,
 ) {
 }
 
 type _PtyWriter_ struct {
-	PtyMasterFileDescriptor *_OS.File
-	QueueChannel_InputOrder chan _InputOrder_PtyWriter_
+	MasterFileDescriptor_PtyDevice *_OS.File
+	QueueChannel_InputOrder        chan _InputOrder_PtyWriter_
+	WorkerContext                  _CONTEXT.Context
+	WorkerCancel                   _CONTEXT.CancelFunc
 }
 
 func (this *_PtyWriter_) RunWorker() {
-	for inputOrder := range this.QueueChannel_InputOrder {
-		inputOrder.WriteInput(this.PtyMasterFileDescriptor)
+	for {
+		select {
+		case <-this.WorkerContext.Done():
+			return
+		case inputOrder := <-this.QueueChannel_InputOrder:
+			inputOrder.WriteInput(this.MasterFileDescriptor_PtyDevice)
+		}
 	}
 }

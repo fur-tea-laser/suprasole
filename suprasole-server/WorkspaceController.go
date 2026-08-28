@@ -10,10 +10,10 @@ import (
 )
 
 type _PtyProxyDefaults_ struct {
-	ScrollbackLineCount_PtyTerminal      int
-	StagingBufferSize_PtyReader          int
-	PostSnapshotBufferSize_PtyProxy      int
-	QueueBufferSize_InputOrder_PtyWriter int
+	ScrollbackLineCount_PtyTerminal       int
+	StagingBufferSize_PtyReader           int
+	PostSnapshotBufferSize_PtyProxy       int
+	QueueBufferSize_InputOrder__PtyWriter int
 }
 
 type _WorkspaceController_ struct {
@@ -162,11 +162,11 @@ func (this *_WorkspaceController_) HandleSpawnFailed_Pty(
 
 func (this *_WorkspaceController_) HandleOutput_Pty(
 	ptyProxy *_PtyProxy_,
-	ptyOutputData []byte,
+	outputData []byte,
 ) {
 	_PtyOutput_Message_{
 		Id_PtyProxy: ptyProxy.Id,
-		OutputData:  ptyOutputData,
+		OutputData:  outputData,
 	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 
@@ -214,12 +214,12 @@ func (this *_WorkspaceController_) HandleExited_Closed__Pty(
 
 func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 	ptyProxy *_PtyProxy_,
-	readerTerminalSignal error,
+	exitSignal_PtyReader error,
 ) {
 	this.HandleProcessExit(
 		ptyProxy.Id,
 		_PtyExitResult_SystemError_{
-			SystemError: readerTerminalSignal,
+			SystemError: exitSignal_PtyReader,
 		},
 	)
 }

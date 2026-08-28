@@ -7,7 +7,7 @@ While OS kernel PTY backpressure (blocking child writes when the 64 KB kernel pi
 
 To minimize kernel PTY pipe backpressure and user-space lock contention, StagingBuffer and PtyReader introduce read indirection with an opportunistic non-blocking flush strategy:
  1. **Latency Cushion & Zero-Allocation Reading**: Reading PTY stdout requires allocated RAM. Pre-allocating a static staging buffer provides a generous headroom cushion to absorb output bursts without continuous heap re-allocations, drastically minimizing kernel read ring buffer backpressure.
- 2. **Non-Blocking Opportunistic Flush (TryLock Hot Path)**: The reader loop drains PtyMasterFileDescriptor 100% unlocked and attempts OnTryFlush. If the proxy lock is busy, the reader does NOT block; it immediately resumes draining the kernel descriptor into free staging space.
+ 2. **Non-Blocking Opportunistic Flush (TryLock Hot Path)**: The reader loop drains MasterFileDescriptor_PtyDevice 100% unlocked and attempts OnTryFlush. If the proxy lock is busy, the reader does NOT block; it immediately resumes draining the kernel descriptor into free staging space.
  3. **High-Throughput Micro-Batching**: When the proxy lock is briefly acquired by another thread, PTY data accumulates contiguously in StagingBuffer. Once the lock opens, a single flush delivers the entire accumulated batch in one lock acquisition, drastically reducing synchronization overhead and context switches.
  4. **Controlled Backpressure Fallback**: Only when StagingBuffer saturates (100% full) does PtyReader invoke OnBlockingFlush, safely applying kernel backpressure until lock availability resumes.
 
@@ -43,19 +43,19 @@ Instead of a traditional circular ring buffer, StagingBuffer uses static linear 
  - **Ring Buffer Trade-Off**: Circular buffers introduce split-slice wrap-arounds, requiring multi-part callbacks or flattening allocations.
  - **Linear Reset Accounting**: Resetting the unflushed staging buffer slice offset to zero on every successful flush guarantees downstream callbacks receive a single, contiguous byte slice with zero memory allocations or split-slice handling.
 
-## Terminal Signal Handling & Zero-Data-Loss Teardown
-Any non-nil read error (syscall.EIO, os.ErrClosed, or unspecified system errors) manifests into a terminal signal:
- - **Stream Signal Semantic Notice**: The error returned as the second result of reading is named terminalSignal because in Linux TTY/PTY stream reading, a non-nil error does not necessarily denote a system failure; rather, it can indicate clean slave process exit and stream termination.
- - **Idempotent Terminal PTY Descriptor Reads**: PTY file descriptors execute as an instantaneous non-blocking call and return zero bytes alongside a terminal signal on post-hangup reads.
- - **Guaranteed Staging Buffer Draining**: The read loop breaks only when a terminal signal has been encountered AND all pending stdout bytes in the staging buffer have been fully flushed, guaranteeing 100% of accumulated stdout bytes in StagingBuffer are delivered to PtyProxy before exit.
- - **Post-Loop Signal Dispatched Routing**: After loop exit, terminalSignal is evaluated in a single post-loop conditional block, routing to OnExited_Closed, OnExited_Eio, or fallback OnExited_SystemError.
+## Exit Signal Handling & Zero-Data-Loss Teardown
+Any non-nil read error (syscall.EIO, os.ErrClosed, or unspecified system errors) manifests into an exit signal:
+ - **Stream Exit Signal Semantic Notice**: The error returned as the second result of reading is named exitSignal_PtyReader because in Linux TTY/PTY stream reading, a non-nil error does not necessarily denote a system failure; rather, it can indicate clean slave process exit and stream termination.
+ - **Idempotent Exit PTY Descriptor Reads**: PTY file descriptors execute as an instantaneous non-blocking call and return zero bytes alongside an exit signal on post-hangup reads.
+ - **Guaranteed Staging Buffer Draining**: The read loop breaks only when an exit signal has been encountered AND all pending stdout bytes in the staging buffer have been fully flushed, guaranteeing 100% of accumulated stdout bytes in StagingBuffer are delivered to PtyProxy before exit.
+ - **Post-Loop Signal Dispatched Routing**: After loop exit, exitSignal_PtyReader is evaluated in a single post-loop conditional block, routing to OnExited_Closed, OnExited_Eio, or fallback OnExited_SystemError.
 
 ## Domain Invariants
  - **1. Unidirectional Parent Ownership**: PtyProxy owns PtyReader with zero back-pointers to PtyProxy.
- - **2. Single-Threaded Execution**: StartReading operates 100% single-threaded over StagingBuffer without internal locks.
+ - **2. Single-Threaded Execution**: RunWorker operates 100% single-threaded over StagingBuffer without internal locks.
  - **3. Unlocked Direct Kernel Reading**: Drains the master file descriptor directly into available StagingBuffer headroom 100% UNLOCKED.
  - **4. Non-Blocking TryLock Flushing**: Flushes accumulated batches contiguously via OnTryFlush whenever unflushed staging data is pending.
  - **5. Tiered Saturation Fallback**: If the staging buffer reaches full capacity and OnTryFlush fails, PtyReader invokes OnBlockingFlush, applying safe kernel PTY backpressure.
  - **6. Linear Reset-to-Zero Accounting**: Resets the unflushed staging buffer slice offset to zero on flush, guaranteeing downstream callbacks receive contiguous byte slices without ring-buffer modulo math.
- - **7. Guaranteed Drain Before Exit**: Read loop breaks ONLY when a terminal signal is encountered AND the staging buffer has been completely drained, guaranteeing zero data loss on process teardown.
+ - **7. Guaranteed Drain Before Exit**: Read loop breaks ONLY when an exit signal is encountered AND the staging buffer has been completely drained, guaranteeing zero data loss on process teardown.
  - **8. Mutually Exclusive Signal Routing**: Evaluates the terminal signal post-loop to dispatch the corresponding exit callback.

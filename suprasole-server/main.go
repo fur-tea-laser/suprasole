@@ -20,10 +20,10 @@ func main() {
 	workspaceController := New__WorkspaceController(_NewApi__WorkspaceController_{
 		HostPortAddress: *hostPortAddressFlag,
 		PtyProxyDefaults: _PtyProxyDefaults_{
-			ScrollbackLineCount_PtyTerminal:      10000,
-			StagingBufferSize_PtyReader:          16 * 1024,
-			PostSnapshotBufferSize_PtyProxy:      64 * 1024,
-			QueueBufferSize_InputOrder_PtyWriter: 1024,
+			ScrollbackLineCount_PtyTerminal:       10000,
+			StagingBufferSize_PtyReader:           16 * 1024,
+			PostSnapshotBufferSize_PtyProxy:       64 * 1024,
+			QueueBufferSize_InputOrder__PtyWriter: 1024,
 		},
 	})
 	startSessionError := workspaceController.StartSession()
