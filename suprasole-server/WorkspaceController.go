@@ -138,9 +138,9 @@ func (this *_WorkspaceController_) HandleSpawned_Pty(
 	ptyProxy *_PtyProxy_,
 ) {
 	workspacePty := &_WorkspacePty_{
-		PtyProxy:        ptyProxy,
-		IsVisible:       true,
-		MaybeExitResult: nil,
+		PtyProxy:         ptyProxy,
+		IsVisible:        true,
+		MaybeExitOutcome: nil,
 	}
 	this.Mutex.Lock()
 	this.PtyPool[ptyProxy.Id] = workspacePty
@@ -175,7 +175,7 @@ func (this *_WorkspaceController_) HandleExited_Eio_Success__Pty(
 ) {
 	this.HandleProcessExit(
 		ptyProxy.Id,
-		_PtyExitResult_Success_{},
+		_Success__ExitOutcome_PtyProxy_{},
 	)
 }
 
@@ -185,7 +185,7 @@ func (this *_WorkspaceController_) HandleExited_Eio_Failure__Pty(
 	processState := ptyProxy.PtyCommand.ProcessState
 	this.HandleProcessExit(
 		ptyProxy.Id,
-		_PtyExitResult_Failure_{
+		_Failure__ExitOutcome_PtyProxy_{
 			ExitCode: processState.ExitCode(),
 		},
 	)
@@ -197,7 +197,7 @@ func (this *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 	processWaitStatus := ptyProxy.PtyCommand.ProcessState.Sys().(_SYSCALL.WaitStatus)
 	this.HandleProcessExit(
 		ptyProxy.Id,
-		_PtyExitResult_Killed_{
+		_Killed__ExitOutcome_PtyProxy_{
 			ExitSignal: int(processWaitStatus.Signal()),
 		},
 	)
@@ -208,7 +208,7 @@ func (this *_WorkspaceController_) HandleExited_Closed__Pty(
 ) {
 	this.HandleProcessExit(
 		ptyProxy.Id,
-		_PtyExitResult_Closed_{},
+		_Closed__ExitOutcome_PtyProxy_{},
 	)
 }
 
@@ -218,7 +218,7 @@ func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 ) {
 	this.HandleProcessExit(
 		ptyProxy.Id,
-		_PtyExitResult_SystemError_{
+		_SystemError__ExitOutcome_PtyProxy_{
 			SystemError: exitSignal_PtyReader,
 		},
 	)
@@ -226,18 +226,20 @@ func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 
 func (this *_WorkspaceController_) HandleProcessExit(
 	ptyId uint32,
-	exitResult _PtyExitResult_,
+	exitOutcome _ExitOutcome_PtyProxy_,
 ) {
 	this.Mutex.Lock()
 	targetWorkspacePty := this.PtyPool[ptyId]
+	if targetWorkspacePty != nil {
+		targetWorkspacePty.MaybeExitOutcome = exitOutcome
+	}
 	this.Mutex.Unlock()
-	if targetWorkspacePty == nil {
+	if nil == targetWorkspacePty {
 		return
 	}
-	targetWorkspacePty.MaybeExitResult = exitResult
 	_PtyExit_Message_{
 		Id_PtyProxy: ptyId,
-		ExitResult:  exitResult,
+		ExitOutcome: exitOutcome,
 	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 

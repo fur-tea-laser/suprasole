@@ -199,12 +199,23 @@ func decodeMessage_RemovePty(
 }
 
 type _RemovePty_Message_ struct {
-	TargetPtyIds []uint32
+	Ids_PtyProxy []uint32
 }
 
 func (this _RemovePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
+	workspaceController.Mutex.Lock()
+	for _, someId_PtyProxy := range this.Ids_PtyProxy {
+		targetWorkspacePty := workspaceController.PtyPool[someId_PtyProxy]
+		if targetWorkspacePty != nil && targetWorkspacePty.MaybeExitOutcome != nil {
+			delete(
+				workspaceController.PtyPool,
+				someId_PtyProxy,
+			)
+		}
+	}
+	workspaceController.Mutex.Unlock()
 }
 
 func decodeMessage_SetPtyVisibilities(

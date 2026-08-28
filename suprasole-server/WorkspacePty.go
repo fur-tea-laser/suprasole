@@ -1,47 +1,47 @@
 package main
 
-type PtyExitReason int
+type ExitReason_PtyProxy int
 
 const (
-	SUCCESS__PtyExitReason PtyExitReason = iota
-	FAILURE__PtyExitReason
-	KILLED__PtyExitReason
-	CLOSED__PtyExitReason
-	SYSTEM_ERROR__PtyExitReason
+	SUCCESS__ExitReason_PtyProxy ExitReason_PtyProxy = iota
+	FAILURE__ExitReason_PtyProxy
+	KILLED__ExitReason_PtyProxy
+	CLOSED__ExitReason_PtyProxy
+	SYSTEM_ERROR__ExitReason_PtyProxy
 )
 
-type _PtyExitResult_ interface {
-	compiletimemarker_PtyExitResult()
+type _ExitOutcome_PtyProxy_ interface {
+	compiletimemarker_ExitOutcome_PtyProxy()
 }
 
-type _PtyExitResult_Success_ struct{}
+type _Success__ExitOutcome_PtyProxy_ struct{}
 
-func (_PtyExitResult_Success_) compiletimemarker_PtyExitResult() {}
+func (_Success__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _PtyExitResult_Failure_ struct {
+type _Failure__ExitOutcome_PtyProxy_ struct {
 	ExitCode int
 }
 
-func (_PtyExitResult_Failure_) compiletimemarker_PtyExitResult() {}
+func (_Failure__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _PtyExitResult_Killed_ struct {
+type _Killed__ExitOutcome_PtyProxy_ struct {
 	ExitSignal int
 }
 
-func (_PtyExitResult_Killed_) compiletimemarker_PtyExitResult() {}
+func (_Killed__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _PtyExitResult_Closed_ struct{}
+type _Closed__ExitOutcome_PtyProxy_ struct{}
 
-func (_PtyExitResult_Closed_) compiletimemarker_PtyExitResult() {}
+func (_Closed__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _PtyExitResult_SystemError_ struct {
+type _SystemError__ExitOutcome_PtyProxy_ struct {
 	SystemError error
 }
 
-func (_PtyExitResult_SystemError_) compiletimemarker_PtyExitResult() {}
+func (_SystemError__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
 type _WorkspacePty_ struct {
-	PtyProxy        *_PtyProxy_
-	IsVisible       bool
-	MaybeExitResult _PtyExitResult_
+	PtyProxy         *_PtyProxy_
+	IsVisible        bool
+	MaybeExitOutcome _ExitOutcome_PtyProxy_
 }

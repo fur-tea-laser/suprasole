@@ -34,7 +34,7 @@ func (this _SpawnPtyStatus_Message_) Emit(
 
 type _PtyExit_Message_ struct {
 	Id_PtyProxy uint32
-	ExitResult  _PtyExitResult_
+	ExitOutcome _ExitOutcome_PtyProxy_
 }
 
 func (this _PtyExit_Message_) Emit(
