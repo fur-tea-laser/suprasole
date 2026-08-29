@@ -3,16 +3,31 @@ package main
 type Code_PtyMessage_Egress uint16
 
 const (
-	SPAWN_PTY_STATUS__Code_PtyMessage_Egress    Code_PtyMessage_Egress = 0x0002
-	PTY_EXIT__Code_PtyMessage_Egress            Code_PtyMessage_Egress = 0x0005
-	PTY_OUTPUT__Code_PtyMessage_Egress          Code_PtyMessage_Egress = 0x0008
-	RESYNC_PTY_START__Code_PtyMessage_Egress    Code_PtyMessage_Egress = 0x000c
-	RESYNC_PTY_COMPLETE__Code_PtyMessage_Egress Code_PtyMessage_Egress = 0x000d
-	RESYNC_PTY_FAILED__Code_PtyMessage_Egress   Code_PtyMessage_Egress = 0x000f
+	SPAWN_PTY_STATUS__Code_PtyMessage_Egress   Code_PtyMessage_Egress = 0x0002
+	PTY_EXIT__Code_PtyMessage_Egress           Code_PtyMessage_Egress = 0x0005
+	PTY_OUTPUT__Code_PtyMessage_Egress         Code_PtyMessage_Egress = 0x0008
+	WORKSPACE_MANIFEST__Code_PtyMessage_Egress Code_PtyMessage_Egress = 0x0009
+	SYNC_PTY_START__Code_PtyMessage_Egress     Code_PtyMessage_Egress = 0x000b
+	SYNC_PTY_COMPLETE__Code_PtyMessage_Egress  Code_PtyMessage_Egress = 0x000c
 )
 
 type _PtyMessage_Egress_ interface {
 	Emit(websocketController *_WebsocketController_)
+}
+
+type _PtyBulletin_WorkspaceManifest_ struct {
+	Id_PtyProxy      uint32
+	IsVisible        bool
+	MaybeExitOutcome _ExitOutcome_PtyProxy_
+}
+
+type _WorkspaceManifest_Message_ struct {
+	PtyBulletins []_PtyBulletin_WorkspaceManifest_
+}
+
+func (this _WorkspaceManifest_Message_) Emit(
+	websocketController *_WebsocketController_,
+) {
 }
 
 type Status_SpawnPty byte
@@ -52,33 +67,22 @@ func (this _PtyOutput_Message_) Emit(
 ) {
 }
 
-type _ResyncPtyStart_Message_ struct {
+type _SyncPtyStart_Message_ struct {
 	Id_PtyProxy             uint32
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 }
 
-func (this _ResyncPtyStart_Message_) Emit(
+func (this _SyncPtyStart_Message_) Emit(
 	websocketController *_WebsocketController_,
 ) {
 }
 
-type _ResyncPtyComplete_Message_ struct {
+type _SyncPtyComplete_Message_ struct {
 	Id_PtyProxy uint32
 }
 
-func (this _ResyncPtyComplete_Message_) Emit(
-	websocketController *_WebsocketController_,
-) {
-}
-
-type _ResyncPtyFailed_Message_ struct {
-	Id_PtyProxy uint32
-	ErrorCode   uint16
-	Reason      string
-}
-
-func (this _ResyncPtyFailed_Message_) Emit(
+func (this _SyncPtyComplete_Message_) Emit(
 	websocketController *_WebsocketController_,
 ) {
 }

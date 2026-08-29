@@ -3,13 +3,12 @@ package main
 type Code_PtyMessage_Ingress uint16
 
 const (
-	SPAWN_PTY__Code_PtyMessage_Ingress            Code_PtyMessage_Ingress = 0x0001
-	RESIZE_PTYS__Code_PtyMessage_Ingress          Code_PtyMessage_Ingress = 0x0003
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress      Code_PtyMessage_Ingress = 0x0007
-	TERMINATE_PTY__Code_PtyMessage_Ingress        Code_PtyMessage_Ingress = 0x0004
-	REMOVE_PTY__Code_PtyMessage_Ingress           Code_PtyMessage_Ingress = 0x0006
-	SET_PTY_VISIBILITIES__Code_PtyMessage_Ingress Code_PtyMessage_Ingress = 0x0009
-	RESYNC_WORKSPACE__Code_PtyMessage_Ingress     Code_PtyMessage_Ingress = 0x000e
+	SPAWN_PTY__Code_PtyMessage_Ingress       Code_PtyMessage_Ingress = 0x0001
+	RESIZE_PTYS__Code_PtyMessage_Ingress     Code_PtyMessage_Ingress = 0x0003
+	TERMINATE_PTY__Code_PtyMessage_Ingress   Code_PtyMessage_Ingress = 0x0004
+	REMOVE_PTY__Code_PtyMessage_Ingress      Code_PtyMessage_Ingress = 0x0006
+	WRITE_PTY_INPUT__Code_PtyMessage_Ingress Code_PtyMessage_Ingress = 0x0007
+	SYNC_WORKSPACE__Code_PtyMessage_Ingress  Code_PtyMessage_Ingress = 0x000a
 )
 
 type _PtyMessage_Ingress_ interface {
@@ -19,13 +18,12 @@ type _PtyMessage_Ingress_ interface {
 var DECODE_MESSAGE_MAP__PTY_MESSAGE_INGRESS = map[Code_PtyMessage_Ingress]func(
 	binaryMessageFrame []byte,
 ) (_PtyMessage_Ingress_, error){
-	SPAWN_PTY__Code_PtyMessage_Ingress:            decodeMessage_SpawnPty,
-	RESIZE_PTYS__Code_PtyMessage_Ingress:          decodeMessage_ResizePtys,
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress:      decodeMessage_WritePtyInput,
-	TERMINATE_PTY__Code_PtyMessage_Ingress:        decodeMessage_TerminatePty,
-	REMOVE_PTY__Code_PtyMessage_Ingress:           decodeMessage_RemovePty,
-	SET_PTY_VISIBILITIES__Code_PtyMessage_Ingress: decodeMessage_SetPtyVisibilities,
-	RESYNC_WORKSPACE__Code_PtyMessage_Ingress:     decodeMessage_ResyncWorkspace,
+	SPAWN_PTY__Code_PtyMessage_Ingress:       decodeMessage_SpawnPty,
+	RESIZE_PTYS__Code_PtyMessage_Ingress:     decodeMessage_ResizePtys,
+	TERMINATE_PTY__Code_PtyMessage_Ingress:   decodeMessage_TerminatePty,
+	REMOVE_PTY__Code_PtyMessage_Ingress:      decodeMessage_RemovePty,
+	WRITE_PTY_INPUT__Code_PtyMessage_Ingress: decodeMessage_WritePtyInput,
+	SYNC_WORKSPACE__Code_PtyMessage_Ingress:  decodeMessage_SyncWorkspace,
 }
 
 func decodeMessage_SpawnPty(
@@ -199,14 +197,14 @@ func decodeMessage_RemovePty(
 }
 
 type _RemovePty_Message_ struct {
-	Ids_PtyProxy []uint32
+	Ids_PtyPool []uint32
 }
 
 func (this _RemovePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
 	workspaceController.Mutex.Lock()
-	for _, someId_PtyProxy := range this.Ids_PtyProxy {
+	for _, someId_PtyProxy := range this.Ids_PtyPool {
 		targetWorkspacePty := workspaceController.PtyPool[someId_PtyProxy]
 		if targetWorkspacePty != nil && targetWorkspacePty.MaybeExitOutcome != nil {
 			delete(
@@ -218,39 +216,23 @@ func (this _RemovePty_Message_) Execute(
 	workspaceController.Mutex.Unlock()
 }
 
-func decodeMessage_SetPtyVisibilities(
+func decodeMessage_SyncWorkspace(
 	binaryMessageFrame []byte,
 ) (_PtyMessage_Ingress_, error) {
 	return nil, nil
 }
 
-type _SetPtyVisibilities_Message_ struct {
-	VisiblePtyIds []uint32
-}
-
-func (this _SetPtyVisibilities_Message_) Execute(
-	workspaceController *_WorkspaceController_,
-) {
-}
-
-func decodeMessage_ResyncWorkspace(
-	binaryMessageFrame []byte,
-) (_PtyMessage_Ingress_, error) {
-	return nil, nil
-}
-
-type _ResyncWorkspace_Entry_ struct {
-	Id_PtyProxy             uint32
+type _SyncPtyOrder_SyncWorkspace_ struct {
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
-	IsVisible_WorkspacePty  bool
 }
 
-type _ResyncWorkspace_Message_ struct {
-	Entries []_ResyncWorkspace_Entry_
+type _SyncWorkspace_Message_ struct {
+	SyncPtyOrders map[uint32]*_SyncPtyOrder_SyncWorkspace_
 }
 
-func (this _ResyncWorkspace_Message_) Execute(
+func (this _SyncWorkspace_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 ) {
+	workspaceController.MessageCoalescer_SyncWorkspace.QueueChannel <- this
 }

@@ -4,6 +4,7 @@ import (
 	_CONTEXT "context"
 	_BINARY "encoding/binary"
 	_FMT "fmt"
+	_MAPS "maps"
 	_SYNC "sync"
 	_SYSCALL "syscall"
 	_TIME "time"
@@ -17,12 +18,13 @@ type _PtyProxyDefaults_ struct {
 }
 
 type _WorkspaceController_ struct {
-	Mutex                       _SYNC.Mutex
-	WorkspaceNetwork            *_WorkspaceNetwork_
-	PtyPool                     map[uint32]*_WorkspacePty_
-	NextId_PtyProxy             uint32
-	PtyProxyDefaults            _PtyProxyDefaults_
-	MessageDebouncer_ResizePtys *_MessageDebouncer_ResizePtys_
+	Mutex                          _SYNC.Mutex
+	WorkspaceNetwork               *_WorkspaceNetwork_
+	PtyPool                        map[uint32]*_WorkspacePty_
+	NextId_PtyProxy                uint32
+	PtyProxyDefaults               _PtyProxyDefaults_
+	MessageDebouncer_ResizePtys    *_MessageDebouncer_ResizePtys_
+	MessageCoalescer_SyncWorkspace *_MessageCoalescer_SyncWorkspace_
 }
 
 type _NewApi__WorkspaceController_ struct {
@@ -34,21 +36,25 @@ func New__WorkspaceController(
 	api _NewApi__WorkspaceController_,
 ) *_WorkspaceController_ {
 	newWorkspaceControllerResult := &_WorkspaceController_{
-		Mutex:                       _SYNC.Mutex{},
-		PtyPool:                     make(map[uint32]*_WorkspacePty_),
-		NextId_PtyProxy:             1,
-		PtyProxyDefaults:            api.PtyProxyDefaults,
-		MessageDebouncer_ResizePtys: nil,
-		WorkspaceNetwork:            nil,
+		Mutex:                          _SYNC.Mutex{},
+		PtyPool:                        make(map[uint32]*_WorkspacePty_),
+		NextId_PtyProxy:                1,
+		PtyProxyDefaults:               api.PtyProxyDefaults,
+		MessageDebouncer_ResizePtys:    nil,
+		MessageCoalescer_SyncWorkspace: nil,
+		WorkspaceNetwork:               nil,
 	}
 	newWorkspaceControllerResult.MessageDebouncer_ResizePtys = New__MessageDebouncer_ResizePtys(_NewApi__MessageDebouncer_ResizePtys_{
 		DebounceTimeout: 50 * _TIME.Millisecond,
 		OnResizePtys:    newWorkspaceControllerResult.HandleResizePtys_Debouncer,
 	})
+	newWorkspaceControllerResult.MessageCoalescer_SyncWorkspace = New__MessageCoalescer_SyncWorkspace(_NewApi__MessageCoalescer_SyncWorkspace_{
+		OnSyncWorkspace: newWorkspaceControllerResult.HandleSyncWorkspace_Coalescer,
+	})
 	newWorkspaceControllerResult.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
 		HostPortAddress:                     api.HostPortAddress,
 		OnConnected_PtyWebsocket:            newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
-		OnTakeoverConnected_PtyWebsocket:    newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
+		OnTakeoverConnected_PtyWebsocket:    newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
 		OnDisconnected_PtyWebsocket:         newWorkspaceControllerResult.HandleDisconnected_PtyWebsocket,
 		OnTakeoverDisconnected_PtyWebsocket: newWorkspaceControllerResult.HandleTakeoverDisconnected_PtyWebsocket,
 		OnBinaryMessageFrame_PtyWebsocket:   newWorkspaceControllerResult.HandleBinaryMessageFrame_PtyWebsocket,
@@ -58,6 +64,7 @@ func New__WorkspaceController(
 
 func (this *_WorkspaceController_) StartSession() error {
 	go this.MessageDebouncer_ResizePtys.RunWorker()
+	go this.MessageCoalescer_SyncWorkspace.RunWorker()
 	return this.WorkspaceNetwork.StartServer()
 }
 
@@ -65,13 +72,31 @@ func (this *_WorkspaceController_) StopSession(
 	shutdownContext _CONTEXT.Context,
 ) error {
 	this.MessageDebouncer_ResizePtys.WorkerCancel()
+	this.MessageCoalescer_SyncWorkspace.WorkerCancel()
 	return this.WorkspaceNetwork.StopServer(shutdownContext)
 }
 
 func (this *_WorkspaceController_) HandleConnected_PtyWebsocket() {
-}
-
-func (this *_WorkspaceController_) HandleTakeoverConnected_PtyWebsocket() {
+	this.Mutex.Lock()
+	ptyBulletinsResult := make(
+		[]_PtyBulletin_WorkspaceManifest_,
+		0,
+		len(this.PtyPool),
+	)
+	for idPtyProxy, workspacePty := range this.PtyPool {
+		ptyBulletinsResult = append(
+			ptyBulletinsResult,
+			_PtyBulletin_WorkspaceManifest_{
+				Id_PtyProxy:      idPtyProxy,
+				IsVisible:        workspacePty.IsVisible,
+				MaybeExitOutcome: workspacePty.MaybeExitOutcome,
+			},
+		)
+	}
+	this.Mutex.Unlock()
+	_WorkspaceManifest_Message_{
+		PtyBulletins: ptyBulletinsResult,
+	}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
 }
 
 func (this *_WorkspaceController_) HandleDisconnected_PtyWebsocket(
@@ -255,6 +280,51 @@ func (this *_WorkspaceController_) HandleResizePtys_Debouncer(
 				somePendingEntry.ColumnCount_PtyTerminal,
 				somePendingEntry.RowCount_PtyTerminal,
 			)
+		}
+	}
+}
+
+func (this *_WorkspaceController_) HandleSyncWorkspace_Coalescer(
+	syncWorkspaceMessage _SyncWorkspace_Message_,
+) {
+	this.Mutex.Lock()
+	ptyPoolClone := _MAPS.Clone(this.PtyPool)
+	this.Mutex.Unlock()
+	for idPtyProxy, targetWorkspacePty := range ptyPoolClone {
+		someSyncPtyOrder := syncWorkspaceMessage.SyncPtyOrders[idPtyProxy]
+		this.Mutex.Lock()
+		isWasVisible := targetWorkspacePty.IsVisible
+		if someSyncPtyOrder != nil {
+			targetWorkspacePty.IsVisible = true
+		} else {
+			targetWorkspacePty.IsVisible = false
+		}
+		this.Mutex.Unlock()
+		if someSyncPtyOrder != nil && isWasVisible {
+			_ = targetWorkspacePty.PtyProxy.Resize(
+				someSyncPtyOrder.ColumnCount_PtyTerminal,
+				someSyncPtyOrder.RowCount_PtyTerminal,
+			)
+		} else if someSyncPtyOrder != nil && false == isWasVisible {
+			_ = targetWorkspacePty.PtyProxy.Resize(
+				someSyncPtyOrder.ColumnCount_PtyTerminal,
+				someSyncPtyOrder.RowCount_PtyTerminal,
+			)
+			_SyncPtyStart_Message_{
+				Id_PtyProxy:             targetWorkspacePty.PtyProxy.Id,
+				ColumnCount_PtyTerminal: someSyncPtyOrder.ColumnCount_PtyTerminal,
+				RowCount_PtyTerminal:    someSyncPtyOrder.RowCount_PtyTerminal,
+			}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
+			targetWorkspacePty.PtyProxy.TransitionMode_PreToPostSnapshot()
+			_SyncPtyComplete_Message_{
+				Id_PtyProxy: targetWorkspacePty.PtyProxy.Id,
+			}.Emit(this.WorkspaceNetwork.WebsocketController_Pty)
+			targetWorkspacePty.PtyProxy.TransitionMode_PostSnapshotToLive()
+		} else if nil == someSyncPtyOrder && isWasVisible {
+			targetWorkspacePty.PtyProxy.TransitionMode_LiveToPreSnapshot()
+		} else if nil == someSyncPtyOrder && false == isWasVisible {
+		} else {
+			_FMT.Println("invalid path: HandleSyncWorkspace_Coalescer")
 		}
 	}
 }
