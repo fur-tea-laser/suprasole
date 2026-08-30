@@ -16,11 +16,11 @@ type _WorkspaceNetwork_ struct {
 
 type _NewApi__WorkspaceNetwork_ struct {
 	HostPortAddress                     string
-	OnConnected_PtyWebsocket            func()
-	OnTakeoverConnected_PtyWebsocket    func()
-	OnDisconnected_PtyWebsocket         func(readMessageError error)
-	OnTakeoverDisconnected_PtyWebsocket func()
-	OnBinaryMessageFrame_PtyWebsocket   func(binaryMessageFrame []byte)
+	OnConnected_PtyWebsocket            func(id_WebsocketConnection uint64)
+	OnTakeoverConnected_PtyWebsocket    func(id_WebsocketConnection uint64)
+	OnDisconnected_PtyWebsocket         func(id_WebsocketConnection uint64, readMessageError error)
+	OnTakeoverDisconnected_PtyWebsocket func(id_WebsocketConnection uint64)
+	OnBinaryMessageFrame_PtyWebsocket   func(id_WebsocketConnection uint64, binaryMessageFrame []byte)
 }
 
 func New__WorkspaceNetwork(

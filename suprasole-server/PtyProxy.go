@@ -254,33 +254,37 @@ func __executeExitedTeardownPipeline(
 
 func (this *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
 	this.Mutex.Lock()
-	if this.Mode != EXITED__Mode_PtyProxy {
-		this.Mode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
-	}
+	this.Mode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
+	this.Mutex.Unlock()
+}
+
+func (this *_PtyProxy_) TransitionMode_PostSnapshotToPreSnapshot() {
+	this.Mutex.Lock()
+	this.Mode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
 	this.Mutex.Unlock()
 }
 
 func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
+	var snapshotBytes []byte
 	this.Mutex.Lock()
 	this.PostSnapshotBuffer.Reset()
-	if this.Mode != EXITED__Mode_PtyProxy {
-		this.Mode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy
-	}
+	this.Mode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy
 	serializeAddon := _XTERM.NewSerializeAddon(this.PtyTerminal)
-	snapshotBytes := serializeAddon.Serialize(nil)
+	snapshotBytes = serializeAddon.Serialize(nil)
 	this.Mutex.Unlock()
-	this.OnOutput_Snapshot(
-		this,
-		snapshotBytes,
-	)
+	if len(snapshotBytes) > 0 {
+		this.OnOutput_Snapshot(
+			this,
+			snapshotBytes,
+		)
+	}
 }
 
 func (this *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
+	var clonedPostSnapshotBuffer []byte
 	this.Mutex.Lock()
-	clonedPostSnapshotBuffer := _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
-	if this.Mode != EXITED__Mode_PtyProxy {
-		this.Mode = RUNNING_LIVE__Mode_PtyProxy
-	}
+	clonedPostSnapshotBuffer = _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
+	this.Mode = RUNNING_LIVE__Mode_PtyProxy
 	this.Mutex.Unlock()
 	if len(clonedPostSnapshotBuffer) > 0 {
 		this.OnOutput_PostSnapshotBuffer(
@@ -290,21 +294,35 @@ func (this *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
 	}
 }
 
+func (this *_PtyProxy_) EmitSnapshot_Exited() {
+	var snapshotBytes []byte
+	this.Mutex.Lock()
+	serializeAddon := _XTERM.NewSerializeAddon(this.PtyTerminal)
+	snapshotBytes = serializeAddon.Serialize(nil)
+	this.Mutex.Unlock()
+	if len(snapshotBytes) > 0 {
+		this.OnOutput_Snapshot(
+			this,
+			snapshotBytes,
+		)
+	}
+}
+
 func (this *_PtyProxy_) Resize(
-	nextColumnCount int,
-	nextRowCount int,
+	nextColumnCount_PtyTerminal int,
+	nextRowCount_PtyTerminal int,
 ) error {
 	this.Mutex.Lock()
 	this.PtyTerminal.Resize(
-		nextColumnCount,
-		nextRowCount,
+		nextColumnCount_PtyTerminal,
+		nextRowCount_PtyTerminal,
 	)
 	this.Mutex.Unlock()
 	return _PTY.Setsize(
 		this.MasterFileDescriptor_PtyDevice,
 		&_PTY.Winsize{
-			Rows: uint16(nextRowCount),
-			Cols: uint16(nextColumnCount),
+			Rows: uint16(nextRowCount_PtyTerminal),
+			Cols: uint16(nextColumnCount_PtyTerminal),
 		},
 	)
 }

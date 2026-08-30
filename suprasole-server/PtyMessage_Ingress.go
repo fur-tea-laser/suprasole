@@ -12,7 +12,7 @@ const (
 )
 
 type _PtyMessage_Ingress_ interface {
-	Execute(workspaceController *_WorkspaceController_)
+	Execute(workspaceController *_WorkspaceController_, id_WebsocketConnection uint64)
 }
 
 var DECODE_MESSAGE_MAP__PTY_MESSAGE_INGRESS = map[Code_PtyMessage_Ingress]func(
@@ -87,6 +87,7 @@ type _SpawnPty_Message_ struct {
 
 func (this _SpawnPty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
+	id_WebsocketConnection uint64,
 ) {
 	optionsResult_ptyProxy := workspaceController.PtyProxyDefaults
 	for _, option_ptyProxy := range this.Options_PtyProxy {
@@ -142,6 +143,7 @@ type _ResizePtys_Message_ struct {
 
 func (this _ResizePtys_Message_) Execute(
 	workspaceController *_WorkspaceController_,
+	id_WebsocketConnection uint64,
 ) {
 	workspaceController.MessageDebouncer_ResizePtys.QueueChannel <- this
 }
@@ -159,6 +161,7 @@ type _WritePtyInput_Message_ struct {
 
 func (this _WritePtyInput_Message_) Execute(
 	workspaceController *_WorkspaceController_,
+	id_WebsocketConnection uint64,
 ) {
 	workspaceController.Mutex.Lock()
 	targetWorkspacePty := workspaceController.PtyPool[this.Id_PtyProxy]
@@ -181,6 +184,7 @@ type _TerminatePty_Message_ struct {
 
 func (this _TerminatePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
+	id_WebsocketConnection uint64,
 ) {
 	workspaceController.Mutex.Lock()
 	targetWorkspacePty := workspaceController.PtyPool[this.Id_PtyProxy]
@@ -202,6 +206,7 @@ type _RemovePty_Message_ struct {
 
 func (this _RemovePty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
+	id_WebsocketConnection uint64,
 ) {
 	workspaceController.Mutex.Lock()
 	for _, someId_PtyProxy := range this.Ids_PtyPool {
@@ -233,6 +238,10 @@ type _SyncWorkspace_Message_ struct {
 
 func (this _SyncWorkspace_Message_) Execute(
 	workspaceController *_WorkspaceController_,
+	id_WebsocketConnection uint64,
 ) {
-	workspaceController.MessageCoalescer_SyncWorkspace.QueueChannel <- this
+	workspaceController.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Sync__WorkspaceOrder_LifecycleCoordinator_{
+		Id_WebsocketConnection: id_WebsocketConnection,
+		Message_SyncWorkspace:  this,
+	}
 }

@@ -12,7 +12,7 @@ const (
 )
 
 type _PtyMessage_Egress_ interface {
-	Emit(websocketController *_WebsocketController_)
+	Emit(websocketController *_WebsocketController_, targetId_WebsocketConnection uint64)
 }
 
 type _PtyBulletin_WorkspaceManifest_ struct {
@@ -27,6 +27,7 @@ type _WorkspaceManifest_Message_ struct {
 
 func (this _WorkspaceManifest_Message_) Emit(
 	websocketController *_WebsocketController_,
+	targetId_WebsocketConnection uint64,
 ) {
 }
 
@@ -44,6 +45,7 @@ type _SpawnPtyStatus_Message_ struct {
 
 func (this _SpawnPtyStatus_Message_) Emit(
 	websocketController *_WebsocketController_,
+	targetId_WebsocketConnection uint64,
 ) {
 }
 
@@ -54,6 +56,7 @@ type _PtyExit_Message_ struct {
 
 func (this _PtyExit_Message_) Emit(
 	websocketController *_WebsocketController_,
+	targetId_WebsocketConnection uint64,
 ) {
 }
 
@@ -64,6 +67,7 @@ type _PtyOutput_Message_ struct {
 
 func (this _PtyOutput_Message_) Emit(
 	websocketController *_WebsocketController_,
+	targetId_WebsocketConnection uint64,
 ) {
 }
 
@@ -75,6 +79,7 @@ type _SyncPtyStart_Message_ struct {
 
 func (this _SyncPtyStart_Message_) Emit(
 	websocketController *_WebsocketController_,
+	targetId_WebsocketConnection uint64,
 ) {
 }
 
@@ -84,5 +89,6 @@ type _SyncPtyComplete_Message_ struct {
 
 func (this _SyncPtyComplete_Message_) Emit(
 	websocketController *_WebsocketController_,
+	targetId_WebsocketConnection uint64,
 ) {
 }
