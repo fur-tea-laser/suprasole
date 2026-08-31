@@ -175,30 +175,32 @@ func (this *_WorkspaceController_) HandleSpawned_Pty(
 ) {
 	workspacePty := &_WorkspacePty_{
 		PtyProxy:         ptyProxy,
-		IsVisible:        true,
+		IsVisible_Client: true,
 		MaybeExitOutcome: nil,
 	}
 	this.Mutex.Lock()
 	this.PtyPool[ptyProxy.Id] = workspacePty
 	this.Mutex.Unlock()
-	_SpawnPtyStatus_Message_{
-		Id_PtyProxy: ptyProxy.Id,
-		Status:      SUCCESS__Status_SpawnPty,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
+		_SpawnPtyStatus_Message_{
+			Id_PtyProxy: ptyProxy.Id,
+			Status:      SUCCESS__Status_SpawnPty,
+		},
 	)
 }
 
 func (this *_WorkspaceController_) HandleSpawnFailed_Pty(
 	id_PtyProxy uint32,
 ) {
-	_SpawnPtyStatus_Message_{
-		Id_PtyProxy: id_PtyProxy,
-		Status:      FAILURE__Status_SpawnPty,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
+		_SpawnPtyStatus_Message_{
+			Id_PtyProxy: id_PtyProxy,
+			Status:      FAILURE__Status_SpawnPty,
+		},
 	)
 }
 
@@ -206,12 +208,13 @@ func (this *_WorkspaceController_) HandleOutput_Pty(
 	ptyProxy *_PtyProxy_,
 	outputData []byte,
 ) {
-	_PtyOutput_Message_{
-		Id_PtyProxy: ptyProxy.Id,
-		OutputData:  outputData,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
+		_PtyOutput_Message_{
+			Id_PtyProxy: ptyProxy.Id,
+			OutputData:  outputData,
+		},
 	)
 }
 
@@ -299,17 +302,18 @@ func (this *_WorkspaceController_) HandleConnect_Coordinator(
 			ptyBulletinsResult,
 			_PtyBulletin_WorkspaceManifest_{
 				Id_PtyProxy:      id_PtyProxy,
-				IsVisible:        workspacePty.IsVisible,
+				IsVisible_Client: workspacePty.IsVisible_Client,
 				MaybeExitOutcome: workspacePty.MaybeExitOutcome,
 			},
 		)
 	}
 	this.Mutex.Unlock()
-	_WorkspaceManifest_Message_{
-		PtyBulletins: ptyBulletinsResult,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		id_WebsocketConnection,
+		_WorkspaceManifest_Message_{
+			PtyBulletins: ptyBulletinsResult,
+		},
 	)
 }
 
@@ -345,20 +349,22 @@ func __emitSnapshot_SyncPty(
 	columnCount_PtyTerminal int,
 	rowCount_PtyTerminal int,
 ) {
-	_SyncPtyStart_Message_{
-		Id_PtyProxy:             id_PtyProxy,
-		ColumnCount_PtyTerminal: columnCount_PtyTerminal,
-		RowCount_PtyTerminal:    rowCount_PtyTerminal,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		websocketController,
 		id_WebsocketConnection,
+		_SyncPtyStart_Message_{
+			Id_PtyProxy:             id_PtyProxy,
+			ColumnCount_PtyTerminal: columnCount_PtyTerminal,
+			RowCount_PtyTerminal:    rowCount_PtyTerminal,
+		},
 	)
 	onEmitSnapshot()
-	_SyncPtyComplete_Message_{
-		Id_PtyProxy: id_PtyProxy,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		websocketController,
 		id_WebsocketConnection,
+		_SyncPtyComplete_Message_{
+			Id_PtyProxy: id_PtyProxy,
+		},
 	)
 }
 
@@ -372,12 +378,12 @@ func (this *_WorkspaceController_) HandleSync_Coordinator(
 	for id_PtyProxy, targetWorkspacePty := range ptyPoolClone {
 		maybeSyncPtyOrder_targetWorkspacePty := message_SyncWorkspace.SyncPtyOrders[id_PtyProxy]
 		this.Mutex.Lock()
-		isWasVisible_targetWorkspacePty := targetWorkspacePty.IsVisible
+		isWasVisible_targetWorkspacePty := targetWorkspacePty.IsVisible_Client
 		isWasExited_targetWorkspacePty := targetWorkspacePty.MaybeExitOutcome != nil
 		if maybeSyncPtyOrder_targetWorkspacePty != nil {
-			targetWorkspacePty.IsVisible = true
+			targetWorkspacePty.IsVisible_Client = true
 		} else {
-			targetWorkspacePty.IsVisible = false
+			targetWorkspacePty.IsVisible_Client = false
 		}
 		this.Mutex.Unlock()
 		if maybeSyncPtyOrder_targetWorkspacePty != nil && isWasVisible_targetWorkspacePty {
@@ -428,11 +434,12 @@ func (this *_WorkspaceController_) HandleExitPty_Coordinator(
 	this.Mutex.Lock()
 	this.PtyPool[id_PtyProxy].MaybeExitOutcome = exitOutcome
 	this.Mutex.Unlock()
-	_PtyExit_Message_{
-		Id_PtyProxy: id_PtyProxy,
-		ExitOutcome: exitOutcome,
-	}.Emit(
+	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
+		_PtyExit_Message_{
+			Id_PtyProxy: id_PtyProxy,
+			ExitOutcome: exitOutcome,
+		},
 	)
 }
