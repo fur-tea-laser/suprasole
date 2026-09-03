@@ -46,16 +46,16 @@ type _WebsocketController_ struct {
 	IsTakeoverPending                                bool
 	Id_WebsocketConnection                           uint64
 	WebsocketConnection                              *_WEBSOCKET.Conn
-	ReadDeadlineTimeout                              _TIME.Duration
-	WriteDeadlineTimeout                             _TIME.Duration
+	ReadDeadlineTimeout__                            _TIME.Duration
+	WriteDeadlineTimeout__                           _TIME.Duration
+	OnConnected__                                    func(id_WebsocketConnection uint64)
+	OnTakeoverConnected__                            func(id_WebsocketConnection uint64)
+	OnDisconnected__                                 func(id_WebsocketConnection uint64, readMessageError error)
+	OnTakeoverDisconnected__                         func(id_WebsocketConnection uint64)
+	OnBinaryMessageFrame__                           func(id_WebsocketConnection uint64, binaryMessageFrame []byte)
+	QueueChannel__Submission_GetWebsocketConnection  chan _Submission_GetWebsocketConnection_
 	WorkerContext__Submission_GetWebsocketConnection _CONTEXT.Context
 	WorkerCancel__Submission_GetWebsocketConnection  _CONTEXT.CancelFunc
-	QueueChannel__Submission_GetWebsocketConnection  chan _Submission_GetWebsocketConnection_
-	OnConnected                                      func(id_WebsocketConnection uint64)
-	OnTakeoverConnected                              func(id_WebsocketConnection uint64)
-	OnDisconnected                                   func(id_WebsocketConnection uint64, readMessageError error)
-	OnTakeoverDisconnected                           func(id_WebsocketConnection uint64)
-	OnBinaryMessageFrame                             func(id_WebsocketConnection uint64, binaryMessageFrame []byte)
 }
 
 func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
@@ -138,7 +138,7 @@ func (this *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 				for {
 					messageType, binaryMessageFrame, readMessageError := this.WebsocketConnection.ReadMessage()
 					if _WEBSOCKET.BinaryMessage == messageType {
-						this.OnBinaryMessageFrame(
+						this.OnBinaryMessageFrame__(
 							newId_WebsocketConnection,
 							binaryMessageFrame,
 						)
@@ -204,13 +204,13 @@ func (this *_WebsocketController_) UpdateWebsocketConnection(
 	if newWebsocketConnection != nil && isTakeoverConnecting {
 		newId_WebsocketConnection := this.AttachConnection(
 			newWebsocketConnection,
-			this.OnTakeoverConnected,
+			this.OnTakeoverConnected__,
 		)
 		return true, newId_WebsocketConnection
 	} else if newWebsocketConnection != nil {
 		newId_WebsocketConnection := this.AttachConnection(
 			newWebsocketConnection,
-			this.OnConnected,
+			this.OnConnected__,
 		)
 		return true, newId_WebsocketConnection
 	} else if upgradeRequestError != nil && isTakeoverConnecting {
@@ -238,7 +238,7 @@ func (this *_WebsocketController_) AttachConnection(
 	newId_WebsocketConnection := this.Id_WebsocketConnection
 	this.WebsocketConnection = newWebsocketConnection
 	_ = this.WebsocketConnection.SetReadDeadline(
-		_TIME.Now().Add(this.ReadDeadlineTimeout),
+		_TIME.Now().Add(this.ReadDeadlineTimeout__),
 	)
 	this.ConnectionStatus = CONNECTED__WebsocketConnectionStatus
 	this.Mutex.Unlock()
@@ -264,9 +264,9 @@ func (this *_WebsocketController_) HandleConnectionTeardown(
 	}
 	this.Mutex.Unlock()
 	if wasTakeoverPending {
-		this.OnTakeoverDisconnected(id_WebsocketConnection)
+		this.OnTakeoverDisconnected__(id_WebsocketConnection)
 	} else {
-		this.OnDisconnected(
+		this.OnDisconnected__(
 			id_WebsocketConnection,
 			readMessageError,
 		)
@@ -293,7 +293,7 @@ func (this *_WebsocketController_) WriteBinaryMessage(
 	}
 	this.EgressMutex.Lock()
 	_ = capturedWebsocketConnection.SetWriteDeadline(
-		_TIME.Now().Add(this.WriteDeadlineTimeout),
+		_TIME.Now().Add(this.WriteDeadlineTimeout__),
 	)
 	writeMessageError := capturedWebsocketConnection.WriteMessage(
 		_WEBSOCKET.BinaryMessage,
@@ -321,7 +321,7 @@ func (this *_WebsocketController_) CloseWithCode(
 				websocketCloseCode,
 				websocketCloseReason,
 			),
-			_TIME.Now().Add(this.WriteDeadlineTimeout),
+			_TIME.Now().Add(this.WriteDeadlineTimeout__),
 		)
 		_ = capturedWebsocketConnection.Close()
 		this.EgressMutex.Unlock()

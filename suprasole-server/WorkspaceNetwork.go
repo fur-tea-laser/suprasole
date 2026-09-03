@@ -15,38 +15,35 @@ type _WorkspaceNetwork_ struct {
 }
 
 type _NewApi__WorkspaceNetwork_ struct {
-	HostPortAddress                     string
-	OnConnected_PtyWebsocket            func(id_WebsocketConnection uint64)
-	OnTakeoverConnected_PtyWebsocket    func(id_WebsocketConnection uint64)
-	OnDisconnected_PtyWebsocket         func(id_WebsocketConnection uint64, readMessageError error)
-	OnTakeoverDisconnected_PtyWebsocket func(id_WebsocketConnection uint64)
-	OnBinaryMessageFrame_PtyWebsocket   func(id_WebsocketConnection uint64, binaryMessageFrame []byte)
+	HostPortAddress__                     string
+	OnConnected_PtyWebsocket__            func(id_WebsocketConnection uint64)
+	OnTakeoverConnected_PtyWebsocket__    func(id_WebsocketConnection uint64)
+	OnDisconnected_PtyWebsocket__         func(id_WebsocketConnection uint64, readMessageError error)
+	OnTakeoverDisconnected_PtyWebsocket__ func(id_WebsocketConnection uint64)
+	OnBinaryMessageFrame_PtyWebsocket__   func(id_WebsocketConnection uint64, binaryMessageFrame []byte)
 }
 
 func New__WorkspaceNetwork(
-	networkApi _NewApi__WorkspaceNetwork_,
+	api _NewApi__WorkspaceNetwork_,
 ) *_WorkspaceNetwork_ {
-	__QueueChannel__Submission_GetWebsocketConnection := make(
-		chan _Submission_GetWebsocketConnection_,
-		16,
-	)
+	__QueueChannel__Submission_GetWebsocketConnection := make(chan _Submission_GetWebsocketConnection_, 16)
 	__WorkerContext__Submission_GetWebsocketConnection, __WorkerCancel__Submission_GetWebsocketConnection := _CONTEXT.WithCancel(_CONTEXT.Background())
 	__WebsocketController_Pty__Network := &_WebsocketController_{
-		Mutex:                _SYNC.Mutex{},
-		EgressMutex:          _SYNC.Mutex{},
-		ConnectionStatus:     STANDBY__WebsocketConnectionStatus,
-		IsTakeoverPending:    false,
-		ReadDeadlineTimeout:  60 * _TIME.Second,
-		WriteDeadlineTimeout: 10 * _TIME.Second,
+		Mutex:                    _SYNC.Mutex{},
+		EgressMutex:              _SYNC.Mutex{},
+		ConnectionStatus:         STANDBY__WebsocketConnectionStatus,
+		IsTakeoverPending:        false,
+		ReadDeadlineTimeout__:    60 * _TIME.Second,
+		WriteDeadlineTimeout__:   10 * _TIME.Second,
+		OnConnected__:            api.OnConnected_PtyWebsocket__,
+		OnTakeoverConnected__:    api.OnTakeoverConnected_PtyWebsocket__,
+		OnDisconnected__:         api.OnDisconnected_PtyWebsocket__,
+		OnTakeoverDisconnected__: api.OnTakeoverDisconnected_PtyWebsocket__,
+		OnBinaryMessageFrame__:   api.OnBinaryMessageFrame_PtyWebsocket__,
+		QueueChannel__Submission_GetWebsocketConnection:  __QueueChannel__Submission_GetWebsocketConnection,
 		WorkerContext__Submission_GetWebsocketConnection: __WorkerContext__Submission_GetWebsocketConnection,
 		WorkerCancel__Submission_GetWebsocketConnection:  __WorkerCancel__Submission_GetWebsocketConnection,
-		QueueChannel__Submission_GetWebsocketConnection:  __QueueChannel__Submission_GetWebsocketConnection,
-		OnConnected:            networkApi.OnConnected_PtyWebsocket,
-		OnTakeoverConnected:    networkApi.OnTakeoverConnected_PtyWebsocket,
-		OnDisconnected:         networkApi.OnDisconnected_PtyWebsocket,
-		OnTakeoverDisconnected: networkApi.OnTakeoverDisconnected_PtyWebsocket,
-		OnBinaryMessageFrame:   networkApi.OnBinaryMessageFrame_PtyWebsocket,
-		WebsocketConnection:    nil,
+		WebsocketConnection:                              nil,
 	}
 	requestHandlerRouter := _HTTP.NewServeMux()
 	requestHandlerRouter.HandleFunc(
@@ -54,7 +51,7 @@ func New__WorkspaceNetwork(
 		__WebsocketController_Pty__Network.HandleRequest_GetWebsocketConnection,
 	)
 	__HttpServer_Network := &_HTTP.Server{
-		Addr:    networkApi.HostPortAddress,
+		Addr:    api.HostPortAddress__,
 		Handler: requestHandlerRouter,
 	}
 	return &_WorkspaceNetwork_{

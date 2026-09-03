@@ -55,12 +55,12 @@ func New__WorkspaceController(
 		OnExit_PtyProxy:           newWorkspaceControllerResult.HandleExit_PtyProxy__Coordinator,
 	})
 	newWorkspaceControllerResult.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
-		HostPortAddress:                     api.HostPortAddress,
-		OnConnected_PtyWebsocket:            newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
-		OnTakeoverConnected_PtyWebsocket:    newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
-		OnDisconnected_PtyWebsocket:         newWorkspaceControllerResult.HandleDisconnected_PtyWebsocket,
-		OnTakeoverDisconnected_PtyWebsocket: newWorkspaceControllerResult.HandleTakeoverDisconnected_PtyWebsocket,
-		OnBinaryMessageFrame_PtyWebsocket:   newWorkspaceControllerResult.HandleBinaryMessageFrame_PtyWebsocket,
+		HostPortAddress__:                     api.HostPortAddress,
+		OnConnected_PtyWebsocket__:            newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
+		OnTakeoverConnected_PtyWebsocket__:    newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
+		OnDisconnected_PtyWebsocket__:         newWorkspaceControllerResult.HandleDisconnected_PtyWebsocket,
+		OnTakeoverDisconnected_PtyWebsocket__: newWorkspaceControllerResult.HandleTakeoverDisconnected_PtyWebsocket,
+		OnBinaryMessageFrame_PtyWebsocket__:   newWorkspaceControllerResult.HandleBinaryMessageFrame_PtyWebsocket,
 	})
 	return newWorkspaceControllerResult
 }
