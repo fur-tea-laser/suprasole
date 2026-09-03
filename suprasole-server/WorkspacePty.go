@@ -19,13 +19,13 @@ type _Success__ExitOutcome_PtyProxy_ struct{}
 func (_Success__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
 type _Failure__ExitOutcome_PtyProxy_ struct {
-	ExitCode int
+	ExitCode_PtyProcess int
 }
 
 func (_Failure__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
 type _Killed__ExitOutcome_PtyProxy_ struct {
-	ExitSignal int
+	ExitSignal_PtyProcess int
 }
 
 func (_Killed__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
@@ -35,13 +35,13 @@ type _Closed__ExitOutcome_PtyProxy_ struct{}
 func (_Closed__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
 type _SystemError__ExitOutcome_PtyProxy_ struct {
-	SystemError error
+	SystemError_PtyDevice error
 }
 
 func (_SystemError__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
 type _WorkspacePty_ struct {
-	PtyProxy         *_PtyProxy_
-	IsVisible_Client bool
-	MaybeExitOutcome _ExitOutcome_PtyProxy_
+	PtyProxy                  *_PtyProxy_
+	MaybeExitOutcome_PtyProxy _ExitOutcome_PtyProxy_
+	IsVisible_Client          bool
 }

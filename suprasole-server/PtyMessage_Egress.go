@@ -31,9 +31,9 @@ func Emit__PtyMessage_Egress(
 }
 
 type _PtyBulletin_WorkspaceManifest_ struct {
-	Id_PtyProxy      uint32
-	IsVisible_Client bool
-	MaybeExitOutcome _ExitOutcome_PtyProxy_
+	Id_PtyProxy               uint32
+	MaybeExitOutcome_PtyProxy _ExitOutcome_PtyProxy_
+	IsVisible_Client          bool
 }
 
 type _WorkspaceManifest_Message_ struct {
@@ -56,7 +56,7 @@ func encodeStruct__ExitOutcome_PtyProxy(
 		// ExitReason
 		binaryEncoder.EncodeParameter_Uint8(uint8(FAILURE__ExitReason_PtyProxy))
 		// ExitCode
-		binaryEncoder.EncodeParameter_Int32(int32(concreteOutcome.ExitCode))
+		binaryEncoder.EncodeParameter_Int32(int32(concreteOutcome.ExitCode_PtyProcess))
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(0)
 	case _Killed__ExitOutcome_PtyProxy_:
@@ -65,7 +65,7 @@ func encodeStruct__ExitOutcome_PtyProxy(
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(0)
 		// ExitSignal
-		binaryEncoder.EncodeParameter_Int32(int32(concreteOutcome.ExitSignal))
+		binaryEncoder.EncodeParameter_Int32(int32(concreteOutcome.ExitSignal_PtyProcess))
 	case _Closed__ExitOutcome_PtyProxy_:
 		// ExitReason
 		binaryEncoder.EncodeParameter_Uint8(uint8(CLOSED__ExitReason_PtyProxy))
@@ -98,12 +98,12 @@ func (this _WorkspaceManifest_Message_) EncodeBinaryFrame() []byte {
 			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint32(ptyBulletin.Id_PtyProxy)
 			// IsVisible_Client
 			binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(ptyBulletin.IsVisible_Client)
-			if ptyBulletin.MaybeExitOutcome != nil {
+			if ptyBulletin.MaybeExitOutcome_PtyProxy != nil {
 				// HasExitOutcome
 				binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(true)
 				encodeStruct__ExitOutcome_PtyProxy(
 					binaryEncoder_WorkspaceManifest,
-					ptyBulletin.MaybeExitOutcome,
+					ptyBulletin.MaybeExitOutcome_PtyProxy,
 				)
 			} else {
 				// HasExitOutcome

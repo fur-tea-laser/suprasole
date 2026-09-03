@@ -351,7 +351,7 @@ func (this _RemovePty_Message_) Execute(
 	workspaceController.Mutex.Lock()
 	for _, someId_PtyProxy := range this.Ids_PtyPool {
 		targetWorkspacePty := workspaceController.PtyPool[someId_PtyProxy]
-		if targetWorkspacePty != nil && targetWorkspacePty.MaybeExitOutcome != nil {
+		if targetWorkspacePty != nil && targetWorkspacePty.MaybeExitOutcome_PtyProxy != nil {
 			delete(
 				workspaceController.PtyPool,
 				someId_PtyProxy,

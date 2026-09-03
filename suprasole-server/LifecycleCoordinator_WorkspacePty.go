@@ -36,18 +36,24 @@ type _Sync__WorkspaceOrder_LifecycleCoordinator_ struct {
 func (this _Sync__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnSync_PtyPool(this.Id_WebsocketConnection, this.Message_SyncWorkspace)
+	lifecycleCoordinator.OnSync_PtyPool(
+		this.Id_WebsocketConnection,
+		this.Message_SyncWorkspace,
+	)
 }
 
 type _ExitPty__WorkspaceOrder_LifecycleCoordinator_ struct {
-	Id_PtyProxy uint32
-	ExitOutcome _ExitOutcome_PtyProxy_
+	Id_PtyProxy          uint32
+	ExitOutcome_PtyProxy _ExitOutcome_PtyProxy_
 }
 
 func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnExit_PtyProxy(this.Id_PtyProxy, this.ExitOutcome)
+	lifecycleCoordinator.OnExit_PtyProxy(
+		this.Id_PtyProxy,
+		this.ExitOutcome_PtyProxy,
+	)
 }
 
 type _LifecycleCoordinator_WorkspacePty_ struct {
