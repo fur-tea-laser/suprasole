@@ -188,7 +188,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 1: Optimistic Live Streaming Call Tree (Hot-Path TryFlush in Live Mode)
       PtyReader.StartReading
-        -> OnTryFlush
+        -> OnTryFlush__
           -> HandleTryFlush
             -> __flushReaderStagingBufferSliceIfLockAcquired
               -> Mutex.TryLock
@@ -198,7 +198,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 2: Saturation Fallback Live Streaming Call Tree (BlockingFlush in Live Mode)
       PtyReader.StartReading
-        -> OnBlockingFlush
+        -> OnBlockingFlush__
           -> HandleBlockingFlush
             -> __flushReaderStagingBufferSliceIfLockAcquired
               -> LockAndReturnTrue
@@ -209,7 +209,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 3: Optimistic PostSnapshotBuffer Staging Call Tree (TryFlush in PostSnapshot Mode)
       PtyReader.StartReading
-        -> OnTryFlush
+        -> OnTryFlush__
           -> HandleTryFlush
             -> __flushReaderStagingBufferSliceIfLockAcquired
               -> Mutex.TryLock
@@ -219,7 +219,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 4: Saturation Fallback PostSnapshotBuffer Staging Call Tree (BlockingFlush in PostSnapshot Mode)
       PtyReader.StartReading
-        -> OnBlockingFlush
+        -> OnBlockingFlush__
           -> HandleBlockingFlush
             -> __flushReaderStagingBufferSliceIfLockAcquired
               -> LockAndReturnTrue
@@ -230,7 +230,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 5: Optimistic Pre-Snapshot VTE Update Call Tree (Hot-Path TryFlush in PreSnapshot Mode)
       PtyReader.StartReading
-        -> OnTryFlush
+        -> OnTryFlush__
           -> HandleTryFlush
             -> __flushReaderStagingBufferSliceIfLockAcquired
               -> Mutex.TryLock
@@ -239,7 +239,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 6: Saturation Fallback Pre-Snapshot VTE Update Call Tree (BlockingFlush in PreSnapshot Mode)
       PtyReader.StartReading
-        -> OnBlockingFlush
+        -> OnBlockingFlush__
           -> HandleBlockingFlush
             -> __flushReaderStagingBufferSliceIfLockAcquired
               -> LockAndReturnTrue
@@ -249,7 +249,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 7: Descriptor Closure Process Teardown Call Tree
       PtyReader.StartReading
-        -> OnExited_Closed
+        -> OnExited_Closed__
           -> HandleExited_Closed
             -> __executeExitedTeardown
               -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
@@ -257,11 +257,11 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
               -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
               -> HandleDispatchExited_Closed
-                -> OnExited_Closed
+                -> OnExited_Closed__
 
     - Path 8: Child Process EOF Exit Status Teardown Call Tree
       PtyReader.StartReading
-        -> OnExited_Eio
+        -> OnExited_Eio__
           -> HandleExited_Eio
             -> __executeExitedTeardown
               -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
@@ -276,7 +276,7 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
 
     - Path 9: Kernel System Error Teardown Call Tree
       PtyReader.StartReading
-        -> OnExited_SystemError
+        -> OnExited_SystemError__
           -> HandleExited_SystemError
             -> __executeExitedTeardown
               -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
@@ -360,7 +360,7 @@ When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCoun
 
 ## Isolated Execution Spheres (Where Mutex IS NOT Required)
 
-  - Internal PtyReader Loop: Draining kernel PTY file descriptor into StagingBuffer, tracking UnflushedStagingBufferSliceSize, and resetting write head are 100% single-threaded within PtyReader. No mutex is required inside PtyReader itself.
+  - Internal PtyReader Loop: Draining kernel PTY file descriptor into StagingBuffer, tracking UnflushedSliceSize_StagingBuffer, and resetting write head are 100% single-threaded within PtyReader. No mutex is required inside PtyReader itself.
   - Egress Callback Dispatch: Egress callbacks (OnOutput_Live, OnOutput_Snapshot, OnOutput_PostSnapshotBuffer, OnExited_*) are dispatched 100% unlocked outside Mutex. The parent handler acquires Mutex first to update state and clone data, releasing Mutex BEFORE dispatching the egress callback to eliminate downstream circular-wait deadlocks and minimize lock contention.
 
 ## State Mutation Concurrency Protections (Why Mutex Is Mandatory)

@@ -5,11 +5,11 @@ import (
 	_OS "os"
 )
 
-type Code_InputOrder_PtyWriter byte
+type _Code__InputOrder_PtyWriter_ byte
 
 const (
-	PASSTHROUGH__Code_InputOrder_PtyWriter Code_InputOrder_PtyWriter = 0x00
-	PACED__Code_InputOrder_PtyWriter       Code_InputOrder_PtyWriter = 0x01
+	PASSTHROUGH___Code__InputOrder_PtyWriter _Code__InputOrder_PtyWriter_ = 0x00
+	PACED___Code__InputOrder_PtyWriter       _Code__InputOrder_PtyWriter_ = 0x01
 )
 
 type _InputOrder_PtyWriter_ interface {
@@ -17,14 +17,14 @@ type _InputOrder_PtyWriter_ interface {
 }
 
 type _Passthrough__InputOrder_PtyWriter_ struct {
-	InputData_PtyMaster []byte
+	InputData_PtyDevice []byte
 }
 
 func (this *_Passthrough__InputOrder_PtyWriter_) WriteInput(
 	masterFileDescriptor_ptyDevice *_OS.File,
 ) {
-	if len(this.InputData_PtyMaster) > 0 {
-		_, _ = masterFileDescriptor_ptyDevice.Write(this.InputData_PtyMaster)
+	if len(this.InputData_PtyDevice) > 0 {
+		_, _ = masterFileDescriptor_ptyDevice.Write(this.InputData_PtyDevice)
 	}
 }
 

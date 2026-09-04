@@ -8,7 +8,7 @@ import (
 type _MessageDebouncer_ResizePtys_ struct {
 	WorkerContext   _CONTEXT.Context
 	WorkerCancel    _CONTEXT.CancelFunc
-	QueueChannel    chan _ResizePtys_Message_
+	QueueChannel    chan _ResizePtys__PtyMessage_Ingress_
 	DebounceTimeout _TIME.Duration
 	OnResizePtys    func(pendingOrders_ResizePtys map[uint32]_ResizePtyOrder_ResizePtys_)
 }
@@ -25,7 +25,7 @@ func New__MessageDebouncer_ResizePtys(
 	return &_MessageDebouncer_ResizePtys_{
 		WorkerContext:   workerContext,
 		WorkerCancel:    workerCancel,
-		QueueChannel:    make(chan _ResizePtys_Message_, 512),
+		QueueChannel:    make(chan _ResizePtys__PtyMessage_Ingress_, 512),
 		DebounceTimeout: api.DebounceTimeout,
 		OnResizePtys:    api.OnResizePtys,
 	}
@@ -64,7 +64,7 @@ func (this *_MessageDebouncer_ResizePtys_) RunWorker() {
 }
 
 func (this *_MessageDebouncer_ResizePtys_) DrainAndCoalesceQueueChannel(
-	leadingMessage _ResizePtys_Message_,
+	leadingMessage _ResizePtys__PtyMessage_Ingress_,
 	pendingOrders_ResizePtys map[uint32]_ResizePtyOrder_ResizePtys_,
 ) {
 	for _, someOrder_leadingMessage := range leadingMessage.ResizePtyOrders {

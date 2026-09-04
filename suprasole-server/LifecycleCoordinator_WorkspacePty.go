@@ -28,7 +28,7 @@ func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 
 type _Sync__WorkspaceOrder_LifecycleCoordinator_ struct {
 	Id_WebsocketConnection uint64
-	Message_SyncWorkspace  _SyncWorkspace_Message_
+	Message_SyncWorkspace  _SyncWorkspace__PtyMessage_Ingress_
 }
 
 func (this _Sync__WorkspaceOrder_LifecycleCoordinator_) Execute(
@@ -60,14 +60,14 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 	QueueChannel              chan _WorkspaceOrder_LifecycleCoordinator_
 	OnConnect_PtyWebsocket    func(originalId_WebsocketConnection uint64)
 	OnDisconnect_PtyWebsocket func()
-	OnSync_PtyPool            func(originalId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace_Message_)
+	OnSync_PtyPool            func(originalId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
 	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
 type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
 	OnConnect_PtyWebsocket    func(originalId_WebsocketConnection uint64)
 	OnDisconnect_PtyWebsocket func()
-	OnSync_PtyPool            func(originalId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace_Message_)
+	OnSync_PtyPool            func(originalId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
 	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 

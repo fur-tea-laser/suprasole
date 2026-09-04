@@ -81,7 +81,7 @@ func decodePayload_SpawnPty(
 	if binaryDecoder_SpawnPty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_SpawnPty.MaybeError_Earliest
 	}
-	return _SpawnPty_Message_{
+	return _SpawnPty__PtyMessage_Ingress_{
 		ColumnCount_PtyTerminal:         columnCount_PtyTerminal,
 		RowCount_PtyTerminal:            rowCount_PtyTerminal,
 		ShellBinaryPath_PtyCommand:      shellBinaryPath_PtyCommand,
@@ -146,7 +146,7 @@ func (this _QueueBufferSize_InputOrder__PtyWriter___Option_PtyProxy_) UpdateOpti
 	optionsResult_ptyProxy.QueueBufferSize_InputOrder__PtyWriter__ = this.QueueBufferSize_InputOrder__PtyWriter
 }
 
-type _SpawnPty_Message_ struct {
+type _SpawnPty__PtyMessage_Ingress_ struct {
 	ColumnCount_PtyTerminal         int
 	RowCount_PtyTerminal            int
 	ShellBinaryPath_PtyCommand      string
@@ -155,7 +155,7 @@ type _SpawnPty_Message_ struct {
 	Options_PtyProxy                []_Option_PtyProxy_
 }
 
-func (this _SpawnPty_Message_) Execute(
+func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
@@ -223,7 +223,7 @@ func decodePayload_ResizePtys(
 	if binaryDecoder_ResizePtys.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_ResizePtys.MaybeError_Earliest
 	}
-	return _ResizePtys_Message_{
+	return _ResizePtys__PtyMessage_Ingress_{
 		ResizePtyOrders: resizePtyOrders,
 	}, nil
 }
@@ -234,11 +234,11 @@ type _ResizePtyOrder_ResizePtys_ struct {
 	RowCount_PtyTerminal    int
 }
 
-type _ResizePtys_Message_ struct {
+type _ResizePtys__PtyMessage_Ingress_ struct {
 	ResizePtyOrders []_ResizePtyOrder_ResizePtys_
 }
 
-func (this _ResizePtys_Message_) Execute(
+func (this _ResizePtys__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
@@ -261,20 +261,20 @@ func decodePayload_WritePtyInput(
 	if binaryDecoder_WritePtyInput.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_WritePtyInput.MaybeError_Earliest
 	}
-	return _WritePtyInput_Message_{
+	return _WritePtyInput__PtyMessage_Ingress_{
 		Id_PtyProxy: id_PtyProxy,
 		InputOrder_PtyWriter: &_Passthrough__InputOrder_PtyWriter_{
-			InputData_PtyMaster: rawInputBytes,
+			InputData_PtyDevice: rawInputBytes,
 		},
 	}, nil
 }
 
-type _WritePtyInput_Message_ struct {
+type _WritePtyInput__PtyMessage_Ingress_ struct {
 	Id_PtyProxy          uint32
 	InputOrder_PtyWriter _InputOrder_PtyWriter_
 }
 
-func (this _WritePtyInput_Message_) Execute(
+func (this _WritePtyInput__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
@@ -309,18 +309,18 @@ func decodePayload_TerminatePty(
 	if binaryDecoder_TerminatePty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_TerminatePty.MaybeError_Earliest
 	}
-	return _TerminatePty_Message_{
+	return _TerminatePty__PtyMessage_Ingress_{
 		Id_PtyProxy:               id_PtyProxy,
 		TerminalSignal_PtyProcess: terminalSignal_PtyProcess,
 	}, nil
 }
 
-type _TerminatePty_Message_ struct {
+type _TerminatePty__PtyMessage_Ingress_ struct {
 	Id_PtyProxy               uint32
 	TerminalSignal_PtyProcess int
 }
 
-func (this _TerminatePty_Message_) Execute(
+func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
@@ -347,16 +347,16 @@ func decodePayload_RemovePty(
 	if binaryDecoder_RemovePty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_RemovePty.MaybeError_Earliest
 	}
-	return _RemovePty_Message_{
+	return _RemovePty__PtyMessage_Ingress_{
 		Ids_PtyPool: ids_PtyPool,
 	}, nil
 }
 
-type _RemovePty_Message_ struct {
+type _RemovePty__PtyMessage_Ingress_ struct {
 	Ids_PtyPool []uint32
 }
 
-func (this _RemovePty_Message_) Execute(
+func (this _RemovePty__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
@@ -400,7 +400,7 @@ func decodePayload_SyncWorkspace(
 	if binaryDecoder_SyncWorkspace.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_SyncWorkspace.MaybeError_Earliest
 	}
-	return _SyncWorkspace_Message_{
+	return _SyncWorkspace__PtyMessage_Ingress_{
 		SyncPtyOrders: syncPtyOrders,
 	}, nil
 }
@@ -410,11 +410,11 @@ type _SyncPtyOrder_SyncWorkspace_ struct {
 	RowCount_PtyTerminal    int
 }
 
-type _SyncWorkspace_Message_ struct {
+type _SyncWorkspace__PtyMessage_Ingress_ struct {
 	SyncPtyOrders map[uint32]*_SyncPtyOrder_SyncWorkspace_
 }
 
-func (this _SyncWorkspace_Message_) Execute(
+func (this _SyncWorkspace__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {

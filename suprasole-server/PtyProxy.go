@@ -87,14 +87,14 @@ func Spawn__PtyProxy(
 		PostSnapshotBuffer:             nil,
 	}
 	newPtyProxyResult.PtyReader = &_PtyReader_{
-		UnflushedStagingBufferSliceSize: 0,
-		StagingBuffer:                   make([]byte, api.StagingBufferSize_PtyReader),
-		OnTryFlush:                      newPtyProxyResult.HandleTryFlush,
-		OnBlockingFlush:                 newPtyProxyResult.HandleBlockingFlush,
-		OnExited_Closed:                 newPtyProxyResult.HandleExited_Closed,
-		OnExited_Eio:                    newPtyProxyResult.HandleExited_Eio,
-		OnExited_SystemError:            newPtyProxyResult.HandleExited_SystemError,
-		MasterFileDescriptor_PtyDevice:  nil,
+		OnTryFlush__:                     newPtyProxyResult.HandleTryFlush,
+		OnBlockingFlush__:                newPtyProxyResult.HandleBlockingFlush,
+		OnExited_Closed__:                newPtyProxyResult.HandleExited_Closed,
+		OnExited_Eio__:                   newPtyProxyResult.HandleExited_Eio,
+		OnExited_SystemError__:           newPtyProxyResult.HandleExited_SystemError,
+		StagingBuffer:                    make([]byte, api.StagingBufferSize_PtyReader),
+		UnflushedSliceSize_StagingBuffer: 0,
+		MasterFileDescriptor_PtyDevice:   nil,
 	}
 	workerContext_PtyWriter, workerCancel_PtyWriter := _CONTEXT.WithCancel(_CONTEXT.Background())
 	newPtyProxyResult.PtyWriter = &_PtyWriter_{

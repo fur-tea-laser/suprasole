@@ -178,7 +178,7 @@ func (this *_WorkspaceController_) HandleSpawned_Pty(
 	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
-		_SpawnPtyStatus_Message_{
+		_SpawnPtyStatus__PtyMessage_Egress_{
 			Status:      SUCCESS__Status_SpawnPty,
 			Id_PtyProxy: spawnedPtyProxy.Id,
 		},
@@ -191,7 +191,7 @@ func (this *_WorkspaceController_) HandleSpawnFailed_Pty(
 	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
-		_SpawnPtyStatus_Message_{
+		_SpawnPtyStatus__PtyMessage_Egress_{
 			Status:      FAILURE__Status_SpawnPty,
 			Id_PtyProxy: failedId_PtyProxy,
 		},
@@ -205,7 +205,7 @@ func (this *_WorkspaceController_) HandleOutput_Pty(
 	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
-		_PtyOutput_Message_{
+		_PtyOutput__PtyMessage_Egress_{
 			Id_PtyProxy: sourcePtyProxy.Id,
 			OutputData:  outputData_PtyProxy,
 		},
@@ -300,7 +300,7 @@ func (this *_WorkspaceController_) HandleConnect_PtyWebsocket__Coordinator(
 	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		originalId_WebsocketConnection,
-		_WorkspaceManifest_Message_{
+		_WorkspaceManifest__PtyMessage_Egress_{
 			PtyBulletins: ptyBulletinsResult,
 		},
 	)
@@ -327,7 +327,7 @@ func (this *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() 
 
 func (this *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
 	originalId_WebsocketConnection uint64,
-	message_SyncWorkspace _SyncWorkspace_Message_,
+	message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_,
 ) {
 	this.Mutex.Lock()
 	ptyPoolClone := _MAPS.Clone(this.PtyPool)
@@ -394,7 +394,7 @@ func __emitSnapshot_SyncPty(
 	Emit__PtyMessage_Egress(
 		websocketController,
 		originalId_WebsocketConnection,
-		_SyncPtyStart_Message_{
+		_SyncPtyStart__PtyMessage_Egress_{
 			Id_PtyProxy:             targetId_PtyProxy,
 			ColumnCount_PtyTerminal: columnCount_PtyTerminal,
 			RowCount_PtyTerminal:    rowCount_PtyTerminal,
@@ -404,7 +404,7 @@ func __emitSnapshot_SyncPty(
 	Emit__PtyMessage_Egress(
 		websocketController,
 		originalId_WebsocketConnection,
-		_SyncPtyComplete_Message_{
+		_SyncPtyComplete__PtyMessage_Egress_{
 			Id_PtyProxy: targetId_PtyProxy,
 		},
 	)
@@ -423,7 +423,7 @@ func (this *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
 	Emit__PtyMessage_Egress(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
-		_PtyExit_Message_{
+		_PtyExit__PtyMessage_Egress_{
 			Id_PtyProxy:          id_PtyProxy,
 			ExitOutcome_PtyProxy: exitOutcome_PtyProxy,
 		},
