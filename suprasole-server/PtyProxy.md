@@ -67,7 +67,7 @@ The primary architectural complexity in PtyProxy centers on its flush handling c
 
 ## Exit Handling, Process Reaping & Signal Propagation Pipeline
 
-When background PtyReader stream draining terminates, PtyProxy executes a 3-stage teardown pipeline (__executeExitedTeardownPipeline) to safely reap the OS process and dispatch terminal signal notifications:
+When background PtyReader stream draining terminates, PtyProxy executes a 3-stage teardown pipeline (__executeExitedTeardown) to safely reap the OS process and dispatch terminal signal notifications:
 
  1. Atomic Mode Transition & Lock Release Stage:
     PtyProxy acquires Mutex, mutates Mode = EXITED__Mode_PtyProxy, and immediately releases Mutex. Because PtyReader's read loop has already terminated and drained all stdout bytes prior to invoking the exit handler, mutating Mode to EXITED__Mode_PtyProxy aligns instance state with mechanical reality, ensuring any concurrent goroutine querying Mode observes the terminal EXITED__Mode_PtyProxy state. Unlocking Mutex prior to process reaping ensures zero lock hold times during kernel process synchronization.
@@ -79,7 +79,7 @@ When background PtyReader stream draining terminates, PtyProxy executes a 3-stag
     Following TerminalCommand.Wait(), PtyProxy evaluates the terminal signal received from PtyReader to dispatch the corresponding exit handler:
       - Closed Signal (OnExited_Closed): Invokes OnExited_Closed, signaling administrative descriptor closure.
       - SystemError Signal (OnExited_SystemError): Invokes OnExited_SystemError with the underlying OS read error.
-      - EIO Signal (OnExited_Eio): Linux slave process termination generates syscall.EIO. HandleDispatchExitedHandler_Eio inspects TerminalCommand.ProcessState.Sys().(syscall.WaitStatus) to route to exactly ONE of three mutually exclusive leaf callbacks:
+      - EIO Signal (OnExited_Eio): Linux slave process termination generates syscall.EIO. HandleDispatchExited_Eio inspects TerminalCommand.ProcessState.Sys().(syscall.WaitStatus) to route to exactly ONE of three mutually exclusive leaf callbacks:
           - Killed Exit (processWaitStatus.Signaled()): Invokes OnExited_Eio_Killed, signaling termination by OS signal (e.g. SIGKILL, SIGTERM).
           - Success Exit (processState.Success()): Invokes OnExited_Eio_Success, signaling clean process exit with status code 0.
           - Failure Exit (non-zero exit code): Invokes OnExited_Eio_Failure, signaling child process execution failure.
@@ -173,7 +173,7 @@ Closing the master PTY file descriptor via MasterFileDescriptor_PtyDevice.Close(
     MasterFileDescriptor_PtyDevice.Close() is idempotent; repeated invocations safely return os.ErrClosed without side-effects or resource leaks, though standard architectural lifecycle design requires calling Close() at most once per session.
 
  6. Dual Resource Reaping Invariant (Process vs. Descriptor Cleanup):
-    MasterFileDescriptor_PtyDevice.Close() and TerminalCommand.Wait() manage two completely independent OS kernel abstractions. Executing TerminalCommand.Wait() reaps the child process exit status to prevent zombie processes, but DOES NOT close the master PTY file descriptor handle. Conversely, calling Close() releases the OS file descriptor table handle. Complete session teardown requires both operations, which PtyProxy encapsulates completely inside __executeExitedTeardownPipeline.
+    MasterFileDescriptor_PtyDevice.Close() and TerminalCommand.Wait() manage two completely independent OS kernel abstractions. Executing TerminalCommand.Wait() reaps the child process exit status to prevent zombie processes, but DOES NOT close the master PTY file descriptor handle. Conversely, calling Close() releases the OS file descriptor table handle. Complete session teardown requires both operations, which PtyProxy encapsulates completely inside __executeExitedTeardown.
     - Consumer Abstraction & Manual Trigger Note: Consumers focus exclusively on triggering session closure via Close() and do not concern themselves with downstream OS resource cleanup side-effects. If a consumer manually calls Close(), PtyProxy's internal exit pipeline guarantees 100% complete process and descriptor reaping while handling redundant Close() calls safely.
 
 ## Multi-Threaded Concurrency Map & Synchronization Architecture
@@ -251,24 +251,24 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
       PtyReader.StartReading
         -> OnExited_Closed
           -> HandleExited_Closed
-            -> __executeExitedTeardownPipeline
+            -> __executeExitedTeardown
               -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
-              -> HandleDispatchExitedHandler_Closed
+              -> HandleDispatchExited_Closed
                 -> OnExited_Closed
 
     - Path 8: Child Process EOF Exit Status Teardown Call Tree
       PtyReader.StartReading
         -> OnExited_Eio
           -> HandleExited_Eio
-            -> __executeExitedTeardownPipeline
+            -> __executeExitedTeardown
               -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
-              -> HandleDispatchExitedHandler_Eio
+              -> HandleDispatchExited_Eio
                 -> [Mutually Exclusive Leaf Callback - Exactly 1 Dispatched]:
                   - OnExited_Eio_Success (if ExitStatus == 0)
                   - OnExited_Eio_Failure (if ExitStatus != 0)
@@ -278,12 +278,12 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
       PtyReader.StartReading
         -> OnExited_SystemError
           -> HandleExited_SystemError
-            -> __executeExitedTeardownPipeline
+            -> __executeExitedTeardown
               -> Mutex.Lock (Mode = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
-              -> HandleDispatchExitedHandler_SystemError
+              -> HandleDispatchExited_SystemError
                 -> OnExited_SystemError
 
 ### 2. Main / Workspace Execution Context

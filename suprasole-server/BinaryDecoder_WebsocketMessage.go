@@ -7,26 +7,26 @@ import (
 )
 
 type _BinaryDecoder_WebsocketMessage_ struct {
-	Buffer_BinaryMessageFrame []byte
-	Cursor_Buffer             int
-	Label_MessageStruct       string
-	MaybeError_Earliest       error
+	Buffer__Frame_BinaryMessage []byte
+	Cursor_Buffer               int
+	Label_MessageStruct         string
+	MaybeError_Earliest         error
 }
 
 type _NewApi__BinaryDecoder_WebsocketMessage_ struct {
-	Buffer_BinaryMessageFrame []byte
-	Cursor_Buffer             int
-	Label_MessageStruct       string
+	Buffer__Frame_BinaryMessage []byte
+	Cursor_Buffer               int
+	Label_MessageStruct         string
 }
 
 func New__BinaryDecoder_WebsocketMessage(
 	api _NewApi__BinaryDecoder_WebsocketMessage_,
 ) _BinaryDecoder_WebsocketMessage_ {
 	return _BinaryDecoder_WebsocketMessage_{
-		Buffer_BinaryMessageFrame: api.Buffer_BinaryMessageFrame,
-		Cursor_Buffer:             api.Cursor_Buffer,
-		Label_MessageStruct:       api.Label_MessageStruct,
-		MaybeError_Earliest:       nil,
+		Buffer__Frame_BinaryMessage: api.Buffer__Frame_BinaryMessage,
+		Cursor_Buffer:               api.Cursor_Buffer,
+		Label_MessageStruct:         api.Label_MessageStruct,
+		MaybeError_Earliest:         nil,
 	}
 }
 
@@ -37,7 +37,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) CanDecodeParameter(
 ) bool {
 	if this.MaybeError_Earliest != nil {
 		return false
-	} else if remainingBytes := len(this.Buffer_BinaryMessageFrame) - this.Cursor_Buffer; remainingBytes < requiredByteCount {
+	} else if remainingBytes := len(this.Buffer__Frame_BinaryMessage) - this.Cursor_Buffer; remainingBytes < requiredByteCount {
 		this.MaybeError_Earliest = _FMT.Errorf(
 			"[%s] failed to decode %s for '%s': unexpected end of frame at offset %d (need %d bytes, remaining %d)",
 			this.Label_MessageStruct,
@@ -58,7 +58,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_Uint8(
 	if false == this.CanDecodeParameter(1, expectedParameterLabel, "uint8") {
 		return 0
 	}
-	decodedParameterValue := this.Buffer_BinaryMessageFrame[this.Cursor_Buffer]
+	decodedParameterValue := this.Buffer__Frame_BinaryMessage[this.Cursor_Buffer]
 	this.Cursor_Buffer++
 	return decodedParameterValue
 }
@@ -69,7 +69,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_Uint16(
 	if false == this.CanDecodeParameter(2, expectedParameterLabel, "uint16") {
 		return 0
 	}
-	decodedParameterValue := _BINARY.BigEndian.Uint16(this.Buffer_BinaryMessageFrame[this.Cursor_Buffer : this.Cursor_Buffer+2])
+	decodedParameterValue := _BINARY.BigEndian.Uint16(this.Buffer__Frame_BinaryMessage[this.Cursor_Buffer : this.Cursor_Buffer+2])
 	this.Cursor_Buffer += 2
 	return decodedParameterValue
 }
@@ -80,7 +80,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_Uint32(
 	if false == this.CanDecodeParameter(4, expectedParameterLabel, "uint32") {
 		return 0
 	}
-	decodedParameterValue := _BINARY.BigEndian.Uint32(this.Buffer_BinaryMessageFrame[this.Cursor_Buffer : this.Cursor_Buffer+4])
+	decodedParameterValue := _BINARY.BigEndian.Uint32(this.Buffer__Frame_BinaryMessage[this.Cursor_Buffer : this.Cursor_Buffer+4])
 	this.Cursor_Buffer += 4
 	return decodedParameterValue
 }
@@ -98,7 +98,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_String16(
 	if false == this.CanDecodeParameter(decodedStringLength, expectedParameterLabel, "string16 data") {
 		return ""
 	}
-	decodedParameterValue := string(this.Buffer_BinaryMessageFrame[this.Cursor_Buffer : this.Cursor_Buffer+decodedStringLength])
+	decodedParameterValue := string(this.Buffer__Frame_BinaryMessage[this.Cursor_Buffer : this.Cursor_Buffer+decodedStringLength])
 	this.Cursor_Buffer += decodedStringLength
 	return decodedParameterValue
 }
@@ -110,7 +110,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_Bytes16(
 	if false == this.CanDecodeParameter(decodedBytesLength, expectedParameterLabel, "bytes16 data") {
 		return nil
 	}
-	decodedParameterValue := _BYTES.Clone(this.Buffer_BinaryMessageFrame[this.Cursor_Buffer : this.Cursor_Buffer+decodedBytesLength])
+	decodedParameterValue := _BYTES.Clone(this.Buffer__Frame_BinaryMessage[this.Cursor_Buffer : this.Cursor_Buffer+decodedBytesLength])
 	this.Cursor_Buffer += decodedBytesLength
 	return decodedParameterValue
 }
@@ -120,31 +120,31 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_TrailingBytes(
 ) []byte {
 	if this.MaybeError_Earliest != nil {
 		return nil
-	} else if this.Cursor_Buffer > len(this.Buffer_BinaryMessageFrame) {
+	} else if this.Cursor_Buffer > len(this.Buffer__Frame_BinaryMessage) {
 		this.MaybeError_Earliest = _FMT.Errorf(
 			"[%s] failed to decode trailing bytes for '%s': cursor offset %d exceeds frame length %d",
 			this.Label_MessageStruct,
 			expectedParameterLabel,
 			this.Cursor_Buffer,
-			len(this.Buffer_BinaryMessageFrame),
+			len(this.Buffer__Frame_BinaryMessage),
 		)
 		return nil
 	}
-	decodedParameterValue := _BYTES.Clone(this.Buffer_BinaryMessageFrame[this.Cursor_Buffer:])
-	this.Cursor_Buffer = len(this.Buffer_BinaryMessageFrame)
+	decodedParameterValue := _BYTES.Clone(this.Buffer__Frame_BinaryMessage[this.Cursor_Buffer:])
+	this.Cursor_Buffer = len(this.Buffer__Frame_BinaryMessage)
 	return decodedParameterValue
 }
 
 func (this *_BinaryDecoder_WebsocketMessage_) AssertEndOfFrame() {
 	if this.MaybeError_Earliest != nil {
 		return
-	} else if this.Cursor_Buffer != len(this.Buffer_BinaryMessageFrame) {
+	} else if this.Cursor_Buffer != len(this.Buffer__Frame_BinaryMessage) {
 		this.MaybeError_Earliest = _FMT.Errorf(
 			"[%s] frame size mismatch: expected exactly %d bytes, got %d bytes (unconsumed %d trailing bytes at offset %d)",
 			this.Label_MessageStruct,
 			this.Cursor_Buffer,
-			len(this.Buffer_BinaryMessageFrame),
-			len(this.Buffer_BinaryMessageFrame)-this.Cursor_Buffer,
+			len(this.Buffer__Frame_BinaryMessage),
+			len(this.Buffer__Frame_BinaryMessage)-this.Cursor_Buffer,
 			this.Cursor_Buffer,
 		)
 	}
@@ -197,17 +197,17 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter__Slice16_Uint32(
 }
 
 func DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage[
-	ElementType any,
+	__Element__ any,
 ](
 	decoder *_BinaryDecoder_WebsocketMessage_,
 	expectedParameterLabel string,
-	decodeElement__ func(decoder *_BinaryDecoder_WebsocketMessage_, currentSliceIndex int) ElementType,
-) []ElementType {
+	decodeElement__ func(decoder *_BinaryDecoder_WebsocketMessage_, currentSliceIndex int) __Element__,
+) []__Element__ {
 	decodedSliceCount := int(decoder.DecodeParameter_Uint16(expectedParameterLabel + ".Count"))
 	if decoder.MaybeError_Earliest != nil {
 		return nil
 	}
-	decodedParameterValueResult := make([]ElementType, 0, decodedSliceCount)
+	decodedParameterValueResult := make([]__Element__, 0, decodedSliceCount)
 	for currentSliceIndex := 0; currentSliceIndex < decodedSliceCount; currentSliceIndex++ {
 		decodedElement := decodeElement__(
 			decoder,
@@ -225,18 +225,18 @@ func DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage[
 }
 
 func DecodeParameter__Map16__BinaryDecoder_WebsocketMessage[
-	KeyType comparable,
-	ValueType any,
+	__Key__ comparable,
+	__Value__ any,
 ](
 	decoder *_BinaryDecoder_WebsocketMessage_,
 	expectedParameterLabel string,
-	decodeEntry__ func(decoder *_BinaryDecoder_WebsocketMessage_, currentMapIndex int) (KeyType, ValueType),
-) map[KeyType]ValueType {
+	decodeEntry__ func(decoder *_BinaryDecoder_WebsocketMessage_, currentMapIndex int) (__Key__, __Value__),
+) map[__Key__]__Value__ {
 	decodedMapCount := int(decoder.DecodeParameter_Uint16(expectedParameterLabel + ".Count"))
 	if decoder.MaybeError_Earliest != nil {
 		return nil
 	}
-	decodedParameterValueResult := make(map[KeyType]ValueType, decodedMapCount)
+	decodedParameterValueResult := make(map[__Key__]__Value__, decodedMapCount)
 	for currentMapIndex := 0; currentMapIndex < decodedMapCount; currentMapIndex++ {
 		decodedKey, decodedValue := decodeEntry__(
 			decoder,

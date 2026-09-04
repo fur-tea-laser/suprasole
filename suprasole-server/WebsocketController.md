@@ -6,7 +6,7 @@ This section documents the architectural design principles, race-prevention inva
 
 ### 1. Ingress Concurrency Decoupling (HandleRequest_GetWebsocketConnection)
 * **HTTP Multi-Threading vs. Single-Worker Lifecycle Ownership**: Go's net/http handles incoming client requests across arbitrary worker goroutines. Allowing HTTP handlers to directly mutate socket pointers or execute upgrades triggers data races and split-brain session states.
-* **Invariant: Single-Source Takeover Signalling**: When a new connection arrives while an active session exists (CONNECTED__WebsocketConnectionStatus), HandleRequest_GetWebsocketConnection does not perform socket teardown directly on the HTTP handler thread. Instead, it flags IsTakeoverPending = true under lock and sends a Close control frame. This forces the active read loop to exit cleanly and delegates teardown exclusively to the background worker thread, eliminating teardown-versus-upgrade race conditions.
+* **Invariant: Single-Source Takeover Signalling**: When a new connection arrives while an active session exists (CONNECTED__Status_WebsocketConnection), HandleRequest_GetWebsocketConnection does not perform socket teardown directly on the HTTP handler thread. Instead, it flags IsTakeoverPending = true under lock and sends a Close control frame. This forces the active read loop to exit cleanly and delegates teardown exclusively to the background worker thread, eliminating teardown-versus-upgrade race conditions.
 * **Invariant: Bounded Queue Backpressure & Resiliency**: Bounding SubmissionQueue via non-blocking select fallback prevents server memory exhaustion during reconnect storms. Synchronous reply channels paired with context monitoring guarantee that client cancellations and obsolete requests release HTTP worker threads cleanly.
 
 ### 2. The Single-Threaded Core & Thread-Safe State Machine Isolation (RunLifecycleLoop)
@@ -21,7 +21,7 @@ This section documents the architectural design principles, race-prevention inva
 
 ### 4. Handoff Distinction & Status Preservation (UpdateWebsocketConnection)
 * **Granular Handoff Telemetry**: Provides downstream controllers with granular lifecycle hooks to distinguish cold connections from live session takeovers.
-* **Invariant: Preserved State Intent Across Upgrades**: By explicitly tracking TAKEOVER_CONNECTING__WebsocketConnectionStatus state across the upgrade window, the worker deterministically fires takeover-specific callbacks (OnTakeoverConnected / OnTakeoverDisconnected) versus standard callbacks (OnConnected / OnDisconnected), and transitions to TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus versus UPGRADE_FAILED__WebsocketConnectionStatus upon error. This guarantees that failure telemetry accurately reflects whether an established session was evicted during a failed takeover attempt.
+* **Invariant: Preserved State Intent Across Upgrades**: By explicitly tracking TAKEOVER_CONNECTING__Status_WebsocketConnection state across the upgrade window, the worker deterministically fires takeover-specific callbacks (OnTakeoverConnected / OnTakeoverDisconnected) versus standard callbacks (OnConnected / OnDisconnected), and transitions to TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection versus UPGRADE_FAILED__Status_WebsocketConnection upon error. This guarantees that failure telemetry accurately reflects whether an established session was evicted during a failed takeover attempt.
 
 ### 5. Single-Source Teardown & Callback Ordering (HandleConnectionTeardown)
 * **Teardown Race Elimination**: Teardowns originate from administrative eviction, client closure, or network drops. Executing teardown logic across multiple threads could trigger double-close panics or corrupted callback ordering.
@@ -42,9 +42,9 @@ This section documents the architectural design principles, race-prevention inva
 * **Library vs. Kernel Bounds**: Replacing Gorilla WebSocket with a custom WebSocket implementation would not prevent this, as closing the underlying socket connection at the OS level inherently purges unread kernel receive buffers.
 
 ### 2. Pre-Upgrade Eviction During Session Takeover
-* **Mechanism**: When HandleRequest_GetWebsocketConnection receives a takeover connection request while an active session exists (CONNECTED__WebsocketConnectionStatus), it immediately sends a Close frame (4000, "Session Taken Over") to evict the active connection **before** the incoming HTTP request undergoes its WebSocket upgrade.
+* **Mechanism**: When HandleRequest_GetWebsocketConnection receives a takeover connection request while an active session exists (CONNECTED__Status_WebsocketConnection), it immediately sends a Close frame (4000, "Session Taken Over") to evict the active connection **before** the incoming HTTP request undergoes its WebSocket upgrade.
 * **Inherent System Reality**: If the incoming takeover request fails its HTTP 101 WebSocket upgrade (e.g., due to an aborted HTTP handshake, invalid headers, or client network drop during upgrade), the pre-existing healthy session has already been closed.
-* **Telemetry & State Outcome**: The worker transitions to TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus, leaving the system with no active connection. The controller prioritizes immediate takeover responsiveness over optimistic pre-validation; completely eliminating this risk would require performing HTTP upgrade validation *before* signaling eviction on the active session.
+* **Telemetry & State Outcome**: The worker transitions to TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection, leaving the system with no active connection. The controller prioritizes immediate takeover responsiveness over optimistic pre-validation; completely eliminating this risk would require performing HTTP upgrade validation *before* signaling eviction on the active session.
 
 ### 3. 1:1 Exclusive Connection Pipe vs. Multi-Client Fan-Out
 * **Mechanism**: WebsocketController strictly enforces a 1:1 single-active-session model per controller instance.
@@ -59,32 +59,33 @@ This section documents the architectural design principles, race-prevention inva
 
 ## Permutations of Websocket Status Flows
 
-1. **Cold Start Connection & Disconnection**: STANDBY__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> DISCONNECTED__WebsocketConnectionStatus
-2. **Cold Start Handshake Failure**: STANDBY__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> UPGRADE_FAILED__WebsocketConnectionStatus
-3. **Successful Session Takeover**: CONNECTED__WebsocketConnectionStatus -> TAKEOVER_CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> DISCONNECTED__WebsocketConnectionStatus
-4. **Failed Session Takeover**: CONNECTED__WebsocketConnectionStatus -> TAKEOVER_CONNECTING__WebsocketConnectionStatus -> TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus
-5. **Multiple Sequential Session Takeovers**: CONNECTED__WebsocketConnectionStatus -> TAKEOVER_CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> TAKEOVER_CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> DISCONNECTED__WebsocketConnectionStatus
-6. **Reconnection After Normal Disconnect**: DISCONNECTED__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> DISCONNECTED__WebsocketConnectionStatus
-7. **Failed Reconnection After Disconnect**: DISCONNECTED__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> UPGRADE_FAILED__WebsocketConnectionStatus
-8. **Reconnection After Handshake Failure**: UPGRADE_FAILED__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> DISCONNECTED__WebsocketConnectionStatus
-9. **Reconnection After Takeover Failure**: TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> CONNECTED__WebsocketConnectionStatus -> DISCONNECTED__WebsocketConnectionStatus
-10. **Repeat Handshake Failure after UPGRADE_FAILED__WebsocketConnectionStatus**: UPGRADE_FAILED__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> UPGRADE_FAILED__WebsocketConnectionStatus
-11. **Failed Retry after TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus**: TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus -> CONNECTING__WebsocketConnectionStatus -> UPGRADE_FAILED__WebsocketConnectionStatus
+1. **Cold Start Connection & Disconnection**: STANDBY__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> DISCONNECTED__Status_WebsocketConnection
+2. **Cold Start Handshake Failure**: STANDBY__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> UPGRADE_FAILED__Status_WebsocketConnection
+3. **Successful Session Takeover**: CONNECTED__Status_WebsocketConnection -> TAKEOVER_CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> DISCONNECTED__Status_WebsocketConnection
+4. **Failed Session Takeover**: CONNECTED__Status_WebsocketConnection -> TAKEOVER_CONNECTING__Status_WebsocketConnection -> TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection
+5. **Multiple Sequential Session Takeovers**: CONNECTED__Status_WebsocketConnection -> TAKEOVER_CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> TAKEOVER_CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> DISCONNECTED__Status_WebsocketConnection
+6. **Reconnection After Normal Disconnect**: DISCONNECTED__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> DISCONNECTED__Status_WebsocketConnection
+7. **Failed Reconnection After Disconnect**: DISCONNECTED__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> UPGRADE_FAILED__Status_WebsocketConnection
+8. **Reconnection After Handshake Failure**: UPGRADE_FAILED__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> DISCONNECTED__Status_WebsocketConnection
+9. **Reconnection After Takeover Failure**: TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> CONNECTED__Status_WebsocketConnection -> DISCONNECTED__Status_WebsocketConnection
+10. **Repeat Handshake Failure after UPGRADE_FAILED__Status_WebsocketConnection**: UPGRADE_FAILED__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> UPGRADE_FAILED__Status_WebsocketConnection
+11. **Failed Retry after TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection**: TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection -> CONNECTING__Status_WebsocketConnection -> UPGRADE_FAILED__Status_WebsocketConnection
 
 ---
 
 ## Method Specifications & Technical Implementation Rationale
 
-### WriteBinaryMessage
+### WriteFrame_BinaryMessage
 
-WriteBinaryMessage safely serializes outbound binary payload frames over the active WebSocket connection with write deadline protection and single-writer mutex serialization (EgressMutex).
+WriteFrame_BinaryMessage safely serializes outbound binary payload frames over the active WebSocket connection with write deadline protection and single-writer mutex serialization (EgressMutex).
 
 #### Parameters
-1. **binaryMessageData**: Raw binary slice ([]byte) transmitted as a WEBSOCKET.BinaryMessage frame over the wire (e.g., stdout bytes from the pseudo-terminal process).
+1. **targetId_WebsocketConnection**: Expected generation uint64 ID of the connection session.
+2. **frame_binaryMessage**: Raw binary slice ([]byte) transmitted as a WEBSOCKET.BinaryMessage frame over the wire (e.g., encoded egress message frames or stdout bytes from the pseudo-terminal process).
 
 #### Whitelisting & Guard Invariants
-* **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: ConnectionStatus == CONNECTED__WebsocketConnectionStatus && WebsocketConnection != nil. Egress is allowed if and only if the session is fully established and non-nil.
-* **Error Handling**: If the socket is offline or transitioning (STANDBY__WebsocketConnectionStatus, CONNECTING__WebsocketConnectionStatus, TAKEOVER_CONNECTING__WebsocketConnectionStatus, or DISCONNECTED__WebsocketConnectionStatus), it returns error "websocket is not connected" without attempting socket egress.
+* **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: `CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && targetId_WebsocketConnection == this.Id_WebsocketConnection`. Egress is allowed if and only if the session is fully established and the target connection ID matches.
+* **Error Handling**: If the socket is offline or transitioning (STANDBY__Status_WebsocketConnection, CONNECTING__Status_WebsocketConnection, TAKEOVER_CONNECTING__Status_WebsocketConnection, or DISCONNECTED__Status_WebsocketConnection), it returns error "websocket is not connected" (NOT_CONNECTED_ERROR__WRITE_FRAME_BINARY_MESSAGE). If the connection ID does not match, it returns "websocket connection id does not align" (CONNECTION_ID_MISALIGNED_ERROR__WRITE_FRAME_BINARY_MESSAGE).
 
 #### SetWriteDeadline Error Discarding Rationale (_ = ...)
 * **Immediate Fallthrough to WriteMessage**: SetWriteDeadline configures an auxiliary write deadline on the net socket immediately prior to WriteMessage. If SetWriteDeadline fails due to a closed or broken socket (net.ErrClosed), calling WriteMessage on the very next line will instantly fail with the exact same underlying socket error.
@@ -155,7 +156,7 @@ WriteBinaryMessage safely serializes outbound binary payload frames over the act
 #### Gorilla Egress Concurrency & Mutex Protection
 * **Full-Duplex Reading & Writing**: Gorilla WebSocket permits one reader goroutine (conn.ReadMessage) and one writer goroutine to execute concurrently without a lock because TCP kernel RX and TX buffers operate independently.
 * **Single-Writer Constraint**: Gorilla strictly forbids multiple goroutines from calling write methods (WriteMessage, WriteControl, NextWriter) concurrently. Simultaneous writes corrupt frame headers on the wire and trigger Go runtime data race panics.
-* **Control Frame Egress Protection**: Outbound control frame calls (WriteControl in CloseWithCode) compete directly with normal binary data frame writes (WriteMessage in WriteBinaryMessage). Holding EgressMutex during the entire execution of both WriteBinaryMessage and CloseWithCode enforces the single-writer invariant, serializing all outbound socket writes.
+* **Control Frame Egress Protection**: Outbound control frame calls (WriteControl in CloseWithCode) compete directly with normal binary data frame writes (WriteMessage in WriteFrame_BinaryMessage). Holding EgressMutex during the entire execution of both WriteFrame_BinaryMessage and CloseWithCode enforces the single-writer invariant, serializing all outbound socket writes.
 
 #### Close With Code Teardown Dynamics
 

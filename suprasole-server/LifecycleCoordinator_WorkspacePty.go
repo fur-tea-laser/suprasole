@@ -18,14 +18,12 @@ func (this _Connect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator.OnConnect_PtyWebsocket(this.Id_WebsocketConnection)
 }
 
-type _Disconnect__WorkspaceOrder_LifecycleCoordinator_ struct {
-	Id_WebsocketConnection uint64
-}
+type _Disconnect__WorkspaceOrder_LifecycleCoordinator_ struct{}
 
 func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnDisconnect_PtyWebsocket(this.Id_WebsocketConnection)
+	lifecycleCoordinator.OnDisconnect_PtyWebsocket()
 }
 
 type _Sync__WorkspaceOrder_LifecycleCoordinator_ struct {
@@ -60,26 +58,26 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 	WorkerContext             _CONTEXT.Context
 	WorkerCancel              _CONTEXT.CancelFunc
 	QueueChannel              chan _WorkspaceOrder_LifecycleCoordinator_
-	OnConnect_PtyWebsocket    func(id_WebsocketConnection uint64)
-	OnDisconnect_PtyWebsocket func(id_WebsocketConnection uint64)
-	OnSync_PtyPool            func(id_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace_Message_)
-	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome _ExitOutcome_PtyProxy_)
+	OnConnect_PtyWebsocket    func(originalId_WebsocketConnection uint64)
+	OnDisconnect_PtyWebsocket func()
+	OnSync_PtyPool            func(originalId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace_Message_)
+	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
 type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
-	OnConnect_PtyWebsocket    func(id_WebsocketConnection uint64)
-	OnDisconnect_PtyWebsocket func(id_WebsocketConnection uint64)
-	OnSync_PtyPool            func(id_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace_Message_)
-	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome _ExitOutcome_PtyProxy_)
+	OnConnect_PtyWebsocket    func(originalId_WebsocketConnection uint64)
+	OnDisconnect_PtyWebsocket func()
+	OnSync_PtyPool            func(originalId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace_Message_)
+	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
 func New__LifecycleCoordinator_WorkspacePty(
 	api _NewApi__LifecycleCoordinator_WorkspacePty_,
 ) *_LifecycleCoordinator_WorkspacePty_ {
-	__WorkerContext, __WorkerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
+	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	return &_LifecycleCoordinator_WorkspacePty_{
-		WorkerContext:             __WorkerContext,
-		WorkerCancel:              __WorkerCancel,
+		WorkerContext:             workerContext,
+		WorkerCancel:              workerCancel,
 		QueueChannel:              make(chan _WorkspaceOrder_LifecycleCoordinator_, 16),
 		OnConnect_PtyWebsocket:    api.OnConnect_PtyWebsocket,
 		OnDisconnect_PtyWebsocket: api.OnDisconnect_PtyWebsocket,

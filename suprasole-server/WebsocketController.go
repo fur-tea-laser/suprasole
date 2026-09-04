@@ -14,19 +14,19 @@ import (
 )
 
 var SUPERSEDED_ERROR__GET_WEBSOCKET_CONNECTION_SUBMISSION = _ERRORS.New("get websocket connection submission superseded by newer entry")
-var NOT_CONNECTED_ERROR__WRITE_BINARY_MESSAGE = _ERRORS.New("websocket is not connected")
-var CONNECTION_ID_MISALIGNED_ERROR__WRITE_BINARY_MESSAGE = _ERRORS.New("websocket connection id does not align")
+var NOT_CONNECTED_ERROR__WRITE_FRAME_BINARY_MESSAGE = _ERRORS.New("websocket is not connected")
+var CONNECTION_ID_MISALIGNED_ERROR__WRITE_FRAME_BINARY_MESSAGE = _ERRORS.New("websocket connection id does not align")
 
-type WebsocketConnectionStatus int
+type _Status_WebsocketConnection_ int
 
 const (
-	STANDBY__WebsocketConnectionStatus WebsocketConnectionStatus = iota
-	CONNECTING__WebsocketConnectionStatus
-	TAKEOVER_CONNECTING__WebsocketConnectionStatus
-	UPGRADE_FAILED__WebsocketConnectionStatus
-	TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus
-	CONNECTED__WebsocketConnectionStatus
-	DISCONNECTED__WebsocketConnectionStatus
+	STANDBY__Status_WebsocketConnection _Status_WebsocketConnection_ = iota
+	CONNECTING__Status_WebsocketConnection
+	TAKEOVER_CONNECTING__Status_WebsocketConnection
+	UPGRADE_FAILED__Status_WebsocketConnection
+	TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection
+	CONNECTED__Status_WebsocketConnection
+	DISCONNECTED__Status_WebsocketConnection
 )
 
 type _Reply_GetWebsocketConnection_ struct {
@@ -40,19 +40,19 @@ type _Submission_GetWebsocketConnection_ struct {
 }
 
 type _WebsocketController_ struct {
-	Mutex                                            _SYNC.Mutex
-	EgressMutex                                      _SYNC.Mutex
-	ConnectionStatus                                 WebsocketConnectionStatus
-	IsTakeoverPending                                bool
-	Id_WebsocketConnection                           uint64
-	WebsocketConnection                              *_WEBSOCKET.Conn
 	ReadDeadlineTimeout__                            _TIME.Duration
 	WriteDeadlineTimeout__                           _TIME.Duration
-	OnConnected__                                    func(id_WebsocketConnection uint64)
-	OnTakeoverConnected__                            func(id_WebsocketConnection uint64)
-	OnDisconnected__                                 func(id_WebsocketConnection uint64, readMessageError error)
-	OnTakeoverDisconnected__                         func(id_WebsocketConnection uint64)
-	OnBinaryMessageFrame__                           func(id_WebsocketConnection uint64, binaryMessageFrame []byte)
+	OnConnected__                                    func(newId_WebsocketConnection uint64)
+	OnTakeoverConnected__                            func(newId_WebsocketConnection uint64)
+	OnDisconnected__                                 func()
+	OnTakeoverDisconnected__                         func()
+	OnFrame_BinaryMessage__                          func(id_WebsocketConnection uint64, frame_binaryMessage []byte)
+	Mutex                                            _SYNC.Mutex
+	EgressMutex                                      _SYNC.Mutex
+	WebsocketConnection                              *_WEBSOCKET.Conn
+	Status_WebsocketConnection                       _Status_WebsocketConnection_
+	Id_WebsocketConnection                           uint64
+	IsTakeoverPending                                bool
 	QueueChannel__Submission_GetWebsocketConnection  chan _Submission_GetWebsocketConnection_
 	WorkerContext__Submission_GetWebsocketConnection _CONTEXT.Context
 	WorkerCancel__Submission_GetWebsocketConnection  _CONTEXT.CancelFunc
@@ -63,7 +63,7 @@ func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
 	request_getWebsocketConnection *_HTTP.Request,
 ) {
 	this.Mutex.Lock()
-	shouldCloseForTakeover := CONNECTED__WebsocketConnectionStatus == this.ConnectionStatus
+	shouldCloseForTakeover := CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection
 	if shouldCloseForTakeover {
 		this.IsTakeoverPending = true
 	}
@@ -74,10 +74,7 @@ func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
 			"Session Taken Over",
 		)
 	}
-	submissionReplyChannel_getWebsocketConnection := make(
-		chan _Reply_GetWebsocketConnection_,
-		1,
-	)
+	submissionReplyChannel_getWebsocketConnection := make(chan _Reply_GetWebsocketConnection_, 1)
 	submission_getWebsocketConnection := _Submission_GetWebsocketConnection_{
 		ReplyChannel:   submissionReplyChannel_getWebsocketConnection,
 		HttpRequest:    request_getWebsocketConnection,
@@ -136,17 +133,14 @@ func (this *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 			isAttached, newId_WebsocketConnection := this.UpdateWebsocketConnection(latestSubmission_getWebsocketConnection)
 			if isAttached {
 				for {
-					messageType, binaryMessageFrame, readMessageError := this.WebsocketConnection.ReadMessage()
+					messageType, frame_binaryMessage, readMessageError := this.WebsocketConnection.ReadMessage()
 					if _WEBSOCKET.BinaryMessage == messageType {
-						this.OnBinaryMessageFrame__(
+						this.OnFrame_BinaryMessage__(
 							newId_WebsocketConnection,
-							binaryMessageFrame,
+							frame_binaryMessage,
 						)
 					} else if readMessageError != nil {
-						this.HandleConnectionTeardown(
-							newId_WebsocketConnection,
-							readMessageError,
-						)
+						this.HandleConnectionTeardown()
 						break
 					} else if _WEBSOCKET.TextMessage == messageType {
 						this.CloseWithCode(
@@ -184,43 +178,43 @@ func (this *_WebsocketController_) UpdateWebsocketConnection(
 	latestSubmission_getWebsocketConnection _Submission_GetWebsocketConnection_,
 ) (bool, uint64) {
 	this.Mutex.Lock()
-	if this.ConnectionStatus != TAKEOVER_CONNECTING__WebsocketConnectionStatus {
-		this.ConnectionStatus = CONNECTING__WebsocketConnectionStatus
+	if this.Status_WebsocketConnection != TAKEOVER_CONNECTING__Status_WebsocketConnection {
+		this.Status_WebsocketConnection = CONNECTING__Status_WebsocketConnection
 	}
 	this.Mutex.Unlock()
-	var nilUpgradeResponseHeader _HTTP.Header = nil
+	var nilHeader_UpgradeResponse _HTTP.Header = nil
 	websocketRequestUpgrader := _WEBSOCKET.Upgrader{}
 	newWebsocketConnection, upgradeRequestError := websocketRequestUpgrader.Upgrade(
 		latestSubmission_getWebsocketConnection.ResponseWriter,
 		latestSubmission_getWebsocketConnection.HttpRequest,
-		nilUpgradeResponseHeader,
+		nilHeader_UpgradeResponse,
 	)
 	latestSubmission_getWebsocketConnection.ReplyChannel <- _Reply_GetWebsocketConnection_{
 		MaybeSubmissionError: upgradeRequestError,
 	}
 	this.Mutex.Lock()
-	isTakeoverConnecting := this.ConnectionStatus == TAKEOVER_CONNECTING__WebsocketConnectionStatus
+	isTakeoverConnecting := this.Status_WebsocketConnection == TAKEOVER_CONNECTING__Status_WebsocketConnection
 	this.Mutex.Unlock()
 	if newWebsocketConnection != nil && isTakeoverConnecting {
 		newId_WebsocketConnection := this.AttachConnection(
-			newWebsocketConnection,
 			this.OnTakeoverConnected__,
+			newWebsocketConnection,
 		)
 		return true, newId_WebsocketConnection
 	} else if newWebsocketConnection != nil {
 		newId_WebsocketConnection := this.AttachConnection(
-			newWebsocketConnection,
 			this.OnConnected__,
+			newWebsocketConnection,
 		)
 		return true, newId_WebsocketConnection
 	} else if upgradeRequestError != nil && isTakeoverConnecting {
 		this.Mutex.Lock()
-		this.ConnectionStatus = TAKEOVER_UPGRADE_FAILED__WebsocketConnectionStatus
+		this.Status_WebsocketConnection = TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection
 		this.Mutex.Unlock()
 		return false, 0
 	} else if upgradeRequestError != nil {
 		this.Mutex.Lock()
-		this.ConnectionStatus = UPGRADE_FAILED__WebsocketConnectionStatus
+		this.Status_WebsocketConnection = UPGRADE_FAILED__Status_WebsocketConnection
 		this.Mutex.Unlock()
 		return false, 0
 	} else {
@@ -230,8 +224,8 @@ func (this *_WebsocketController_) UpdateWebsocketConnection(
 }
 
 func (this *_WebsocketController_) AttachConnection(
+	OnConnected__ func(newId_WebsocketConnection uint64),
 	newWebsocketConnection *_WEBSOCKET.Conn,
-	onConnectedCallback func(id_WebsocketConnection uint64),
 ) uint64 {
 	this.Mutex.Lock()
 	this.Id_WebsocketConnection++
@@ -240,52 +234,48 @@ func (this *_WebsocketController_) AttachConnection(
 	_ = this.WebsocketConnection.SetReadDeadline(
 		_TIME.Now().Add(this.ReadDeadlineTimeout__),
 	)
-	this.ConnectionStatus = CONNECTED__WebsocketConnectionStatus
+	this.Status_WebsocketConnection = CONNECTED__Status_WebsocketConnection
 	this.Mutex.Unlock()
-	onConnectedCallback(newId_WebsocketConnection)
+	OnConnected__(newId_WebsocketConnection)
 	return newId_WebsocketConnection
 }
 
-func (this *_WebsocketController_) HandleConnectionTeardown(
-	id_WebsocketConnection uint64,
-	readMessageError error,
-) {
+func (this *_WebsocketController_) HandleConnectionTeardown() {
 	var wasTakeoverPending bool
 	this.Mutex.Lock()
 	if this.IsTakeoverPending {
-		this.ConnectionStatus = TAKEOVER_CONNECTING__WebsocketConnectionStatus
+		this.Status_WebsocketConnection = TAKEOVER_CONNECTING__Status_WebsocketConnection
 		this.IsTakeoverPending = false
 		this.WebsocketConnection = nil
 		wasTakeoverPending = true
 	} else {
-		this.ConnectionStatus = DISCONNECTED__WebsocketConnectionStatus
+		this.Status_WebsocketConnection = DISCONNECTED__Status_WebsocketConnection
 		_ = this.WebsocketConnection.Close()
 		this.WebsocketConnection = nil
 	}
 	this.Mutex.Unlock()
 	if wasTakeoverPending {
-		this.OnTakeoverDisconnected__(id_WebsocketConnection)
+		this.OnTakeoverDisconnected__()
 	} else {
-		this.OnDisconnected__(
-			id_WebsocketConnection,
-			readMessageError,
-		)
+		this.OnDisconnected__()
 	}
 }
 
-func (this *_WebsocketController_) WriteBinaryMessage(
+func (this *_WebsocketController_) WriteFrame_BinaryMessage(
 	targetId_WebsocketConnection uint64,
-	binaryMessageData []byte,
+	frame_binaryMessage []byte,
 ) error {
 	var capturedWebsocketConnection *_WEBSOCKET.Conn
 	var writePreparationError error
 	this.Mutex.Lock()
-	if this.ConnectionStatus != CONNECTED__WebsocketConnectionStatus {
-		writePreparationError = NOT_CONNECTED_ERROR__WRITE_BINARY_MESSAGE
-	} else if this.Id_WebsocketConnection != targetId_WebsocketConnection {
-		writePreparationError = CONNECTION_ID_MISALIGNED_ERROR__WRITE_BINARY_MESSAGE
-	} else {
+	if CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && targetId_WebsocketConnection == this.Id_WebsocketConnection {
 		capturedWebsocketConnection = this.WebsocketConnection
+	} else if this.Status_WebsocketConnection != CONNECTED__Status_WebsocketConnection {
+		writePreparationError = NOT_CONNECTED_ERROR__WRITE_FRAME_BINARY_MESSAGE
+	} else if this.Id_WebsocketConnection != targetId_WebsocketConnection {
+		writePreparationError = CONNECTION_ID_MISALIGNED_ERROR__WRITE_FRAME_BINARY_MESSAGE
+	} else {
+		_FMT.Println("invalid path: WriteFrame_BinaryMessage")
 	}
 	this.Mutex.Unlock()
 	if writePreparationError != nil {
@@ -297,7 +287,7 @@ func (this *_WebsocketController_) WriteBinaryMessage(
 	)
 	writeMessageError := capturedWebsocketConnection.WriteMessage(
 		_WEBSOCKET.BinaryMessage,
-		binaryMessageData,
+		frame_binaryMessage,
 	)
 	this.EgressMutex.Unlock()
 	return writeMessageError
@@ -309,7 +299,7 @@ func (this *_WebsocketController_) CloseWithCode(
 ) {
 	var capturedWebsocketConnection *_WEBSOCKET.Conn
 	this.Mutex.Lock()
-	if CONNECTED__WebsocketConnectionStatus == this.ConnectionStatus {
+	if CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection {
 		capturedWebsocketConnection = this.WebsocketConnection
 	}
 	this.Mutex.Unlock()

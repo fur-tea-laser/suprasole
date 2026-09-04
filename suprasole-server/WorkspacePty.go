@@ -1,9 +1,9 @@
 package main
 
-type ExitReason_PtyProxy int
+type _ExitReason_PtyProxy_ int
 
 const (
-	SUCCESS__ExitReason_PtyProxy ExitReason_PtyProxy = iota
+	SUCCESS__ExitReason_PtyProxy _ExitReason_PtyProxy_ = iota
 	FAILURE__ExitReason_PtyProxy
 	KILLED__ExitReason_PtyProxy
 	CLOSED__ExitReason_PtyProxy

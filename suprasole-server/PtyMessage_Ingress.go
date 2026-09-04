@@ -4,77 +4,71 @@ import (
 	_ERRORS "errors"
 )
 
-type Code_PtyMessage_Ingress uint16
+var MAP__DECODE_FRAME___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
+	frame_binaryMessage []byte,
+) (_PtyMessage_Ingress_, error){
+	SPAWN_PTY___Code__PtyMessage_Ingress:       decodeFrame_SpawnPty,
+	RESIZE_PTYS___Code__PtyMessage_Ingress:     decodeFrame_ResizePtys,
+	TERMINATE_PTY___Code__PtyMessage_Ingress:   decodeFrame_TerminatePty,
+	REMOVE_PTY___Code__PtyMessage_Ingress:      decodeFrame_RemovePty,
+	WRITE_PTY_INPUT___Code__PtyMessage_Ingress: decodeFrame_WritePtyInput,
+	SYNC_WORKSPACE___Code__PtyMessage_Ingress:  decodeFrame_SyncWorkspace,
+}
+
+type _Code__PtyMessage_Ingress_ uint16
 
 const (
-	SPAWN_PTY__Code_PtyMessage_Ingress       Code_PtyMessage_Ingress = 0x0001
-	RESIZE_PTYS__Code_PtyMessage_Ingress     Code_PtyMessage_Ingress = 0x0003
-	TERMINATE_PTY__Code_PtyMessage_Ingress   Code_PtyMessage_Ingress = 0x0004
-	REMOVE_PTY__Code_PtyMessage_Ingress      Code_PtyMessage_Ingress = 0x0006
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress Code_PtyMessage_Ingress = 0x0007
-	SYNC_WORKSPACE__Code_PtyMessage_Ingress  Code_PtyMessage_Ingress = 0x000a
-)
-
-type Code_PtyProxyOption uint16
-
-const (
-	SCROLLBACK_LINE_COUNT__Code_PtyProxyOption         Code_PtyProxyOption = 0x0001
-	STAGING_BUFFER_SIZE__Code_PtyProxyOption           Code_PtyProxyOption = 0x0002
-	POST_SNAPSHOT_BUFFER_SIZE__Code_PtyProxyOption     Code_PtyProxyOption = 0x0003
-	QUEUE_BUFFER_SIZE_INPUT_ORDER__Code_PtyProxyOption Code_PtyProxyOption = 0x0004
+	SPAWN_PTY___Code__PtyMessage_Ingress       _Code__PtyMessage_Ingress_ = 0x0001
+	RESIZE_PTYS___Code__PtyMessage_Ingress     _Code__PtyMessage_Ingress_ = 0x0003
+	TERMINATE_PTY___Code__PtyMessage_Ingress   _Code__PtyMessage_Ingress_ = 0x0004
+	REMOVE_PTY___Code__PtyMessage_Ingress      _Code__PtyMessage_Ingress_ = 0x0006
+	WRITE_PTY_INPUT___Code__PtyMessage_Ingress _Code__PtyMessage_Ingress_ = 0x0007
+	SYNC_WORKSPACE___Code__PtyMessage_Ingress  _Code__PtyMessage_Ingress_ = 0x000a
 )
 
 type _PtyMessage_Ingress_ interface {
-	Execute(workspaceController *_WorkspaceController_, id_WebsocketConnection uint64)
+	Execute(
+		workspaceController *_WorkspaceController_,
+		id_WebsocketConnection uint64,
+	)
 }
 
-var DECODE_MESSAGE_MAP__PTY_MESSAGE_INGRESS = map[Code_PtyMessage_Ingress]func(
-	binaryMessageFrame []byte,
-) (_PtyMessage_Ingress_, error){
-	SPAWN_PTY__Code_PtyMessage_Ingress:       decodeMessage_SpawnPty,
-	RESIZE_PTYS__Code_PtyMessage_Ingress:     decodeMessage_ResizePtys,
-	TERMINATE_PTY__Code_PtyMessage_Ingress:   decodeMessage_TerminatePty,
-	REMOVE_PTY__Code_PtyMessage_Ingress:      decodeMessage_RemovePty,
-	WRITE_PTY_INPUT__Code_PtyMessage_Ingress: decodeMessage_WritePtyInput,
-	SYNC_WORKSPACE__Code_PtyMessage_Ingress:  decodeMessage_SyncWorkspace,
-}
-
-func decodeMessage_SpawnPty(
-	binaryMessageFrame []byte,
+func decodeFrame_SpawnPty(
+	frame_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_SpawnPty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer_BinaryMessageFrame: binaryMessageFrame,
-			Cursor_Buffer:             2,
-			Label_MessageStruct:       "SpawnPty",
+			Buffer__Frame_BinaryMessage: frame_binaryMessage,
+			Cursor_Buffer:               2,
+			Label_MessageStruct:         "SpawnPty",
 		},
 	)
-	__ColumnCount_PtyTerminal := int(binaryDecoder_SpawnPty.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
-	__RowCount_PtyTerminal := int(binaryDecoder_SpawnPty.DecodeParameter_Uint16("RowCount_PtyTerminal"))
-	__ShellBinaryPath_PtyCommand := binaryDecoder_SpawnPty.DecodeParameter_String16("ShellBinaryPath_PtyCommand")
-	__DirectoryPath_PtyCommand := binaryDecoder_SpawnPty.DecodeParameter_String16("DirectoryPath_PtyCommand")
-	__EnvironmentVariables_PtyCommand := binaryDecoder_SpawnPty.DecodeParameter__Slice16_String16("EnvironmentVariables_PtyCommand")
-	__Options_PtyProxy := DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage(
+	columnCount_PtyTerminal := int(binaryDecoder_SpawnPty.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
+	rowCount_PtyTerminal := int(binaryDecoder_SpawnPty.DecodeParameter_Uint16("RowCount_PtyTerminal"))
+	shellBinaryPath_PtyCommand := binaryDecoder_SpawnPty.DecodeParameter_String16("ShellBinaryPath_PtyCommand")
+	directoryPath_PtyCommand := binaryDecoder_SpawnPty.DecodeParameter_String16("DirectoryPath_PtyCommand")
+	environmentVariables_PtyCommand := binaryDecoder_SpawnPty.DecodeParameter__Slice16_String16("EnvironmentVariables_PtyCommand")
+	options_PtyProxy := DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage(
 		&binaryDecoder_SpawnPty,
 		"Options_PtyProxy",
-		func(binaryDecoder_SpawnPty *_BinaryDecoder_WebsocketMessage_, currentSliceIndex int) _PtyProxyOption_ {
-			optionCode := Code_PtyProxyOption(binaryDecoder_SpawnPty.DecodeParameter_Uint16("OptionCode"))
+		func(binaryDecoder_SpawnPty *_BinaryDecoder_WebsocketMessage_, currentSliceIndex int) _Option_PtyProxy_ {
+			optionCode := _Code__Option_PtyProxy_(binaryDecoder_SpawnPty.DecodeParameter_Uint16("OptionCode"))
 			optionValue := int(binaryDecoder_SpawnPty.DecodeParameter_Uint32("OptionValue"))
 			switch optionCode {
-			case SCROLLBACK_LINE_COUNT__Code_PtyProxyOption:
-				return _PtyProxyOption_ScrollbackLineCount_{
+			case SCROLLBACK_LINE_COUNT___Code__Option_PtyProxy:
+				return _ScrollbackLineCount__Option_PtyProxy_{
 					ScrollbackLineCount_PtyTerminal: optionValue,
 				}
-			case STAGING_BUFFER_SIZE__Code_PtyProxyOption:
-				return _PtyProxyOption_StagingBufferSize_{
+			case STAGING_BUFFER_SIZE___Code__Option_PtyProxy:
+				return _StagingBufferSize__Option_PtyProxy_{
 					StagingBufferSize_PtyReader: optionValue,
 				}
-			case POST_SNAPSHOT_BUFFER_SIZE__Code_PtyProxyOption:
-				return _PtyProxyOption_PostSnapshotBufferSize_{
+			case POST_SNAPSHOT_BUFFER_SIZE___Code__Option_PtyProxy:
+				return _PostSnapshotBufferSize__Option_PtyProxy_{
 					PostSnapshotBufferSize_PtyProxy: optionValue,
 				}
-			case QUEUE_BUFFER_SIZE_INPUT_ORDER__Code_PtyProxyOption:
-				return _PtyProxyOption_QueueBufferSize_InputOrder__PtyWriter_{
+			case QUEUE_BUFFER_SIZE_INPUT_ORDER___Code__Option_PtyProxy:
+				return _QueueBufferSize_InputOrder__PtyWriter___Option_PtyProxy_{
 					QueueBufferSize_InputOrder__PtyWriter: optionValue,
 				}
 			default:
@@ -88,57 +82,68 @@ func decodeMessage_SpawnPty(
 		return nil, binaryDecoder_SpawnPty.MaybeError_Earliest
 	}
 	return _SpawnPty_Message_{
-		ColumnCount_PtyTerminal:         __ColumnCount_PtyTerminal,
-		RowCount_PtyTerminal:            __RowCount_PtyTerminal,
-		ShellBinaryPath_PtyCommand:      __ShellBinaryPath_PtyCommand,
-		DirectoryPath_PtyCommand:        __DirectoryPath_PtyCommand,
-		EnvironmentVariables_PtyCommand: __EnvironmentVariables_PtyCommand,
-		Options_PtyProxy:                __Options_PtyProxy,
+		ColumnCount_PtyTerminal:         columnCount_PtyTerminal,
+		RowCount_PtyTerminal:            rowCount_PtyTerminal,
+		ShellBinaryPath_PtyCommand:      shellBinaryPath_PtyCommand,
+		DirectoryPath_PtyCommand:        directoryPath_PtyCommand,
+		EnvironmentVariables_PtyCommand: environmentVariables_PtyCommand,
+		Options_PtyProxy:                options_PtyProxy,
 	}, nil
 }
 
-type _PtyProxyOption_ interface {
-	UpdateOptionsResult(optionsResult_ptyProxy *_PtyProxyDefaults_)
+type _Code__Option_PtyProxy_ uint16
+
+const (
+	SCROLLBACK_LINE_COUNT___Code__Option_PtyProxy         _Code__Option_PtyProxy_ = 0x0001
+	STAGING_BUFFER_SIZE___Code__Option_PtyProxy           _Code__Option_PtyProxy_ = 0x0002
+	POST_SNAPSHOT_BUFFER_SIZE___Code__Option_PtyProxy     _Code__Option_PtyProxy_ = 0x0003
+	QUEUE_BUFFER_SIZE_INPUT_ORDER___Code__Option_PtyProxy _Code__Option_PtyProxy_ = 0x0004
+)
+
+type _Option_PtyProxy_ interface {
+	UpdateOptionsResult(
+		optionsResult_ptyProxy *_Defaults_PtyProxy_,
+	)
 }
 
-type _PtyProxyOption_ScrollbackLineCount_ struct {
+type _ScrollbackLineCount__Option_PtyProxy_ struct {
 	ScrollbackLineCount_PtyTerminal int
 }
 
-func (this _PtyProxyOption_ScrollbackLineCount_) UpdateOptionsResult(
-	optionsResult_ptyProxy *_PtyProxyDefaults_,
+func (this _ScrollbackLineCount__Option_PtyProxy_) UpdateOptionsResult(
+	optionsResult_ptyProxy *_Defaults_PtyProxy_,
 ) {
-	optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal = this.ScrollbackLineCount_PtyTerminal
+	optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal__ = this.ScrollbackLineCount_PtyTerminal
 }
 
-type _PtyProxyOption_StagingBufferSize_ struct {
+type _StagingBufferSize__Option_PtyProxy_ struct {
 	StagingBufferSize_PtyReader int
 }
 
-func (this _PtyProxyOption_StagingBufferSize_) UpdateOptionsResult(
-	optionsResult_ptyProxy *_PtyProxyDefaults_,
+func (this _StagingBufferSize__Option_PtyProxy_) UpdateOptionsResult(
+	optionsResult_ptyProxy *_Defaults_PtyProxy_,
 ) {
-	optionsResult_ptyProxy.StagingBufferSize_PtyReader = this.StagingBufferSize_PtyReader
+	optionsResult_ptyProxy.StagingBufferSize_PtyReader__ = this.StagingBufferSize_PtyReader
 }
 
-type _PtyProxyOption_PostSnapshotBufferSize_ struct {
+type _PostSnapshotBufferSize__Option_PtyProxy_ struct {
 	PostSnapshotBufferSize_PtyProxy int
 }
 
-func (this _PtyProxyOption_PostSnapshotBufferSize_) UpdateOptionsResult(
-	optionsResult_ptyProxy *_PtyProxyDefaults_,
+func (this _PostSnapshotBufferSize__Option_PtyProxy_) UpdateOptionsResult(
+	optionsResult_ptyProxy *_Defaults_PtyProxy_,
 ) {
-	optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy = this.PostSnapshotBufferSize_PtyProxy
+	optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy__ = this.PostSnapshotBufferSize_PtyProxy
 }
 
-type _PtyProxyOption_QueueBufferSize_InputOrder__PtyWriter_ struct {
+type _QueueBufferSize_InputOrder__PtyWriter___Option_PtyProxy_ struct {
 	QueueBufferSize_InputOrder__PtyWriter int
 }
 
-func (this _PtyProxyOption_QueueBufferSize_InputOrder__PtyWriter_) UpdateOptionsResult(
-	optionsResult_ptyProxy *_PtyProxyDefaults_,
+func (this _QueueBufferSize_InputOrder__PtyWriter___Option_PtyProxy_) UpdateOptionsResult(
+	optionsResult_ptyProxy *_Defaults_PtyProxy_,
 ) {
-	optionsResult_ptyProxy.QueueBufferSize_InputOrder__PtyWriter = this.QueueBufferSize_InputOrder__PtyWriter
+	optionsResult_ptyProxy.QueueBufferSize_InputOrder__PtyWriter__ = this.QueueBufferSize_InputOrder__PtyWriter
 }
 
 type _SpawnPty_Message_ struct {
@@ -147,70 +152,70 @@ type _SpawnPty_Message_ struct {
 	ShellBinaryPath_PtyCommand      string
 	DirectoryPath_PtyCommand        string
 	EnvironmentVariables_PtyCommand []string
-	Options_PtyProxy                []_PtyProxyOption_
+	Options_PtyProxy                []_Option_PtyProxy_
 }
 
 func (this _SpawnPty_Message_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
-	optionsResult_ptyProxy := workspaceController.PtyProxyDefaults
+	optionsResult_ptyProxy := workspaceController.Defaults_PtyProxy__
 	for _, option_ptyProxy := range this.Options_PtyProxy {
 		option_ptyProxy.UpdateOptionsResult(&optionsResult_ptyProxy)
 	}
 	workspaceController.Mutex.Lock()
-	newPtyId := workspaceController.NextId_PtyProxy
+	newId_PtyProxy := workspaceController.NextId_PtyProxy
 	workspaceController.NextId_PtyProxy++
 	workspaceController.Mutex.Unlock()
 	go func() {
 		ptyStartError := Spawn__PtyProxy(_SpawnApi__PtyProxy_{
-			Id:                                    newPtyId,
+			Id_PtyProxy:                           newId_PtyProxy,
 			ColumnCount_PtyTerminal:               this.ColumnCount_PtyTerminal,
 			RowCount_PtyTerminal:                  this.RowCount_PtyTerminal,
 			ShellBinaryPath_PtyCommand:            this.ShellBinaryPath_PtyCommand,
 			DirectoryPath_PtyCommand:              this.DirectoryPath_PtyCommand,
 			EnvironmentVariables_PtyCommand:       this.EnvironmentVariables_PtyCommand,
-			ScrollbackLineCount_PtyTerminal:       optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal,
-			StagingBufferSize_PtyReader:           optionsResult_ptyProxy.StagingBufferSize_PtyReader,
-			PostSnapshotBufferSize_PtyProxy:       optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy,
-			QueueBufferSize_InputOrder__PtyWriter: optionsResult_ptyProxy.QueueBufferSize_InputOrder__PtyWriter,
-			OnSpawned:                             workspaceController.HandleSpawned_Pty,
-			OnOutput_Live:                         workspaceController.HandleOutput_Pty,
-			OnOutput_Snapshot:                     workspaceController.HandleOutput_Pty,
-			OnOutput_PostSnapshotBuffer:           workspaceController.HandleOutput_Pty,
-			OnExited_Eio_Success:                  workspaceController.HandleExited_Eio_Success__Pty,
-			OnExited_Eio_Failure:                  workspaceController.HandleExited_Eio_Failure__Pty,
-			OnExited_Eio_Killed:                   workspaceController.HandleExited_Eio_Killed__Pty,
-			OnExited_Closed:                       workspaceController.HandleExited_Closed__Pty,
-			OnExited_SystemError:                  workspaceController.HandleExited_SystemError__Pty,
+			ScrollbackLineCount_PtyTerminal:       optionsResult_ptyProxy.ScrollbackLineCount_PtyTerminal__,
+			StagingBufferSize_PtyReader:           optionsResult_ptyProxy.StagingBufferSize_PtyReader__,
+			PostSnapshotBufferSize_PtyProxy:       optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy__,
+			QueueBufferSize_InputOrder__PtyWriter: optionsResult_ptyProxy.QueueBufferSize_InputOrder__PtyWriter__,
+			OnSpawned_PtyProxy:                    workspaceController.HandleSpawned_Pty,
+			OnOutput_Live__PtyProxy:               workspaceController.HandleOutput_Pty,
+			OnOutput_Snapshot__PtyProxy:           workspaceController.HandleOutput_Pty,
+			OnOutput_PostSnapshotBuffer__PtyProxy: workspaceController.HandleOutput_Pty,
+			OnExited_Eio_Success__PtyProxy:        workspaceController.HandleExited_Eio_Success__Pty,
+			OnExited_Eio_Failure__PtyProxy:        workspaceController.HandleExited_Eio_Failure__Pty,
+			OnExited_Eio_Killed__PtyProxy:         workspaceController.HandleExited_Eio_Killed__Pty,
+			OnExited_Closed__PtyProxy:             workspaceController.HandleExited_Closed__Pty,
+			OnExited_SystemError__PtyProxy:        workspaceController.HandleExited_SystemError__Pty,
 		})
 		if ptyStartError != nil {
-			workspaceController.HandleSpawnFailed_Pty(newPtyId)
+			workspaceController.HandleSpawnFailed_Pty(newId_PtyProxy)
 		}
 	}()
 }
 
-func decodeMessage_ResizePtys(
-	binaryMessageFrame []byte,
+func decodeFrame_ResizePtys(
+	frame_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_ResizePtys := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer_BinaryMessageFrame: binaryMessageFrame,
-			Cursor_Buffer:             2,
-			Label_MessageStruct:       "ResizePtys",
+			Buffer__Frame_BinaryMessage: frame_binaryMessage,
+			Cursor_Buffer:               2,
+			Label_MessageStruct:         "ResizePtys",
 		},
 	)
-	__Entries_PtyProxy := DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage(
+	resizePtyOrders := DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage(
 		&binaryDecoder_ResizePtys,
-		"Entries_PtyProxy",
-		func(binaryDecoder_ResizePtys *_BinaryDecoder_WebsocketMessage_, currentSliceIndex int) _ResizePtys_Entry_ {
-			__Id_PtyProxy := binaryDecoder_ResizePtys.DecodeParameter_Uint32("Id_PtyProxy")
-			__ColumnCount_PtyTerminal := int(binaryDecoder_ResizePtys.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
-			__RowCount_PtyTerminal := int(binaryDecoder_ResizePtys.DecodeParameter_Uint16("RowCount_PtyTerminal"))
-			return _ResizePtys_Entry_{
-				Id_PtyProxy:             __Id_PtyProxy,
-				ColumnCount_PtyTerminal: __ColumnCount_PtyTerminal,
-				RowCount_PtyTerminal:    __RowCount_PtyTerminal,
+		"ResizePtyOrders",
+		func(binaryDecoder_ResizePtys *_BinaryDecoder_WebsocketMessage_, currentSliceIndex int) _ResizePtyOrder_ResizePtys_ {
+			id_PtyProxy := binaryDecoder_ResizePtys.DecodeParameter_Uint32("Id_PtyProxy")
+			columnCount_PtyTerminal := int(binaryDecoder_ResizePtys.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
+			rowCount_PtyTerminal := int(binaryDecoder_ResizePtys.DecodeParameter_Uint16("RowCount_PtyTerminal"))
+			return _ResizePtyOrder_ResizePtys_{
+				Id_PtyProxy:             id_PtyProxy,
+				ColumnCount_PtyTerminal: columnCount_PtyTerminal,
+				RowCount_PtyTerminal:    rowCount_PtyTerminal,
 			}
 		},
 	)
@@ -219,18 +224,18 @@ func decodeMessage_ResizePtys(
 		return nil, binaryDecoder_ResizePtys.MaybeError_Earliest
 	}
 	return _ResizePtys_Message_{
-		Entries_PtyProxy: __Entries_PtyProxy,
+		ResizePtyOrders: resizePtyOrders,
 	}, nil
 }
 
-type _ResizePtys_Entry_ struct {
+type _ResizePtyOrder_ResizePtys_ struct {
 	Id_PtyProxy             uint32
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 }
 
 type _ResizePtys_Message_ struct {
-	Entries_PtyProxy []_ResizePtys_Entry_
+	ResizePtyOrders []_ResizePtyOrder_ResizePtys_
 }
 
 func (this _ResizePtys_Message_) Execute(
@@ -240,26 +245,26 @@ func (this _ResizePtys_Message_) Execute(
 	workspaceController.MessageDebouncer_ResizePtys.QueueChannel <- this
 }
 
-func decodeMessage_WritePtyInput(
-	binaryMessageFrame []byte,
+func decodeFrame_WritePtyInput(
+	frame_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_WritePtyInput := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer_BinaryMessageFrame: binaryMessageFrame,
-			Cursor_Buffer:             2,
-			Label_MessageStruct:       "WritePtyInput",
+			Buffer__Frame_BinaryMessage: frame_binaryMessage,
+			Cursor_Buffer:               2,
+			Label_MessageStruct:         "WritePtyInput",
 		},
 	)
-	__Id_PtyProxy := binaryDecoder_WritePtyInput.DecodeParameter_Uint32("Id_PtyProxy")
-	__RawInputBytes := binaryDecoder_WritePtyInput.DecodeParameter_TrailingBytes("RawInputBytes")
+	id_PtyProxy := binaryDecoder_WritePtyInput.DecodeParameter_Uint32("Id_PtyProxy")
+	rawInputBytes := binaryDecoder_WritePtyInput.DecodeParameter_TrailingBytes("RawInputBytes")
 	binaryDecoder_WritePtyInput.AssertEndOfFrame()
 	if binaryDecoder_WritePtyInput.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_WritePtyInput.MaybeError_Earliest
 	}
 	return _WritePtyInput_Message_{
-		Id_PtyProxy: __Id_PtyProxy,
+		Id_PtyProxy: id_PtyProxy,
 		InputOrder_PtyWriter: &_Passthrough__InputOrder_PtyWriter_{
-			InputData_PtyMaster: __RawInputBytes,
+			InputData_PtyMaster: rawInputBytes,
 		},
 	}, nil
 }
@@ -277,29 +282,36 @@ func (this _WritePtyInput_Message_) Execute(
 	targetWorkspacePty := workspaceController.PtyPool[this.Id_PtyProxy]
 	workspaceController.Mutex.Unlock()
 	if targetWorkspacePty != nil {
-		targetWorkspacePty.PtyProxy.PtyWriter.QueueChannel_InputOrder <- this.InputOrder_PtyWriter
+		select {
+		case <-targetWorkspacePty.PtyProxy.PtyWriter.WorkerContext.Done():
+		default:
+			select {
+			case targetWorkspacePty.PtyProxy.PtyWriter.QueueChannel_InputOrder <- this.InputOrder_PtyWriter:
+			default:
+			}
+		}
 	}
 }
 
-func decodeMessage_TerminatePty(
-	binaryMessageFrame []byte,
+func decodeFrame_TerminatePty(
+	frame_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_TerminatePty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer_BinaryMessageFrame: binaryMessageFrame,
-			Cursor_Buffer:             2,
-			Label_MessageStruct:       "TerminatePty",
+			Buffer__Frame_BinaryMessage: frame_binaryMessage,
+			Cursor_Buffer:               2,
+			Label_MessageStruct:         "TerminatePty",
 		},
 	)
-	__Id_PtyProxy := binaryDecoder_TerminatePty.DecodeParameter_Uint32("Id_PtyProxy")
-	__TerminalSignal_PtyProcess := int(binaryDecoder_TerminatePty.DecodeParameter_Int32("TerminalSignal_PtyProcess"))
+	id_PtyProxy := binaryDecoder_TerminatePty.DecodeParameter_Uint32("Id_PtyProxy")
+	terminalSignal_PtyProcess := int(binaryDecoder_TerminatePty.DecodeParameter_Int32("TerminalSignal_PtyProcess"))
 	binaryDecoder_TerminatePty.AssertEndOfFrame()
 	if binaryDecoder_TerminatePty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_TerminatePty.MaybeError_Earliest
 	}
 	return _TerminatePty_Message_{
-		Id_PtyProxy:               __Id_PtyProxy,
-		TerminalSignal_PtyProcess: __TerminalSignal_PtyProcess,
+		Id_PtyProxy:               id_PtyProxy,
+		TerminalSignal_PtyProcess: terminalSignal_PtyProcess,
 	}, nil
 }
 
@@ -320,23 +332,23 @@ func (this _TerminatePty_Message_) Execute(
 	}
 }
 
-func decodeMessage_RemovePty(
-	binaryMessageFrame []byte,
+func decodeFrame_RemovePty(
+	frame_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_RemovePty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer_BinaryMessageFrame: binaryMessageFrame,
-			Cursor_Buffer:             2,
-			Label_MessageStruct:       "RemovePty",
+			Buffer__Frame_BinaryMessage: frame_binaryMessage,
+			Cursor_Buffer:               2,
+			Label_MessageStruct:         "RemovePty",
 		},
 	)
-	__Ids_PtyPool := binaryDecoder_RemovePty.DecodeParameter__Slice16_Uint32("Ids_PtyPool")
+	ids_PtyPool := binaryDecoder_RemovePty.DecodeParameter__Slice16_Uint32("Ids_PtyPool")
 	binaryDecoder_RemovePty.AssertEndOfFrame()
 	if binaryDecoder_RemovePty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_RemovePty.MaybeError_Earliest
 	}
 	return _RemovePty_Message_{
-		Ids_PtyPool: __Ids_PtyPool,
+		Ids_PtyPool: ids_PtyPool,
 	}, nil
 }
 
@@ -361,26 +373,26 @@ func (this _RemovePty_Message_) Execute(
 	workspaceController.Mutex.Unlock()
 }
 
-func decodeMessage_SyncWorkspace(
-	binaryMessageFrame []byte,
+func decodeFrame_SyncWorkspace(
+	frame_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_SyncWorkspace := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer_BinaryMessageFrame: binaryMessageFrame,
-			Cursor_Buffer:             2,
-			Label_MessageStruct:       "SyncWorkspace",
+			Buffer__Frame_BinaryMessage: frame_binaryMessage,
+			Cursor_Buffer:               2,
+			Label_MessageStruct:         "SyncWorkspace",
 		},
 	)
-	__SyncPtyOrders := DecodeParameter__Map16__BinaryDecoder_WebsocketMessage(
+	syncPtyOrders := DecodeParameter__Map16__BinaryDecoder_WebsocketMessage(
 		&binaryDecoder_SyncWorkspace,
 		"SyncPtyOrders",
 		func(binaryDecoder_SyncWorkspace *_BinaryDecoder_WebsocketMessage_, currentMapIndex int) (uint32, *_SyncPtyOrder_SyncWorkspace_) {
-			__Id_PtyProxy := binaryDecoder_SyncWorkspace.DecodeParameter_Uint32("Id_PtyProxy")
-			__ColumnCount_PtyTerminal := int(binaryDecoder_SyncWorkspace.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
-			__RowCount_PtyTerminal := int(binaryDecoder_SyncWorkspace.DecodeParameter_Uint16("RowCount_PtyTerminal"))
-			return __Id_PtyProxy, &_SyncPtyOrder_SyncWorkspace_{
-				ColumnCount_PtyTerminal: __ColumnCount_PtyTerminal,
-				RowCount_PtyTerminal:    __RowCount_PtyTerminal,
+			id_PtyProxy := binaryDecoder_SyncWorkspace.DecodeParameter_Uint32("Id_PtyProxy")
+			columnCount_PtyTerminal := int(binaryDecoder_SyncWorkspace.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
+			rowCount_PtyTerminal := int(binaryDecoder_SyncWorkspace.DecodeParameter_Uint16("RowCount_PtyTerminal"))
+			return id_PtyProxy, &_SyncPtyOrder_SyncWorkspace_{
+				ColumnCount_PtyTerminal: columnCount_PtyTerminal,
+				RowCount_PtyTerminal:    rowCount_PtyTerminal,
 			}
 		},
 	)
@@ -389,7 +401,7 @@ func decodeMessage_SyncWorkspace(
 		return nil, binaryDecoder_SyncWorkspace.MaybeError_Earliest
 	}
 	return _SyncWorkspace_Message_{
-		SyncPtyOrders: __SyncPtyOrders,
+		SyncPtyOrders: syncPtyOrders,
 	}, nil
 }
 

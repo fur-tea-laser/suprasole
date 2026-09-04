@@ -10,21 +10,21 @@ type _MessageDebouncer_ResizePtys_ struct {
 	WorkerCancel    _CONTEXT.CancelFunc
 	QueueChannel    chan _ResizePtys_Message_
 	DebounceTimeout _TIME.Duration
-	OnResizePtys    func(pendingEntries_ResizePtys map[uint32]_ResizePtys_Entry_)
+	OnResizePtys    func(pendingOrders_ResizePtys map[uint32]_ResizePtyOrder_ResizePtys_)
 }
 
 type _NewApi__MessageDebouncer_ResizePtys_ struct {
 	DebounceTimeout _TIME.Duration
-	OnResizePtys    func(pendingEntries_ResizePtys map[uint32]_ResizePtys_Entry_)
+	OnResizePtys    func(pendingOrders_ResizePtys map[uint32]_ResizePtyOrder_ResizePtys_)
 }
 
 func New__MessageDebouncer_ResizePtys(
 	api _NewApi__MessageDebouncer_ResizePtys_,
 ) *_MessageDebouncer_ResizePtys_ {
-	__WorkerContext, __WorkerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
+	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	return &_MessageDebouncer_ResizePtys_{
-		WorkerContext:   __WorkerContext,
-		WorkerCancel:    __WorkerCancel,
+		WorkerContext:   workerContext,
+		WorkerCancel:    workerCancel,
 		QueueChannel:    make(chan _ResizePtys_Message_, 512),
 		DebounceTimeout: api.DebounceTimeout,
 		OnResizePtys:    api.OnResizePtys,
@@ -32,7 +32,7 @@ func New__MessageDebouncer_ResizePtys(
 }
 
 func (this *_MessageDebouncer_ResizePtys_) RunWorker() {
-	pendingEntries_ResizePtys := make(map[uint32]_ResizePtys_Entry_)
+	pendingOrders_ResizePtys := make(map[uint32]_ResizePtyOrder_ResizePtys_)
 	var debounceTimer *_TIME.Timer
 	var debounceTimerChannel <-chan _TIME.Time
 	for {
@@ -45,7 +45,7 @@ func (this *_MessageDebouncer_ResizePtys_) RunWorker() {
 		case leadingMessage := <-this.QueueChannel:
 			this.DrainAndCoalesceQueueChannel(
 				leadingMessage,
-				pendingEntries_ResizePtys,
+				pendingOrders_ResizePtys,
 			)
 			if debounceTimer != nil {
 				debounceTimer.Stop()
@@ -53,9 +53,9 @@ func (this *_MessageDebouncer_ResizePtys_) RunWorker() {
 			debounceTimer = _TIME.NewTimer(this.DebounceTimeout)
 			debounceTimerChannel = debounceTimer.C
 		case <-debounceTimerChannel:
-			if len(pendingEntries_ResizePtys) > 0 {
-				this.OnResizePtys(pendingEntries_ResizePtys)
-				clear(pendingEntries_ResizePtys)
+			if len(pendingOrders_ResizePtys) > 0 {
+				this.OnResizePtys(pendingOrders_ResizePtys)
+				clear(pendingOrders_ResizePtys)
 			}
 			debounceTimer = nil
 			debounceTimerChannel = nil
@@ -65,16 +65,16 @@ func (this *_MessageDebouncer_ResizePtys_) RunWorker() {
 
 func (this *_MessageDebouncer_ResizePtys_) DrainAndCoalesceQueueChannel(
 	leadingMessage _ResizePtys_Message_,
-	pendingEntries_ResizePtys map[uint32]_ResizePtys_Entry_,
+	pendingOrders_ResizePtys map[uint32]_ResizePtyOrder_ResizePtys_,
 ) {
-	for _, someEntry_leadingMessage := range leadingMessage.Entries_PtyProxy {
-		pendingEntries_ResizePtys[someEntry_leadingMessage.Id_PtyProxy] = someEntry_leadingMessage
+	for _, someOrder_leadingMessage := range leadingMessage.ResizePtyOrders {
+		pendingOrders_ResizePtys[someOrder_leadingMessage.Id_PtyProxy] = someOrder_leadingMessage
 	}
 	for {
 		select {
 		case nextMessage := <-this.QueueChannel:
-			for _, someEntry_nextMessage := range nextMessage.Entries_PtyProxy {
-				pendingEntries_ResizePtys[someEntry_nextMessage.Id_PtyProxy] = someEntry_nextMessage
+			for _, someOrder_nextMessage := range nextMessage.ResizePtyOrders {
+				pendingOrders_ResizePtys[someOrder_nextMessage.Id_PtyProxy] = someOrder_nextMessage
 			}
 		default:
 			return
