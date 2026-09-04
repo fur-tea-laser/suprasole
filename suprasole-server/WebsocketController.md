@@ -75,17 +75,17 @@ This section documents the architectural design principles, race-prevention inva
 
 ## Method Specifications & Technical Implementation Rationale
 
-### WriteFrame_BinaryMessage
+### WritePayload_BinaryMessage
 
-WriteFrame_BinaryMessage safely serializes outbound binary payload frames over the active WebSocket connection with write deadline protection and single-writer mutex serialization (EgressMutex).
+WritePayload_BinaryMessage safely serializes outbound binary payloads over the active WebSocket connection with write deadline protection and single-writer mutex serialization (EgressMutex).
 
 #### Parameters
 1. **targetId_WebsocketConnection**: Expected generation uint64 ID of the connection session.
-2. **frame_binaryMessage**: Raw binary slice ([]byte) transmitted as a WEBSOCKET.BinaryMessage frame over the wire (e.g., encoded egress message frames or stdout bytes from the pseudo-terminal process).
+2. **payload_binaryMessage**: Raw binary slice ([]byte) transmitted as a WEBSOCKET.BinaryMessage over the wire (e.g., encoded egress message payloads or stdout bytes from the pseudo-terminal process).
 
 #### Whitelisting & Guard Invariants
 * **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: `CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && targetId_WebsocketConnection == this.Id_WebsocketConnection`. Egress is allowed if and only if the session is fully established and the target connection ID matches.
-* **Error Handling**: If the socket is offline or transitioning (STANDBY__Status_WebsocketConnection, CONNECTING__Status_WebsocketConnection, TAKEOVER_CONNECTING__Status_WebsocketConnection, or DISCONNECTED__Status_WebsocketConnection), it returns error "websocket is not connected" (NOT_CONNECTED_ERROR__WRITE_FRAME_BINARY_MESSAGE). If the connection ID does not match, it returns "websocket connection id does not align" (CONNECTION_ID_MISALIGNED_ERROR__WRITE_FRAME_BINARY_MESSAGE).
+* **Error Handling**: If the socket is offline or transitioning (STANDBY__Status_WebsocketConnection, CONNECTING__Status_WebsocketConnection, TAKEOVER_CONNECTING__Status_WebsocketConnection, or DISCONNECTED__Status_WebsocketConnection), it returns error "websocket is not connected" (NOT_CONNECTED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE). If the connection ID does not match, it returns "websocket connection id does not align" (CONNECTION_ID_MISALIGNED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE).
 
 #### SetWriteDeadline Error Discarding Rationale (_ = ...)
 * **Immediate Fallthrough to WriteMessage**: SetWriteDeadline configures an auxiliary write deadline on the net socket immediately prior to WriteMessage. If SetWriteDeadline fails due to a closed or broken socket (net.ErrClosed), calling WriteMessage on the very next line will instantly fail with the exact same underlying socket error.
@@ -156,7 +156,7 @@ WriteFrame_BinaryMessage safely serializes outbound binary payload frames over t
 #### Gorilla Egress Concurrency & Mutex Protection
 * **Full-Duplex Reading & Writing**: Gorilla WebSocket permits one reader goroutine (conn.ReadMessage) and one writer goroutine to execute concurrently without a lock because TCP kernel RX and TX buffers operate independently.
 * **Single-Writer Constraint**: Gorilla strictly forbids multiple goroutines from calling write methods (WriteMessage, WriteControl, NextWriter) concurrently. Simultaneous writes corrupt frame headers on the wire and trigger Go runtime data race panics.
-* **Control Frame Egress Protection**: Outbound control frame calls (WriteControl in CloseWithCode) compete directly with normal binary data frame writes (WriteMessage in WriteFrame_BinaryMessage). Holding EgressMutex during the entire execution of both WriteFrame_BinaryMessage and CloseWithCode enforces the single-writer invariant, serializing all outbound socket writes.
+* **Control Frame Egress Protection**: Outbound control frame calls (WriteControl in CloseWithCode) compete directly with normal binary data payload writes (WriteMessage in WritePayload_BinaryMessage). Holding EgressMutex during the entire execution of both WritePayload_BinaryMessage and CloseWithCode enforces the single-writer invariant, serializing all outbound socket writes.
 
 #### Close With Code Teardown Dynamics
 

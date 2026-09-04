@@ -5,20 +5,20 @@ import (
 )
 
 type _BinaryEncoder_WebsocketMessage_ struct {
-	Buffer__Frame_BinaryMessage []byte
+	Buffer__Payload_BinaryMessage []byte
 }
 
 func New__BinaryEncoder_WebsocketMessage() _BinaryEncoder_WebsocketMessage_ {
 	return _BinaryEncoder_WebsocketMessage_{
-		Buffer__Frame_BinaryMessage: make([]byte, 0),
+		Buffer__Payload_BinaryMessage: make([]byte, 0),
 	}
 }
 
 func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Uint8(
 	parameterValue uint8,
 ) {
-	this.Buffer__Frame_BinaryMessage = append(
-		this.Buffer__Frame_BinaryMessage,
+	this.Buffer__Payload_BinaryMessage = append(
+		this.Buffer__Payload_BinaryMessage,
 		parameterValue,
 	)
 }
@@ -38,8 +38,8 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Uint16(
 ) {
 	rawBytes := make([]byte, 2)
 	_BINARY.BigEndian.PutUint16(rawBytes, parameterValue)
-	this.Buffer__Frame_BinaryMessage = append(
-		this.Buffer__Frame_BinaryMessage,
+	this.Buffer__Payload_BinaryMessage = append(
+		this.Buffer__Payload_BinaryMessage,
 		rawBytes...,
 	)
 }
@@ -49,8 +49,8 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Uint32(
 ) {
 	rawBytes := make([]byte, 4)
 	_BINARY.BigEndian.PutUint32(rawBytes, parameterValue)
-	this.Buffer__Frame_BinaryMessage = append(
-		this.Buffer__Frame_BinaryMessage,
+	this.Buffer__Payload_BinaryMessage = append(
+		this.Buffer__Payload_BinaryMessage,
 		rawBytes...,
 	)
 }
@@ -65,8 +65,8 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_String16(
 	parameterValue string,
 ) {
 	this.EncodeParameter_Uint16(uint16(len(parameterValue)))
-	this.Buffer__Frame_BinaryMessage = append(
-		this.Buffer__Frame_BinaryMessage,
+	this.Buffer__Payload_BinaryMessage = append(
+		this.Buffer__Payload_BinaryMessage,
 		[]byte(parameterValue)...,
 	)
 }
@@ -75,8 +75,8 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Bytes16(
 	parameterValue []byte,
 ) {
 	this.EncodeParameter_Uint16(uint16(len(parameterValue)))
-	this.Buffer__Frame_BinaryMessage = append(
-		this.Buffer__Frame_BinaryMessage,
+	this.Buffer__Payload_BinaryMessage = append(
+		this.Buffer__Payload_BinaryMessage,
 		parameterValue...,
 	)
 }
@@ -84,8 +84,8 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Bytes16(
 func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_TrailingBytes(
 	parameterValue []byte,
 ) {
-	this.Buffer__Frame_BinaryMessage = append(
-		this.Buffer__Frame_BinaryMessage,
+	this.Buffer__Payload_BinaryMessage = append(
+		this.Buffer__Payload_BinaryMessage,
 		parameterValue...,
 	)
 }
@@ -109,7 +109,7 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter__Slice16_Uint32(
 }
 
 func (this *_BinaryEncoder_WebsocketMessage_) Bytes() []byte {
-	return this.Buffer__Frame_BinaryMessage
+	return this.Buffer__Payload_BinaryMessage
 }
 
 func EncodeParameter__Slice16__BinaryEncoder_WebsocketMessage[

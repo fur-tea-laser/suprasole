@@ -15,12 +15,12 @@ type _WorkspaceNetwork_ struct {
 }
 
 type _NewApi__WorkspaceNetwork_ struct {
-	HostPortAddress__                     string
-	OnConnected_PtyWebsocket__            func(newId_WebsocketConnection uint64)
-	OnTakeoverConnected_PtyWebsocket__    func(newId_WebsocketConnection uint64)
-	OnDisconnected_PtyWebsocket__         func()
-	OnTakeoverDisconnected_PtyWebsocket__ func()
-	OnFrame_BinaryMessage__PtyWebsocket__ func(id_WebsocketConnection uint64, frame_binaryMessage []byte)
+	HostPortAddress__                       string
+	OnConnected_PtyWebsocket__              func(newId_WebsocketConnection uint64)
+	OnTakeoverConnected_PtyWebsocket__      func(newId_WebsocketConnection uint64)
+	OnDisconnected_PtyWebsocket__           func()
+	OnTakeoverDisconnected_PtyWebsocket__   func()
+	OnPayload_BinaryMessage__PtyWebsocket__ func(id_WebsocketConnection uint64, payload_binaryMessage []byte)
 }
 
 func New__WorkspaceNetwork(
@@ -35,7 +35,7 @@ func New__WorkspaceNetwork(
 		OnTakeoverConnected__:      api.OnTakeoverConnected_PtyWebsocket__,
 		OnDisconnected__:           api.OnDisconnected_PtyWebsocket__,
 		OnTakeoverDisconnected__:   api.OnTakeoverDisconnected_PtyWebsocket__,
-		OnFrame_BinaryMessage__:    api.OnFrame_BinaryMessage__PtyWebsocket__,
+		OnPayload_BinaryMessage__:  api.OnPayload_BinaryMessage__PtyWebsocket__,
 		Mutex:                      _SYNC.Mutex{},
 		EgressMutex:                _SYNC.Mutex{},
 		Status_WebsocketConnection: STANDBY__Status_WebsocketConnection,

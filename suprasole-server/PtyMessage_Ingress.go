@@ -4,15 +4,15 @@ import (
 	_ERRORS "errors"
 )
 
-var MAP__DECODE_FRAME___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
-	frame_binaryMessage []byte,
+var MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error){
-	SPAWN_PTY___Code__PtyMessage_Ingress:       decodeFrame_SpawnPty,
-	RESIZE_PTYS___Code__PtyMessage_Ingress:     decodeFrame_ResizePtys,
-	TERMINATE_PTY___Code__PtyMessage_Ingress:   decodeFrame_TerminatePty,
-	REMOVE_PTY___Code__PtyMessage_Ingress:      decodeFrame_RemovePty,
-	WRITE_PTY_INPUT___Code__PtyMessage_Ingress: decodeFrame_WritePtyInput,
-	SYNC_WORKSPACE___Code__PtyMessage_Ingress:  decodeFrame_SyncWorkspace,
+	SPAWN_PTY___Code__PtyMessage_Ingress:       decodePayload_SpawnPty,
+	RESIZE_PTYS___Code__PtyMessage_Ingress:     decodePayload_ResizePtys,
+	TERMINATE_PTY___Code__PtyMessage_Ingress:   decodePayload_TerminatePty,
+	REMOVE_PTY___Code__PtyMessage_Ingress:      decodePayload_RemovePty,
+	WRITE_PTY_INPUT___Code__PtyMessage_Ingress: decodePayload_WritePtyInput,
+	SYNC_WORKSPACE___Code__PtyMessage_Ingress:  decodePayload_SyncWorkspace,
 }
 
 type _Code__PtyMessage_Ingress_ uint16
@@ -33,14 +33,14 @@ type _PtyMessage_Ingress_ interface {
 	)
 }
 
-func decodeFrame_SpawnPty(
-	frame_binaryMessage []byte,
+func decodePayload_SpawnPty(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_SpawnPty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer__Frame_BinaryMessage: frame_binaryMessage,
-			Cursor_Buffer:               2,
-			Label_MessageStruct:         "SpawnPty",
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+			Cursor_Buffer:                 2,
+			Label_MessageStruct:           "SpawnPty",
 		},
 	)
 	columnCount_PtyTerminal := int(binaryDecoder_SpawnPty.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
@@ -77,7 +77,7 @@ func decodeFrame_SpawnPty(
 			}
 		},
 	)
-	binaryDecoder_SpawnPty.AssertEndOfFrame()
+	binaryDecoder_SpawnPty.AssertEndOfPayload()
 	if binaryDecoder_SpawnPty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_SpawnPty.MaybeError_Earliest
 	}
@@ -195,14 +195,14 @@ func (this _SpawnPty_Message_) Execute(
 	}()
 }
 
-func decodeFrame_ResizePtys(
-	frame_binaryMessage []byte,
+func decodePayload_ResizePtys(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_ResizePtys := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer__Frame_BinaryMessage: frame_binaryMessage,
-			Cursor_Buffer:               2,
-			Label_MessageStruct:         "ResizePtys",
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+			Cursor_Buffer:                 2,
+			Label_MessageStruct:           "ResizePtys",
 		},
 	)
 	resizePtyOrders := DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage(
@@ -219,7 +219,7 @@ func decodeFrame_ResizePtys(
 			}
 		},
 	)
-	binaryDecoder_ResizePtys.AssertEndOfFrame()
+	binaryDecoder_ResizePtys.AssertEndOfPayload()
 	if binaryDecoder_ResizePtys.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_ResizePtys.MaybeError_Earliest
 	}
@@ -245,19 +245,19 @@ func (this _ResizePtys_Message_) Execute(
 	workspaceController.MessageDebouncer_ResizePtys.QueueChannel <- this
 }
 
-func decodeFrame_WritePtyInput(
-	frame_binaryMessage []byte,
+func decodePayload_WritePtyInput(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_WritePtyInput := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer__Frame_BinaryMessage: frame_binaryMessage,
-			Cursor_Buffer:               2,
-			Label_MessageStruct:         "WritePtyInput",
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+			Cursor_Buffer:                 2,
+			Label_MessageStruct:           "WritePtyInput",
 		},
 	)
 	id_PtyProxy := binaryDecoder_WritePtyInput.DecodeParameter_Uint32("Id_PtyProxy")
 	rawInputBytes := binaryDecoder_WritePtyInput.DecodeParameter_TrailingBytes("RawInputBytes")
-	binaryDecoder_WritePtyInput.AssertEndOfFrame()
+	binaryDecoder_WritePtyInput.AssertEndOfPayload()
 	if binaryDecoder_WritePtyInput.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_WritePtyInput.MaybeError_Earliest
 	}
@@ -293,19 +293,19 @@ func (this _WritePtyInput_Message_) Execute(
 	}
 }
 
-func decodeFrame_TerminatePty(
-	frame_binaryMessage []byte,
+func decodePayload_TerminatePty(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_TerminatePty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer__Frame_BinaryMessage: frame_binaryMessage,
-			Cursor_Buffer:               2,
-			Label_MessageStruct:         "TerminatePty",
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+			Cursor_Buffer:                 2,
+			Label_MessageStruct:           "TerminatePty",
 		},
 	)
 	id_PtyProxy := binaryDecoder_TerminatePty.DecodeParameter_Uint32("Id_PtyProxy")
 	terminalSignal_PtyProcess := int(binaryDecoder_TerminatePty.DecodeParameter_Int32("TerminalSignal_PtyProcess"))
-	binaryDecoder_TerminatePty.AssertEndOfFrame()
+	binaryDecoder_TerminatePty.AssertEndOfPayload()
 	if binaryDecoder_TerminatePty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_TerminatePty.MaybeError_Earliest
 	}
@@ -332,18 +332,18 @@ func (this _TerminatePty_Message_) Execute(
 	}
 }
 
-func decodeFrame_RemovePty(
-	frame_binaryMessage []byte,
+func decodePayload_RemovePty(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_RemovePty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer__Frame_BinaryMessage: frame_binaryMessage,
-			Cursor_Buffer:               2,
-			Label_MessageStruct:         "RemovePty",
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+			Cursor_Buffer:                 2,
+			Label_MessageStruct:           "RemovePty",
 		},
 	)
 	ids_PtyPool := binaryDecoder_RemovePty.DecodeParameter__Slice16_Uint32("Ids_PtyPool")
-	binaryDecoder_RemovePty.AssertEndOfFrame()
+	binaryDecoder_RemovePty.AssertEndOfPayload()
 	if binaryDecoder_RemovePty.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_RemovePty.MaybeError_Earliest
 	}
@@ -373,14 +373,14 @@ func (this _RemovePty_Message_) Execute(
 	workspaceController.Mutex.Unlock()
 }
 
-func decodeFrame_SyncWorkspace(
-	frame_binaryMessage []byte,
+func decodePayload_SyncWorkspace(
+	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_SyncWorkspace := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Buffer__Frame_BinaryMessage: frame_binaryMessage,
-			Cursor_Buffer:               2,
-			Label_MessageStruct:         "SyncWorkspace",
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+			Cursor_Buffer:                 2,
+			Label_MessageStruct:           "SyncWorkspace",
 		},
 	)
 	syncPtyOrders := DecodeParameter__Map16__BinaryDecoder_WebsocketMessage(
@@ -396,7 +396,7 @@ func decodeFrame_SyncWorkspace(
 			}
 		},
 	)
-	binaryDecoder_SyncWorkspace.AssertEndOfFrame()
+	binaryDecoder_SyncWorkspace.AssertEndOfPayload()
 	if binaryDecoder_SyncWorkspace.MaybeError_Earliest != nil {
 		return nil, binaryDecoder_SyncWorkspace.MaybeError_Earliest
 	}

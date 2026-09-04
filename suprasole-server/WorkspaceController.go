@@ -45,12 +45,12 @@ func New__WorkspaceController(
 		LifecycleCoordinator_WorkspacePty: nil,
 	}
 	newWorkspaceControllerResult.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
-		HostPortAddress__:                     api.HostPortAddress__,
-		OnConnected_PtyWebsocket__:            newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
-		OnTakeoverConnected_PtyWebsocket__:    newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
-		OnDisconnected_PtyWebsocket__:         newWorkspaceControllerResult.HandleDisconnected_PtyWebsocket,
-		OnTakeoverDisconnected_PtyWebsocket__: newWorkspaceControllerResult.HandleTakeoverDisconnected_PtyWebsocket,
-		OnFrame_BinaryMessage__PtyWebsocket__: newWorkspaceControllerResult.HandleFrame_BinaryMessage__PtyWebsocket,
+		HostPortAddress__:                       api.HostPortAddress__,
+		OnConnected_PtyWebsocket__:              newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
+		OnTakeoverConnected_PtyWebsocket__:      newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
+		OnDisconnected_PtyWebsocket__:           newWorkspaceControllerResult.HandleDisconnected_PtyWebsocket,
+		OnTakeoverDisconnected_PtyWebsocket__:   newWorkspaceControllerResult.HandleTakeoverDisconnected_PtyWebsocket,
+		OnPayload_BinaryMessage__PtyWebsocket__: newWorkspaceControllerResult.HandlePayload_BinaryMessage__PtyWebsocket,
 	})
 	newWorkspaceControllerResult.MessageDebouncer_ResizePtys = New__MessageDebouncer_ResizePtys(_NewApi__MessageDebouncer_ResizePtys_{
 		DebounceTimeout: 50 * _TIME.Millisecond,
@@ -103,20 +103,20 @@ func (this *_WorkspaceController_) HandleTakeoverDisconnected_PtyWebsocket() {
 	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Disconnect__WorkspaceOrder_LifecycleCoordinator_{}
 }
 
-func (this *_WorkspaceController_) HandleFrame_BinaryMessage__PtyWebsocket(
+func (this *_WorkspaceController_) HandlePayload_BinaryMessage__PtyWebsocket(
 	id_WebsocketConnection uint64,
-	frame_binaryMessage []byte,
+	payload_binaryMessage []byte,
 ) {
-	__decodeWebsocketFrame_binaryMessage(
-		MAP__DECODE_FRAME___PTY_MESSAGE__INGRESS,
+	__decodeWebsocketPayload_binaryMessage(
+		MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS,
 		"pty websocket client",
 		this,
 		id_WebsocketConnection,
-		frame_binaryMessage,
+		payload_binaryMessage,
 	)
 }
 
-func __decodeWebsocketFrame_binaryMessage[
+func __decodeWebsocketPayload_binaryMessage[
 	__Code__Ingress_Message__ ~uint16,
 	__Ingress_Message__ interface {
 		Execute(
@@ -125,23 +125,23 @@ func __decodeWebsocketFrame_binaryMessage[
 		)
 	},
 ](
-	map__decodeFrame_toMessage__ map[__Code__Ingress_Message__]func(frame_binaryMessage []byte) (__Ingress_Message__, error),
+	map__decodePayload_toMessage__ map[__Code__Ingress_Message__]func(payload_binaryMessage []byte) (__Ingress_Message__, error),
 	messageSourceLabel_ErrorLog__ string,
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
-	frame_binaryMessage []byte,
+	payload_binaryMessage []byte,
 ) {
-	if len(frame_binaryMessage) < 2 {
+	if len(payload_binaryMessage) < 2 {
 		_FMT.Printf(
-			"%s message error: frame too short: %d bytes\n",
+			"%s message error: payload too short: %d bytes\n",
 			messageSourceLabel_ErrorLog__,
-			len(frame_binaryMessage),
+			len(payload_binaryMessage),
 		)
 		return
 	}
-	messageCode := __Code__Ingress_Message__(_BINARY.BigEndian.Uint16(frame_binaryMessage[0:2]))
-	decodeFrame_toMessage := map__decodeFrame_toMessage__[messageCode]
-	if nil == decodeFrame_toMessage {
+	messageCode := __Code__Ingress_Message__(_BINARY.BigEndian.Uint16(payload_binaryMessage[0:2]))
+	decodePayload_toMessage := map__decodePayload_toMessage__[messageCode]
+	if nil == decodePayload_toMessage {
 		_FMT.Printf(
 			"%s message error: unrecognized message code: 0x%04x\n",
 			messageSourceLabel_ErrorLog__,
@@ -149,7 +149,7 @@ func __decodeWebsocketFrame_binaryMessage[
 		)
 		return
 	}
-	decodedMessage, decodeError := decodeFrame_toMessage(frame_binaryMessage)
+	decodedMessage, decodeError := decodePayload_toMessage(payload_binaryMessage)
 	if decodeError != nil {
 		_FMT.Printf(
 			"%s decode message error: %v\n",
