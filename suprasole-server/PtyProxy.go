@@ -18,15 +18,15 @@ type _Mode_PtyProxy_ int
 const (
 	SPAWNING__Mode_PtyProxy _Mode_PtyProxy_ = iota
 	RUNNING_LIVE__Mode_PtyProxy
-	RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
-	RUNNING_POST_SNAPSHOT__Mode_PtyProxy
+	RUNNING__PRE_SNAPSHOT___Mode_PtyProxy
+	RUNNING__POST_SNAPSHOT___Mode_PtyProxy
 	EXITED__Mode_PtyProxy
 )
 
 type _PtyProxy_ struct {
 	OnOutput_Live__                func(ptyProxy *_PtyProxy_, outputData_PtyDevice []byte)
 	OnOutput_Snapshot__            func(ptyProxy *_PtyProxy_, outputData_PtyTerminal []byte)
-	OnOutput_PostSnapshotBuffer__  func(ptyProxy *_PtyProxy_, outputData_PostSnapshotBuffer []byte)
+	OnOutput_PostSnapshot__        func(ptyProxy *_PtyProxy_, outputData_PostSnapshot []byte)
 	OnExited_Eio_Success__         func(ptyProxy *_PtyProxy_)
 	OnExited_Eio_Failure__         func(ptyProxy *_PtyProxy_)
 	OnExited_Eio_Killed__          func(ptyProxy *_PtyProxy_)
@@ -44,6 +44,15 @@ type _PtyProxy_ struct {
 }
 
 type _SpawnApi__PtyProxy_ struct {
+	OnSpawned_PtyProxy__                  func(ptyProxy *_PtyProxy_)
+	OnOutput_Live__PtyProxy__             func(ptyProxy *_PtyProxy_, outputData_PtyDevice []byte)
+	OnOutput_Snapshot__PtyProxy__         func(ptyProxy *_PtyProxy_, outputData_PtyTerminal []byte)
+	OnOutput_PostSnapshot__PtyProxy__     func(ptyProxy *_PtyProxy_, outputData_PostSnapshot []byte)
+	OnExited_Eio_Success__PtyProxy__      func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Failure__PtyProxy__      func(ptyProxy *_PtyProxy_)
+	OnExited_Eio_Killed__PtyProxy__       func(ptyProxy *_PtyProxy_)
+	OnExited_Closed__PtyProxy__           func(ptyProxy *_PtyProxy_)
+	OnExited_SystemError__PtyProxy__      func(ptyProxy *_PtyProxy_, exitSignal_PtyReader error)
 	Id_PtyProxy                           uint32
 	ColumnCount_PtyTerminal               int
 	RowCount_PtyTerminal                  int
@@ -54,29 +63,20 @@ type _SpawnApi__PtyProxy_ struct {
 	ScrollbackLineCount_PtyTerminal       int
 	PostSnapshotBufferSize_PtyProxy       int
 	QueueBufferSize_InputOrder__PtyWriter int
-	OnSpawned_PtyProxy                    func(ptyProxy *_PtyProxy_)
-	OnOutput_Live__PtyProxy               func(ptyProxy *_PtyProxy_, outputData_PtyDevice []byte)
-	OnOutput_Snapshot__PtyProxy           func(ptyProxy *_PtyProxy_, outputData_PtyTerminal []byte)
-	OnOutput_PostSnapshotBuffer__PtyProxy func(ptyProxy *_PtyProxy_, outputData_PostSnapshotBuffer []byte)
-	OnExited_Eio_Success__PtyProxy        func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Failure__PtyProxy        func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Killed__PtyProxy         func(ptyProxy *_PtyProxy_)
-	OnExited_Closed__PtyProxy             func(ptyProxy *_PtyProxy_)
-	OnExited_SystemError__PtyProxy        func(ptyProxy *_PtyProxy_, exitSignal_PtyReader error)
 }
 
 func Spawn__PtyProxy(
 	api _SpawnApi__PtyProxy_,
 ) error {
 	newPtyProxyResult := &_PtyProxy_{
-		OnOutput_Live__:                api.OnOutput_Live__PtyProxy,
-		OnOutput_Snapshot__:            api.OnOutput_Snapshot__PtyProxy,
-		OnOutput_PostSnapshotBuffer__:  api.OnOutput_PostSnapshotBuffer__PtyProxy,
-		OnExited_Eio_Success__:         api.OnExited_Eio_Success__PtyProxy,
-		OnExited_Eio_Failure__:         api.OnExited_Eio_Failure__PtyProxy,
-		OnExited_Eio_Killed__:          api.OnExited_Eio_Killed__PtyProxy,
-		OnExited_Closed__:              api.OnExited_Closed__PtyProxy,
-		OnExited_SystemError__:         api.OnExited_SystemError__PtyProxy,
+		OnOutput_Live__:                api.OnOutput_Live__PtyProxy__,
+		OnOutput_Snapshot__:            api.OnOutput_Snapshot__PtyProxy__,
+		OnOutput_PostSnapshot__:        api.OnOutput_PostSnapshot__PtyProxy__,
+		OnExited_Eio_Success__:         api.OnExited_Eio_Success__PtyProxy__,
+		OnExited_Eio_Failure__:         api.OnExited_Eio_Failure__PtyProxy__,
+		OnExited_Eio_Killed__:          api.OnExited_Eio_Killed__PtyProxy__,
+		OnExited_Closed__:              api.OnExited_Closed__PtyProxy__,
+		OnExited_SystemError__:         api.OnExited_SystemError__PtyProxy__,
 		Mode:                           SPAWNING__Mode_PtyProxy,
 		Id:                             api.Id_PtyProxy,
 		MasterFileDescriptor_PtyDevice: nil,
@@ -92,9 +92,9 @@ func Spawn__PtyProxy(
 		OnExited_Closed__:                newPtyProxyResult.HandleExited_Closed,
 		OnExited_Eio__:                   newPtyProxyResult.HandleExited_Eio,
 		OnExited_SystemError__:           newPtyProxyResult.HandleExited_SystemError,
+		MasterFileDescriptor_PtyDevice:   nil,
 		StagingBuffer:                    make([]byte, api.StagingBufferSize_PtyReader),
 		UnflushedSliceSize_StagingBuffer: 0,
-		MasterFileDescriptor_PtyDevice:   nil,
 	}
 	workerContext_PtyWriter, workerCancel_PtyWriter := _CONTEXT.WithCancel(_CONTEXT.Background())
 	newPtyProxyResult.PtyWriter = &_PtyWriter_{
@@ -114,38 +114,38 @@ func Spawn__PtyProxy(
 	ptyCommand_PtyProxy := _EXEC.Command(api.ShellBinaryPath_PtyCommand)
 	ptyCommand_PtyProxy.Env = api.EnvironmentVariables_PtyCommand
 	ptyCommand_PtyProxy.Dir = api.DirectoryPath_PtyCommand
-	masterFileDescriptor_PtyDevice, ptyStartError := _PTY.Start(ptyCommand_PtyProxy)
-	if ptyStartError != nil {
-		return ptyStartError
+	masterFileDescriptor_PtyDevice, startError_PtyCommand := _PTY.Start(ptyCommand_PtyProxy)
+	if startError_PtyCommand != nil {
+		return startError_PtyCommand
 	}
 	newPtyProxyResult.Mode = RUNNING_LIVE__Mode_PtyProxy
 	newPtyProxyResult.PtyCommand = ptyCommand_PtyProxy
 	newPtyProxyResult.MasterFileDescriptor_PtyDevice = masterFileDescriptor_PtyDevice
 	newPtyProxyResult.PtyReader.MasterFileDescriptor_PtyDevice = masterFileDescriptor_PtyDevice
 	newPtyProxyResult.PtyWriter.MasterFileDescriptor_PtyDevice = masterFileDescriptor_PtyDevice
-	api.OnSpawned_PtyProxy(newPtyProxyResult)
+	api.OnSpawned_PtyProxy__(newPtyProxyResult)
 	go newPtyProxyResult.PtyReader.RunWorker()
 	go newPtyProxyResult.PtyWriter.RunWorker()
 	return nil
 }
 
 func (this *_PtyProxy_) HandleTryFlush(
-	unflushedStagingBufferSlice []byte,
+	unflushedSlice_StagingBuffer []byte,
 ) bool {
 	return __flushReaderStagingBufferSliceIfLockAcquired(
 		this.Mutex.TryLock,
 		this,
-		unflushedStagingBufferSlice,
+		unflushedSlice_StagingBuffer,
 	)
 }
 
 func (this *_PtyProxy_) HandleBlockingFlush(
-	unflushedStagingBufferSlice []byte,
+	unflushedSlice_StagingBuffer []byte,
 ) {
 	__flushReaderStagingBufferSliceIfLockAcquired(
 		this.LockAndReturnTrue,
 		this,
-		unflushedStagingBufferSlice,
+		unflushedSlice_StagingBuffer,
 	)
 }
 
@@ -157,26 +157,26 @@ func (this *_PtyProxy_) LockAndReturnTrue() bool {
 func __flushReaderStagingBufferSliceIfLockAcquired(
 	maybeAcquirePtyProxyMutexLock__ func() bool,
 	ptyProxy *_PtyProxy_,
-	unflushedStagingBufferSlice []byte,
+	unflushedSlice_StagingBuffer []byte,
 ) bool {
 	if maybeAcquirePtyProxyMutexLock__() {
-		var isWasPtyModeRunningLive bool
-		ptyProxy.PtyTerminal.Write(unflushedStagingBufferSlice)
+		var isWasRunningLive__Mode_PtyProxy bool
+		ptyProxy.PtyTerminal.Write(unflushedSlice_StagingBuffer)
 		if RUNNING_LIVE__Mode_PtyProxy == ptyProxy.Mode {
-			isWasPtyModeRunningLive = true
-		} else if RUNNING_POST_SNAPSHOT__Mode_PtyProxy == ptyProxy.Mode {
-			ptyProxy.PostSnapshotBuffer.Write(unflushedStagingBufferSlice)
-		} else if RUNNING_PRE_SNAPSHOT__Mode_PtyProxy == ptyProxy.Mode {
+			isWasRunningLive__Mode_PtyProxy = true
+		} else if RUNNING__POST_SNAPSHOT___Mode_PtyProxy == ptyProxy.Mode {
+			ptyProxy.PostSnapshotBuffer.Write(unflushedSlice_StagingBuffer)
+		} else if RUNNING__PRE_SNAPSHOT___Mode_PtyProxy == ptyProxy.Mode {
 		} else {
 			// SPAWNING__Mode_PtyProxy == ptyProxy.Mode
 			// EXITED__Mode_PtyProxy == ptyProxy.Mode
 			_FMT.Println("invalid path: _PtyProxy_ __flushReaderStagingBufferSliceIfLockAcquired")
 		}
 		ptyProxy.Mutex.Unlock()
-		if isWasPtyModeRunningLive {
+		if isWasRunningLive__Mode_PtyProxy {
 			ptyProxy.OnOutput_Live__(
 				ptyProxy,
-				_BYTES.Clone(unflushedStagingBufferSlice),
+				_BYTES.Clone(unflushedSlice_StagingBuffer),
 			)
 		}
 		return true
@@ -261,13 +261,13 @@ func (this *_PtyProxy_) TransitionMode_ToExited() {
 
 func (this *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
 	this.Mutex.Lock()
-	this.Mode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
+	this.Mode = RUNNING__PRE_SNAPSHOT___Mode_PtyProxy
 	this.Mutex.Unlock()
 }
 
 func (this *_PtyProxy_) TransitionMode_PostSnapshotToPreSnapshot() {
 	this.Mutex.Lock()
-	this.Mode = RUNNING_PRE_SNAPSHOT__Mode_PtyProxy
+	this.Mode = RUNNING__PRE_SNAPSHOT___Mode_PtyProxy
 	this.Mutex.Unlock()
 }
 
@@ -275,7 +275,7 @@ func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 	var snapshotBytes []byte
 	this.Mutex.Lock()
 	this.PostSnapshotBuffer.Reset()
-	this.Mode = RUNNING_POST_SNAPSHOT__Mode_PtyProxy
+	this.Mode = RUNNING__POST_SNAPSHOT___Mode_PtyProxy
 	serializeAddon := _XTERM.NewSerializeAddon(this.PtyTerminal)
 	snapshotBytes = serializeAddon.Serialize(nil)
 	this.Mutex.Unlock()
@@ -288,15 +288,15 @@ func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 }
 
 func (this *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
-	var clonedBuffer_PostSnapshot []byte
+	var clonedBytes_PostSnapshotBuffer []byte
 	this.Mutex.Lock()
-	clonedBuffer_PostSnapshot = _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
+	clonedBytes_PostSnapshotBuffer = _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
 	this.Mode = RUNNING_LIVE__Mode_PtyProxy
 	this.Mutex.Unlock()
-	if len(clonedBuffer_PostSnapshot) > 0 {
-		this.OnOutput_PostSnapshotBuffer__(
+	if len(clonedBytes_PostSnapshotBuffer) > 0 {
+		this.OnOutput_PostSnapshot__(
 			this,
-			clonedBuffer_PostSnapshot,
+			clonedBytes_PostSnapshotBuffer,
 		)
 	}
 }

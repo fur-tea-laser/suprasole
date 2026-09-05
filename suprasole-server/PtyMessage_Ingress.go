@@ -168,7 +168,16 @@ func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 	workspaceController.NextId_PtyProxy++
 	workspaceController.Mutex.Unlock()
 	go func() {
-		ptyStartError := Spawn__PtyProxy(_SpawnApi__PtyProxy_{
+		startError_PtyCommand := Spawn__PtyProxy(_SpawnApi__PtyProxy_{
+			OnSpawned_PtyProxy__:                  workspaceController.HandleSpawned_Pty,
+			OnOutput_Live__PtyProxy__:             workspaceController.HandleOutput_Pty,
+			OnOutput_Snapshot__PtyProxy__:         workspaceController.HandleOutput_Pty,
+			OnOutput_PostSnapshot__PtyProxy__:     workspaceController.HandleOutput_Pty,
+			OnExited_Eio_Success__PtyProxy__:      workspaceController.HandleExited_Eio_Success__Pty,
+			OnExited_Eio_Failure__PtyProxy__:      workspaceController.HandleExited_Eio_Failure__Pty,
+			OnExited_Eio_Killed__PtyProxy__:       workspaceController.HandleExited_Eio_Killed__Pty,
+			OnExited_Closed__PtyProxy__:           workspaceController.HandleExited_Closed__Pty,
+			OnExited_SystemError__PtyProxy__:      workspaceController.HandleExited_SystemError__Pty,
 			Id_PtyProxy:                           newId_PtyProxy,
 			ColumnCount_PtyTerminal:               this.ColumnCount_PtyTerminal,
 			RowCount_PtyTerminal:                  this.RowCount_PtyTerminal,
@@ -179,17 +188,8 @@ func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 			StagingBufferSize_PtyReader:           optionsResult_ptyProxy.StagingBufferSize_PtyReader__,
 			PostSnapshotBufferSize_PtyProxy:       optionsResult_ptyProxy.PostSnapshotBufferSize_PtyProxy__,
 			QueueBufferSize_InputOrder__PtyWriter: optionsResult_ptyProxy.QueueBufferSize_InputOrder__PtyWriter__,
-			OnSpawned_PtyProxy:                    workspaceController.HandleSpawned_Pty,
-			OnOutput_Live__PtyProxy:               workspaceController.HandleOutput_Pty,
-			OnOutput_Snapshot__PtyProxy:           workspaceController.HandleOutput_Pty,
-			OnOutput_PostSnapshotBuffer__PtyProxy: workspaceController.HandleOutput_Pty,
-			OnExited_Eio_Success__PtyProxy:        workspaceController.HandleExited_Eio_Success__Pty,
-			OnExited_Eio_Failure__PtyProxy:        workspaceController.HandleExited_Eio_Failure__Pty,
-			OnExited_Eio_Killed__PtyProxy:         workspaceController.HandleExited_Eio_Killed__Pty,
-			OnExited_Closed__PtyProxy:             workspaceController.HandleExited_Closed__Pty,
-			OnExited_SystemError__PtyProxy:        workspaceController.HandleExited_SystemError__Pty,
 		})
-		if ptyStartError != nil {
+		if startError_PtyCommand != nil {
 			workspaceController.HandleSpawnFailed_Pty(newId_PtyProxy)
 		}
 	}()

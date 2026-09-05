@@ -314,9 +314,9 @@ func (this *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() 
 		switch someWorkspacePty.PtyProxy.Mode {
 		case RUNNING_LIVE__Mode_PtyProxy:
 			someWorkspacePty.PtyProxy.TransitionMode_LiveToPreSnapshot()
-		case RUNNING_POST_SNAPSHOT__Mode_PtyProxy:
+		case RUNNING__POST_SNAPSHOT___Mode_PtyProxy:
 			someWorkspacePty.PtyProxy.TransitionMode_PostSnapshotToPreSnapshot()
-		case RUNNING_PRE_SNAPSHOT__Mode_PtyProxy:
+		case RUNNING__PRE_SNAPSHOT___Mode_PtyProxy:
 		case EXITED__Mode_PtyProxy:
 		default:
 			// SPAWNING__Mode_PtyProxy == someWorkspacePty.PtyProxy.Mode

@@ -8,14 +8,14 @@ import (
 )
 
 type _PtyReader_ struct {
-	OnTryFlush__                     func(unflushedStagingBufferSlice []byte) bool
-	OnBlockingFlush__                func(unflushedStagingBufferSlice []byte)
+	OnTryFlush__                     func(unflushedSlice_StagingBuffer []byte) bool
+	OnBlockingFlush__                func(unflushedSlice_StagingBuffer []byte)
 	OnExited_Closed__                func(exitSignal_PtyReader error)
 	OnExited_Eio__                   func(exitSignal_PtyReader error)
 	OnExited_SystemError__           func(exitSignal_PtyReader error)
+	MasterFileDescriptor_PtyDevice   *_OS.File
 	StagingBuffer                    []byte
 	UnflushedSliceSize_StagingBuffer int
-	MasterFileDescriptor_PtyDevice   *_OS.File
 }
 
 func (this *_PtyReader_) RunWorker() {
