@@ -94,8 +94,8 @@ func (this *_LifecycleCoordinator_WorkspacePty_) RunWorker() {
 		case leadingOrder := <-this.QueueChannel:
 			pendingOrders := this.DrainPendingOrders(leadingOrder)
 			reconciledOrders := this.ReconcileOrders(pendingOrders)
-			for _, someReconciledOrder := range reconciledOrders {
-				someReconciledOrder.Execute(this)
+			for _, currentReconciledOrder := range reconciledOrders {
+				currentReconciledOrder.Execute(this)
 			}
 		}
 	}
@@ -145,8 +145,8 @@ func (this *_LifecycleCoordinator_WorkspacePty_) ReconcileOrders(
 ) []_WorkspaceOrder_LifecycleCoordinator_ {
 	var exitOrdersResult []_WorkspaceOrder_LifecycleCoordinator_
 	var networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_
-	for _, somePendingOrder := range pendingOrders {
-		switch typedPendingOrder := somePendingOrder.(type) {
+	for _, currentPendingOrder := range pendingOrders {
+		switch typedPendingOrder := currentPendingOrder.(type) {
 		case _ExitPty__WorkspaceOrder_LifecycleCoordinator_:
 			exitOrdersResult = append(
 				exitOrdersResult,

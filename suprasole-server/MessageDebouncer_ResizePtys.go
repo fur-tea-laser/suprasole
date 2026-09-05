@@ -67,14 +67,14 @@ func (this *_MessageDebouncer_ResizePtys_) DrainAndCoalesceQueueChannel(
 	leadingMessage _ResizePtys__PtyMessage_Ingress_,
 	pendingOrders_ResizePtys map[uint32]_ResizePtyOrder_ResizePtys_,
 ) {
-	for _, someOrder_leadingMessage := range leadingMessage.ResizePtyOrders {
-		pendingOrders_ResizePtys[someOrder_leadingMessage.Id_PtyProxy] = someOrder_leadingMessage
+	for _, currentOrder_leadingMessage := range leadingMessage.ResizePtyOrders {
+		pendingOrders_ResizePtys[currentOrder_leadingMessage.Id_PtyProxy] = currentOrder_leadingMessage
 	}
 	for {
 		select {
 		case nextMessage := <-this.QueueChannel:
-			for _, someOrder_nextMessage := range nextMessage.ResizePtyOrders {
-				pendingOrders_ResizePtys[someOrder_nextMessage.Id_PtyProxy] = someOrder_nextMessage
+			for _, currentOrder_nextMessage := range nextMessage.ResizePtyOrders {
+				pendingOrders_ResizePtys[currentOrder_nextMessage.Id_PtyProxy] = currentOrder_nextMessage
 			}
 		default:
 			return
