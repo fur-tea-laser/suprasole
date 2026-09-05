@@ -58,7 +58,7 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
 	OnDisconnect_PtyWebsocket__ func()
 	OnSync_PtyPool__            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
-	OnExit_PtyProxy__           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnExit_PtyProxy__           func(exitedId_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 	WorkerContext               _CONTEXT.Context
 	WorkerCancel                _CONTEXT.CancelFunc
 	QueueChannel_WorkspaceOrder chan _WorkspaceOrder_LifecycleCoordinator_
@@ -68,7 +68,7 @@ type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
 	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
 	OnDisconnect_PtyWebsocket__ func()
 	OnSync_PtyPool__            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
-	OnExit_PtyProxy__           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnExit_PtyProxy__           func(exitedId_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
 func New__LifecycleCoordinator_WorkspacePty(

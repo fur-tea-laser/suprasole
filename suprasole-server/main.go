@@ -50,10 +50,10 @@ func main() {
 	)
 	<-shutdownSignalChannel
 	_FMT.Println("Shutting down suprasole server...")
-	shutdownDeadlineContext_HttpServer, cancelShutdownDeadline_HttpServer := _CONTEXT.WithTimeout(
+	context_shutdownDeadline__HttpServer, cancelShutdownDeadline_HttpServer := _CONTEXT.WithTimeout(
 		_CONTEXT.Background(),
 		5*_TIME.Second,
 	)
-	_ = workspaceController.StopSession(shutdownDeadlineContext_HttpServer)
+	_ = workspaceController.StopSession(context_shutdownDeadline__HttpServer)
 	cancelShutdownDeadline_HttpServer()
 }

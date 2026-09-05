@@ -288,15 +288,15 @@ func (this *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
 }
 
 func (this *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
-	var clonedBytes_PostSnapshotBuffer []byte
+	var clone_PostSnapshotBuffer []byte
 	this.Mutex.Lock()
-	clonedBytes_PostSnapshotBuffer = _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
+	clone_PostSnapshotBuffer = _BYTES.Clone(this.PostSnapshotBuffer.Bytes())
 	this.Mode = RUNNING_LIVE__Mode_PtyProxy
 	this.Mutex.Unlock()
-	if len(clonedBytes_PostSnapshotBuffer) > 0 {
+	if len(clone_PostSnapshotBuffer) > 0 {
 		this.OnOutput_PostSnapshot__(
 			this,
-			clonedBytes_PostSnapshotBuffer,
+			clone_PostSnapshotBuffer,
 		)
 	}
 }

@@ -29,7 +29,7 @@ const (
 type _PtyMessage_Ingress_ interface {
 	Execute(
 		workspaceController *_WorkspaceController_,
-		id_WebsocketConnection uint64,
+		expectedId_WebsocketConnection uint64,
 	)
 }
 
@@ -157,7 +157,7 @@ type _SpawnPty__PtyMessage_Ingress_ struct {
 
 func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 ) {
 	optionsResult_ptyProxy := workspaceController.Defaults_PtyProxy__
 	for _, currentOption_PtyProxy := range this.Options_PtyProxy {
@@ -240,7 +240,7 @@ type _ResizePtys__PtyMessage_Ingress_ struct {
 
 func (this _ResizePtys__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 ) {
 	workspaceController.MessageDebouncer_ResizePtys.QueueChannel <- this
 }
@@ -276,7 +276,7 @@ type _WritePtyInput__PtyMessage_Ingress_ struct {
 
 func (this _WritePtyInput__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 ) {
 	workspaceController.Mutex.Lock()
 	targetWorkspacePty := workspaceController.PtyPool[this.Id_PtyProxy]
@@ -322,7 +322,7 @@ type _TerminatePty__PtyMessage_Ingress_ struct {
 
 func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 ) {
 	workspaceController.Mutex.Lock()
 	targetWorkspacePty := workspaceController.PtyPool[this.Id_PtyProxy]
@@ -358,7 +358,7 @@ type _RemovePty__PtyMessage_Ingress_ struct {
 
 func (this _RemovePty__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 ) {
 	workspaceController.Mutex.Lock()
 	for _, currentId_PtyProxy := range this.Ids_PtyPool {
@@ -418,10 +418,10 @@ type _SyncWorkspace__PtyMessage_Ingress_ struct {
 
 func (this _SyncWorkspace__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 ) {
 	workspaceController.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Sync__WorkspaceOrder_LifecycleCoordinator_{
-		ExpectedId_WebsocketConnection: id_WebsocketConnection,
+		ExpectedId_WebsocketConnection: expectedId_WebsocketConnection,
 		Message_SyncWorkspace:          this,
 	}
 }

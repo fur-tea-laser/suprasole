@@ -72,11 +72,11 @@ func (this *_WorkspaceController_) StartSession() error {
 }
 
 func (this *_WorkspaceController_) StopSession(
-	shutdownDeadlineContext_HttpServer _CONTEXT.Context,
+	context_shutdownDeadline__HttpServer _CONTEXT.Context,
 ) error {
 	this.MessageDebouncer_ResizePtys.WorkerCancel()
 	this.LifecycleCoordinator_WorkspacePty.WorkerCancel()
-	return this.WorkspaceNetwork.StopServer(shutdownDeadlineContext_HttpServer)
+	return this.WorkspaceNetwork.StopServer(context_shutdownDeadline__HttpServer)
 }
 
 func (this *_WorkspaceController_) HandleConnected_PtyWebsocket(
@@ -104,14 +104,14 @@ func (this *_WorkspaceController_) HandleTakeoverDisconnected_PtyWebsocket() {
 }
 
 func (this *_WorkspaceController_) HandlePayload_BinaryMessage__PtyWebsocket(
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 	payload_binaryMessage []byte,
 ) {
 	__decodeWebsocketPayload_binaryMessage(
 		MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS,
 		"pty websocket client",
 		this,
-		id_WebsocketConnection,
+		expectedId_WebsocketConnection,
 		payload_binaryMessage,
 	)
 }
@@ -121,46 +121,46 @@ func __decodeWebsocketPayload_binaryMessage[
 	__Ingress_Message__ interface {
 		Execute(
 			workspaceController *_WorkspaceController_,
-			id_WebsocketConnection uint64,
+			expectedId_WebsocketConnection uint64,
 		)
 	},
 ](
-	map__decodePayload_toMessage__ map[__Code__Ingress_Message__]func(payload_binaryMessage []byte) (__Ingress_Message__, error),
-	messageSourceLabel_ErrorLog__ string,
+	map_decodePayloadToMessage map[__Code__Ingress_Message__]func(payload_binaryMessage []byte) (__Ingress_Message__, error),
+	label_messageSource__ErrorLog__ string,
 	workspaceController *_WorkspaceController_,
-	id_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 	payload_binaryMessage []byte,
 ) {
 	if len(payload_binaryMessage) < 2 {
 		_FMT.Printf(
 			"%s message error: payload too short: %d bytes\n",
-			messageSourceLabel_ErrorLog__,
+			label_messageSource__ErrorLog__,
 			len(payload_binaryMessage),
 		)
 		return
 	}
 	messageCode := __Code__Ingress_Message__(_BINARY.BigEndian.Uint16(payload_binaryMessage[0:2]))
-	decodePayload_toMessage := map__decodePayload_toMessage__[messageCode]
-	if nil == decodePayload_toMessage {
+	decodePayloadToMessage := map_decodePayloadToMessage[messageCode]
+	if nil == decodePayloadToMessage {
 		_FMT.Printf(
 			"%s message error: unrecognized message code: 0x%04x\n",
-			messageSourceLabel_ErrorLog__,
+			label_messageSource__ErrorLog__,
 			messageCode,
 		)
 		return
 	}
-	decodedMessage, decodeError := decodePayload_toMessage(payload_binaryMessage)
-	if decodeError != nil {
+	decodedMessage, maybeError_decodePayload := decodePayloadToMessage(payload_binaryMessage)
+	if maybeError_decodePayload != nil {
 		_FMT.Printf(
 			"%s decode message error: %v\n",
-			messageSourceLabel_ErrorLog__,
-			decodeError,
+			label_messageSource__ErrorLog__,
+			maybeError_decodePayload,
 		)
 		return
 	}
 	decodedMessage.Execute(
 		workspaceController,
-		id_WebsocketConnection,
+		expectedId_WebsocketConnection,
 	)
 }
 
@@ -308,9 +308,9 @@ func (this *_WorkspaceController_) HandleConnect_PtyWebsocket__Coordinator(
 
 func (this *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() {
 	this.Mutex.Lock()
-	ptyPoolClone := _MAPS.Clone(this.PtyPool)
+	clone_PtyPool := _MAPS.Clone(this.PtyPool)
 	this.Mutex.Unlock()
-	for _, someWorkspacePty := range ptyPoolClone {
+	for _, someWorkspacePty := range clone_PtyPool {
 		switch someWorkspacePty.PtyProxy.Mode {
 		case RUNNING_LIVE__Mode_PtyProxy:
 			someWorkspacePty.PtyProxy.TransitionMode_LiveToPreSnapshot()
@@ -330,53 +330,53 @@ func (this *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
 	message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_,
 ) {
 	this.Mutex.Lock()
-	ptyPoolClone := _MAPS.Clone(this.PtyPool)
+	clone_PtyPool := _MAPS.Clone(this.PtyPool)
 	this.Mutex.Unlock()
-	for _, someWorkspacePty := range ptyPoolClone {
-		maybeSyncPtyOrder := message_SyncWorkspace.SyncPtyOrders[someWorkspacePty.PtyProxy.Id]
+	for _, someWorkspacePty := range clone_PtyPool {
+		maybeOrder_SyncPty := message_SyncWorkspace.SyncPtyOrders[someWorkspacePty.PtyProxy.Id]
 		this.Mutex.Lock()
 		wasVisible := someWorkspacePty.IsVisible_Client
-		if maybeSyncPtyOrder != nil {
+		if maybeOrder_SyncPty != nil {
 			someWorkspacePty.IsVisible_Client = true
 		} else {
 			someWorkspacePty.IsVisible_Client = false
 		}
 		this.Mutex.Unlock()
-		if maybeSyncPtyOrder != nil && wasVisible {
+		if maybeOrder_SyncPty != nil && wasVisible {
 			_ = someWorkspacePty.PtyProxy.Resize(
-				maybeSyncPtyOrder.ColumnCount_PtyTerminal,
-				maybeSyncPtyOrder.RowCount_PtyTerminal,
+				maybeOrder_SyncPty.ColumnCount_PtyTerminal,
+				maybeOrder_SyncPty.RowCount_PtyTerminal,
 			)
-		} else if maybeSyncPtyOrder != nil && false == wasVisible && someWorkspacePty.MaybeExitOutcome_PtyProxy != nil {
+		} else if maybeOrder_SyncPty != nil && false == wasVisible && someWorkspacePty.MaybeExitOutcome_PtyProxy != nil {
 			_ = someWorkspacePty.PtyProxy.Resize(
-				maybeSyncPtyOrder.ColumnCount_PtyTerminal,
-				maybeSyncPtyOrder.RowCount_PtyTerminal,
+				maybeOrder_SyncPty.ColumnCount_PtyTerminal,
+				maybeOrder_SyncPty.RowCount_PtyTerminal,
 			)
 			__emitSnapshot_SyncPty(
 				someWorkspacePty.PtyProxy.EmitSnapshot_Exited,
 				this.WorkspaceNetwork.WebsocketController_Pty,
 				expectedId_WebsocketConnection,
 				someWorkspacePty.PtyProxy.Id,
-				maybeSyncPtyOrder.ColumnCount_PtyTerminal,
-				maybeSyncPtyOrder.RowCount_PtyTerminal,
+				maybeOrder_SyncPty.ColumnCount_PtyTerminal,
+				maybeOrder_SyncPty.RowCount_PtyTerminal,
 			)
-		} else if maybeSyncPtyOrder != nil && false == wasVisible && nil == someWorkspacePty.MaybeExitOutcome_PtyProxy {
+		} else if maybeOrder_SyncPty != nil && false == wasVisible && nil == someWorkspacePty.MaybeExitOutcome_PtyProxy {
 			_ = someWorkspacePty.PtyProxy.Resize(
-				maybeSyncPtyOrder.ColumnCount_PtyTerminal,
-				maybeSyncPtyOrder.RowCount_PtyTerminal,
+				maybeOrder_SyncPty.ColumnCount_PtyTerminal,
+				maybeOrder_SyncPty.RowCount_PtyTerminal,
 			)
 			__emitSnapshot_SyncPty(
 				someWorkspacePty.PtyProxy.TransitionMode_PreToPostSnapshot,
 				this.WorkspaceNetwork.WebsocketController_Pty,
 				expectedId_WebsocketConnection,
 				someWorkspacePty.PtyProxy.Id,
-				maybeSyncPtyOrder.ColumnCount_PtyTerminal,
-				maybeSyncPtyOrder.RowCount_PtyTerminal,
+				maybeOrder_SyncPty.ColumnCount_PtyTerminal,
+				maybeOrder_SyncPty.RowCount_PtyTerminal,
 			)
 			someWorkspacePty.PtyProxy.TransitionMode_PostSnapshotToLive()
-		} else if nil == maybeSyncPtyOrder && wasVisible {
+		} else if nil == maybeOrder_SyncPty && wasVisible {
 			someWorkspacePty.PtyProxy.TransitionMode_LiveToPreSnapshot()
-		} else if nil == maybeSyncPtyOrder && false == wasVisible {
+		} else if nil == maybeOrder_SyncPty && false == wasVisible {
 		} else {
 			_FMT.Println("invalid path: HandleSync_PtyPool__Coordinator")
 		}
@@ -411,11 +411,11 @@ func __emitSnapshot_SyncPty(
 }
 
 func (this *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
-	id_PtyProxy uint32,
+	exitedId_PtyProxy uint32,
 	exitOutcome_PtyProxy _ExitOutcome_PtyProxy_,
 ) {
 	this.Mutex.Lock()
-	targetWorkspacePty := this.PtyPool[id_PtyProxy]
+	targetWorkspacePty := this.PtyPool[exitedId_PtyProxy]
 	targetWorkspacePty.MaybeExitOutcome_PtyProxy = exitOutcome_PtyProxy
 	this.Mutex.Unlock()
 	targetWorkspacePty.PtyProxy.TransitionMode_ToExited()
@@ -424,7 +424,7 @@ func (this *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
 		this.WorkspaceNetwork.WebsocketController_Pty,
 		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
 		_PtyExit__PtyMessage_Egress_{
-			Id_PtyProxy:          id_PtyProxy,
+			Id_PtyProxy:          exitedId_PtyProxy,
 			ExitOutcome_PtyProxy: exitOutcome_PtyProxy,
 		},
 	)

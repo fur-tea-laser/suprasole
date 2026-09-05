@@ -46,7 +46,7 @@ type _WebsocketController_ struct {
 	OnTakeoverConnected__                            func(newId_WebsocketConnection uint64)
 	OnDisconnected__                                 func()
 	OnTakeoverDisconnected__                         func()
-	OnPayload_BinaryMessage__                        func(id_WebsocketConnection uint64, payload_binaryMessage []byte)
+	OnPayload_BinaryMessage__                        func(expectedId_WebsocketConnection uint64, payload_binaryMessage []byte)
 	Mutex                                            _SYNC.Mutex
 	EgressMutex                                      _SYNC.Mutex
 	WebsocketConnection                              *_WEBSOCKET.Conn
