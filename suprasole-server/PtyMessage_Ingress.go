@@ -38,7 +38,7 @@ func decodePayload_SpawnPty(
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_SpawnPty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct:           "SpawnPty",
+			Label_MessageStruct__:         "SpawnPty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
@@ -200,7 +200,7 @@ func decodePayload_ResizePtys(
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_ResizePtys := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct:           "ResizePtys",
+			Label_MessageStruct__:         "ResizePtys",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
@@ -250,7 +250,7 @@ func decodePayload_WritePtyInput(
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_WritePtyInput := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct:           "WritePtyInput",
+			Label_MessageStruct__:         "WritePtyInput",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
@@ -298,7 +298,7 @@ func decodePayload_TerminatePty(
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_TerminatePty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct:           "TerminatePty",
+			Label_MessageStruct__:         "TerminatePty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
@@ -337,7 +337,7 @@ func decodePayload_RemovePty(
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_RemovePty := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct:           "RemovePty",
+			Label_MessageStruct__:         "RemovePty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
@@ -378,7 +378,7 @@ func decodePayload_SyncWorkspace(
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder_SyncWorkspace := New__BinaryDecoder_WebsocketMessage(
 		_NewApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct:           "SyncWorkspace",
+			Label_MessageStruct__:         "SyncWorkspace",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
