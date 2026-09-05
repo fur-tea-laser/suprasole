@@ -80,11 +80,11 @@ This section documents the architectural design principles, race-prevention inva
 WritePayload_BinaryMessage safely serializes outbound binary payloads over the active WebSocket connection with write deadline protection and single-writer mutex serialization (EgressMutex).
 
 #### Parameters
-1. **targetId_WebsocketConnection**: Expected generation uint64 ID of the connection session.
+1. **expectedId_WebsocketConnection**: Expected generation uint64 ID of the connection session.
 2. **payload_binaryMessage**: Raw binary slice ([]byte) transmitted as a WEBSOCKET.BinaryMessage over the wire (e.g., encoded egress message payloads or stdout bytes from the pseudo-terminal process).
 
 #### Whitelisting & Guard Invariants
-* **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: `CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && targetId_WebsocketConnection == this.Id_WebsocketConnection`. Egress is allowed if and only if the session is fully established and the target connection ID matches.
+* **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: `CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && expectedId_WebsocketConnection == this.Id_WebsocketConnection`. Egress is allowed if and only if the session is fully established and the target connection ID matches.
 * **Error Handling**: If the socket is offline or transitioning (STANDBY__Status_WebsocketConnection, CONNECTING__Status_WebsocketConnection, TAKEOVER_CONNECTING__Status_WebsocketConnection, or DISCONNECTED__Status_WebsocketConnection), it returns error "websocket is not connected" (NOT_CONNECTED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE). If the connection ID does not match, it returns "websocket connection id does not align" (CONNECTION_ID_MISALIGNED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE).
 
 #### SetWriteDeadline Error Discarding Rationale (_ = ...)

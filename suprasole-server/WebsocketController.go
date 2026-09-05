@@ -262,17 +262,17 @@ func (this *_WebsocketController_) HandleConnectionTeardown() {
 }
 
 func (this *_WebsocketController_) WritePayload_BinaryMessage(
-	targetId_WebsocketConnection uint64,
+	expectedId_WebsocketConnection uint64,
 	payload_binaryMessage []byte,
 ) error {
 	var capturedWebsocketConnection *_WEBSOCKET.Conn
 	var connectionStateError error
 	this.Mutex.Lock()
-	if CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && targetId_WebsocketConnection == this.Id_WebsocketConnection {
+	if CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && expectedId_WebsocketConnection == this.Id_WebsocketConnection {
 		capturedWebsocketConnection = this.WebsocketConnection
 	} else if this.Status_WebsocketConnection != CONNECTED__Status_WebsocketConnection {
 		connectionStateError = NOT_CONNECTED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE
-	} else if this.Id_WebsocketConnection != targetId_WebsocketConnection {
+	} else if this.Id_WebsocketConnection != expectedId_WebsocketConnection {
 		connectionStateError = CONNECTION_ID_MISALIGNED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE
 	} else {
 		_FMT.Println("invalid path: WritePayload_BinaryMessage")
