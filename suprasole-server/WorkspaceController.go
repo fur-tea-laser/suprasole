@@ -57,10 +57,10 @@ func New__WorkspaceController(
 		OnResizePtys:    newWorkspaceControllerResult.HandleResizePtys_Debouncer,
 	})
 	newWorkspaceControllerResult.LifecycleCoordinator_WorkspacePty = New__LifecycleCoordinator_WorkspacePty(_NewApi__LifecycleCoordinator_WorkspacePty_{
-		OnConnect_PtyWebsocket:    newWorkspaceControllerResult.HandleConnect_PtyWebsocket__Coordinator,
-		OnDisconnect_PtyWebsocket: newWorkspaceControllerResult.HandleDisconnect_PtyWebsocket__Coordinator,
-		OnSync_PtyPool:            newWorkspaceControllerResult.HandleSync_PtyPool__Coordinator,
-		OnExit_PtyProxy:           newWorkspaceControllerResult.HandleExit_PtyProxy__Coordinator,
+		OnConnect_PtyWebsocket__:    newWorkspaceControllerResult.HandleConnect_PtyWebsocket__Coordinator,
+		OnDisconnect_PtyWebsocket__: newWorkspaceControllerResult.HandleDisconnect_PtyWebsocket__Coordinator,
+		OnSync_PtyPool__:            newWorkspaceControllerResult.HandleSync_PtyPool__Coordinator,
+		OnExit_PtyProxy__:           newWorkspaceControllerResult.HandleExit_PtyProxy__Coordinator,
 	})
 	return newWorkspaceControllerResult
 }
@@ -82,25 +82,25 @@ func (this *_WorkspaceController_) StopSession(
 func (this *_WorkspaceController_) HandleConnected_PtyWebsocket(
 	newId_WebsocketConnection uint64,
 ) {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Connect__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WebsocketConnection: newId_WebsocketConnection,
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Connect__WorkspaceOrder_LifecycleCoordinator_{
+		ExpectedId_WebsocketConnection: newId_WebsocketConnection,
 	}
 }
 
 func (this *_WorkspaceController_) HandleTakeoverConnected_PtyWebsocket(
 	newId_WebsocketConnection uint64,
 ) {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Connect__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WebsocketConnection: newId_WebsocketConnection,
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Connect__WorkspaceOrder_LifecycleCoordinator_{
+		ExpectedId_WebsocketConnection: newId_WebsocketConnection,
 	}
 }
 
 func (this *_WorkspaceController_) HandleDisconnected_PtyWebsocket() {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Disconnect__WorkspaceOrder_LifecycleCoordinator_{}
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Disconnect__WorkspaceOrder_LifecycleCoordinator_{}
 }
 
 func (this *_WorkspaceController_) HandleTakeoverDisconnected_PtyWebsocket() {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Disconnect__WorkspaceOrder_LifecycleCoordinator_{}
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Disconnect__WorkspaceOrder_LifecycleCoordinator_{}
 }
 
 func (this *_WorkspaceController_) HandlePayload_BinaryMessage__PtyWebsocket(
@@ -215,7 +215,7 @@ func (this *_WorkspaceController_) HandleOutput_Pty(
 func (this *_WorkspaceController_) HandleExited_Eio_Success__Pty(
 	exitedPtyProxy *_PtyProxy_,
 ) {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
 		Id_PtyProxy:          exitedPtyProxy.Id,
 		ExitOutcome_PtyProxy: _Success__ExitOutcome_PtyProxy_{},
 	}
@@ -224,7 +224,7 @@ func (this *_WorkspaceController_) HandleExited_Eio_Success__Pty(
 func (this *_WorkspaceController_) HandleExited_Eio_Failure__Pty(
 	exitedPtyProxy *_PtyProxy_,
 ) {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
 		Id_PtyProxy: exitedPtyProxy.Id,
 		ExitOutcome_PtyProxy: _Failure__ExitOutcome_PtyProxy_{
 			ExitCode_PtyProcess: exitedPtyProxy.PtyCommand.ProcessState.ExitCode(),
@@ -236,7 +236,7 @@ func (this *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 	exitedPtyProxy *_PtyProxy_,
 ) {
 	processWaitStatus_exitedPtyProxy := exitedPtyProxy.PtyCommand.ProcessState.Sys().(_SYSCALL.WaitStatus)
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
 		Id_PtyProxy: exitedPtyProxy.Id,
 		ExitOutcome_PtyProxy: _Killed__ExitOutcome_PtyProxy_{
 			ExitSignal_PtyProcess: int(processWaitStatus_exitedPtyProxy.Signal()),
@@ -247,7 +247,7 @@ func (this *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 func (this *_WorkspaceController_) HandleExited_Closed__Pty(
 	exitedPtyProxy *_PtyProxy_,
 ) {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
 		Id_PtyProxy:          exitedPtyProxy.Id,
 		ExitOutcome_PtyProxy: _Closed__ExitOutcome_PtyProxy_{},
 	}
@@ -257,7 +257,7 @@ func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 	exitedPtyProxy *_PtyProxy_,
 	exitSignal_PtyReader error,
 ) {
-	this.LifecycleCoordinator_WorkspacePty.QueueChannel <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
+	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
 		Id_PtyProxy: exitedPtyProxy.Id,
 		ExitOutcome_PtyProxy: _SystemError__ExitOutcome_PtyProxy_{
 			SystemError_PtyDevice: exitSignal_PtyReader,

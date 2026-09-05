@@ -420,8 +420,8 @@ func (this _SyncWorkspace__PtyMessage_Ingress_) Execute(
 	workspaceController *_WorkspaceController_,
 	id_WebsocketConnection uint64,
 ) {
-	workspaceController.LifecycleCoordinator_WorkspacePty.QueueChannel <- _Sync__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WebsocketConnection: id_WebsocketConnection,
-		Message_SyncWorkspace:  this,
+	workspaceController.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Sync__WorkspaceOrder_LifecycleCoordinator_{
+		ExpectedId_WebsocketConnection: id_WebsocketConnection,
+		Message_SyncWorkspace:          this,
 	}
 }

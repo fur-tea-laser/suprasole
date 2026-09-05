@@ -9,13 +9,13 @@ type _WorkspaceOrder_LifecycleCoordinator_ interface {
 }
 
 type _Connect__WorkspaceOrder_LifecycleCoordinator_ struct {
-	Id_WebsocketConnection uint64
+	ExpectedId_WebsocketConnection uint64
 }
 
 func (this _Connect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnConnect_PtyWebsocket(this.Id_WebsocketConnection)
+	lifecycleCoordinator.OnConnect_PtyWebsocket__(this.ExpectedId_WebsocketConnection)
 }
 
 type _Disconnect__WorkspaceOrder_LifecycleCoordinator_ struct{}
@@ -23,19 +23,19 @@ type _Disconnect__WorkspaceOrder_LifecycleCoordinator_ struct{}
 func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnDisconnect_PtyWebsocket()
+	lifecycleCoordinator.OnDisconnect_PtyWebsocket__()
 }
 
 type _Sync__WorkspaceOrder_LifecycleCoordinator_ struct {
-	Id_WebsocketConnection uint64
-	Message_SyncWorkspace  _SyncWorkspace__PtyMessage_Ingress_
+	ExpectedId_WebsocketConnection uint64
+	Message_SyncWorkspace          _SyncWorkspace__PtyMessage_Ingress_
 }
 
 func (this _Sync__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnSync_PtyPool(
-		this.Id_WebsocketConnection,
+	lifecycleCoordinator.OnSync_PtyPool__(
+		this.ExpectedId_WebsocketConnection,
 		this.Message_SyncWorkspace,
 	)
 }
@@ -48,27 +48,27 @@ type _ExitPty__WorkspaceOrder_LifecycleCoordinator_ struct {
 func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnExit_PtyProxy(
+	lifecycleCoordinator.OnExit_PtyProxy__(
 		this.Id_PtyProxy,
 		this.ExitOutcome_PtyProxy,
 	)
 }
 
 type _LifecycleCoordinator_WorkspacePty_ struct {
-	WorkerContext             _CONTEXT.Context
-	WorkerCancel              _CONTEXT.CancelFunc
-	QueueChannel              chan _WorkspaceOrder_LifecycleCoordinator_
-	OnConnect_PtyWebsocket    func(expectedId_WebsocketConnection uint64)
-	OnDisconnect_PtyWebsocket func()
-	OnSync_PtyPool            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
-	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
+	OnDisconnect_PtyWebsocket__ func()
+	OnSync_PtyPool__            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
+	OnExit_PtyProxy__           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	WorkerContext               _CONTEXT.Context
+	WorkerCancel                _CONTEXT.CancelFunc
+	QueueChannel_WorkspaceOrder chan _WorkspaceOrder_LifecycleCoordinator_
 }
 
 type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
-	OnConnect_PtyWebsocket    func(expectedId_WebsocketConnection uint64)
-	OnDisconnect_PtyWebsocket func()
-	OnSync_PtyPool            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
-	OnExit_PtyProxy           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
+	OnDisconnect_PtyWebsocket__ func()
+	OnSync_PtyPool__            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
+	OnExit_PtyProxy__           func(id_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
 func New__LifecycleCoordinator_WorkspacePty(
@@ -76,13 +76,13 @@ func New__LifecycleCoordinator_WorkspacePty(
 ) *_LifecycleCoordinator_WorkspacePty_ {
 	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	return &_LifecycleCoordinator_WorkspacePty_{
-		WorkerContext:             workerContext,
-		WorkerCancel:              workerCancel,
-		QueueChannel:              make(chan _WorkspaceOrder_LifecycleCoordinator_, 16),
-		OnConnect_PtyWebsocket:    api.OnConnect_PtyWebsocket,
-		OnDisconnect_PtyWebsocket: api.OnDisconnect_PtyWebsocket,
-		OnSync_PtyPool:            api.OnSync_PtyPool,
-		OnExit_PtyProxy:           api.OnExit_PtyProxy,
+		OnConnect_PtyWebsocket__:    api.OnConnect_PtyWebsocket__,
+		OnDisconnect_PtyWebsocket__: api.OnDisconnect_PtyWebsocket__,
+		OnSync_PtyPool__:            api.OnSync_PtyPool__,
+		OnExit_PtyProxy__:           api.OnExit_PtyProxy__,
+		WorkerContext:               workerContext,
+		WorkerCancel:                workerCancel,
+		QueueChannel_WorkspaceOrder: make(chan _WorkspaceOrder_LifecycleCoordinator_, 16),
 	}
 }
 
@@ -91,7 +91,7 @@ func (this *_LifecycleCoordinator_WorkspacePty_) RunWorker() {
 		select {
 		case <-this.WorkerContext.Done():
 			return
-		case leadingOrder := <-this.QueueChannel:
+		case leadingOrder := <-this.QueueChannel_WorkspaceOrder:
 			pendingOrders := this.DrainPendingOrders(leadingOrder)
 			reconciledOrders := this.ReconcileOrders(pendingOrders)
 			for _, currentReconciledOrder := range reconciledOrders {
@@ -107,10 +107,10 @@ func (this *_LifecycleCoordinator_WorkspacePty_) DrainPendingOrders(
 	pendingOrdersResult := []_WorkspaceOrder_LifecycleCoordinator_{leadingOrder}
 	for {
 		select {
-		case nextOrder := <-this.QueueChannel:
+		case nextPendingOrder := <-this.QueueChannel_WorkspaceOrder:
 			pendingOrdersResult = append(
 				pendingOrdersResult,
-				nextOrder,
+				nextPendingOrder,
 			)
 		default:
 			return pendingOrdersResult
@@ -118,7 +118,7 @@ func (this *_LifecycleCoordinator_WorkspacePty_) DrainPendingOrders(
 	}
 }
 
-func isLastOrderConnect(
+func isConnect__LastOrder_Network(
 	networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_,
 ) bool {
 	if len(networkOrdersResult) == 0 {
@@ -129,7 +129,7 @@ func isLastOrderConnect(
 	}
 }
 
-func isLastOrderSync(
+func isSync__LastOrder_Network(
 	networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_,
 ) bool {
 	if len(networkOrdersResult) == 0 {
@@ -146,32 +146,32 @@ func (this *_LifecycleCoordinator_WorkspacePty_) ReconcileOrders(
 	var exitOrdersResult []_WorkspaceOrder_LifecycleCoordinator_
 	var networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_
 	for _, currentPendingOrder := range pendingOrders {
-		switch typedPendingOrder := currentPendingOrder.(type) {
+		switch theCurrentPendingOrder := currentPendingOrder.(type) {
 		case _ExitPty__WorkspaceOrder_LifecycleCoordinator_:
 			exitOrdersResult = append(
 				exitOrdersResult,
-				typedPendingOrder,
+				theCurrentPendingOrder,
 			)
 		case _Disconnect__WorkspaceOrder_LifecycleCoordinator_:
 			networkOrdersResult = []_WorkspaceOrder_LifecycleCoordinator_{
-				typedPendingOrder,
+				theCurrentPendingOrder,
 			}
 		case _Connect__WorkspaceOrder_LifecycleCoordinator_:
-			if isLastOrderConnect(networkOrdersResult) {
-				networkOrdersResult[len(networkOrdersResult)-1] = typedPendingOrder
+			if isConnect__LastOrder_Network(networkOrdersResult) {
+				networkOrdersResult[len(networkOrdersResult)-1] = theCurrentPendingOrder
 			} else {
 				networkOrdersResult = append(
 					networkOrdersResult,
-					typedPendingOrder,
+					theCurrentPendingOrder,
 				)
 			}
 		case _Sync__WorkspaceOrder_LifecycleCoordinator_:
-			if isLastOrderSync(networkOrdersResult) {
-				networkOrdersResult[len(networkOrdersResult)-1] = typedPendingOrder
+			if isSync__LastOrder_Network(networkOrdersResult) {
+				networkOrdersResult[len(networkOrdersResult)-1] = theCurrentPendingOrder
 			} else {
 				networkOrdersResult = append(
 					networkOrdersResult,
-					typedPendingOrder,
+					theCurrentPendingOrder,
 				)
 			}
 		}

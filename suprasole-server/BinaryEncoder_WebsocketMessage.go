@@ -36,22 +36,22 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Bool(
 func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Uint16(
 	parameterValue uint16,
 ) {
-	rawBytes := make([]byte, 2)
-	_BINARY.BigEndian.PutUint16(rawBytes, parameterValue)
+	bytesResult_parameterValue := make([]byte, 2)
+	_BINARY.BigEndian.PutUint16(bytesResult_parameterValue, parameterValue)
 	this.Buffer__Payload_BinaryMessage = append(
 		this.Buffer__Payload_BinaryMessage,
-		rawBytes...,
+		bytesResult_parameterValue...,
 	)
 }
 
 func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_Uint32(
 	parameterValue uint32,
 ) {
-	rawBytes := make([]byte, 4)
-	_BINARY.BigEndian.PutUint32(rawBytes, parameterValue)
+	bytesResult_parameterValue := make([]byte, 4)
+	_BINARY.BigEndian.PutUint32(bytesResult_parameterValue, parameterValue)
 	this.Buffer__Payload_BinaryMessage = append(
 		this.Buffer__Payload_BinaryMessage,
-		rawBytes...,
+		bytesResult_parameterValue...,
 	)
 }
 
@@ -91,20 +91,20 @@ func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter_TrailingBytes(
 }
 
 func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter__Slice16_String16(
-	parameterValues []string,
+	parameterSlice []string,
 ) {
-	this.EncodeParameter_Uint16(uint16(len(parameterValues)))
-	for _, parameterValue := range parameterValues {
-		this.EncodeParameter_String16(parameterValue)
+	this.EncodeParameter_Uint16(uint16(len(parameterSlice)))
+	for _, currentValue_parameterSlice := range parameterSlice {
+		this.EncodeParameter_String16(currentValue_parameterSlice)
 	}
 }
 
 func (this *_BinaryEncoder_WebsocketMessage_) EncodeParameter__Slice16_Uint32(
-	parameterValues []uint32,
+	parameterSlice []uint32,
 ) {
-	this.EncodeParameter_Uint16(uint16(len(parameterValues)))
-	for _, parameterValue := range parameterValues {
-		this.EncodeParameter_Uint32(parameterValue)
+	this.EncodeParameter_Uint16(uint16(len(parameterSlice)))
+	for _, currentValue_parameterSlice := range parameterSlice {
+		this.EncodeParameter_Uint32(currentValue_parameterSlice)
 	}
 }
 
@@ -115,16 +115,16 @@ func (this *_BinaryEncoder_WebsocketMessage_) Bytes() []byte {
 func EncodeParameter__Slice16__BinaryEncoder_WebsocketMessage[
 	__Element__ any,
 ](
-	encoder *_BinaryEncoder_WebsocketMessage_,
+	binaryEncoder *_BinaryEncoder_WebsocketMessage_,
 	parameterSlice []__Element__,
-	encodeElement__ func(encoder *_BinaryEncoder_WebsocketMessage_, currentSliceIndex int, parameterElement __Element__),
+	encodeElement__ func(binaryEncoder *_BinaryEncoder_WebsocketMessage_, currentIndex_parameterSlice int, currentElement_parameterSlice __Element__),
 ) {
-	encoder.EncodeParameter_Uint16(uint16(len(parameterSlice)))
-	for currentSliceIndex, parameterElement := range parameterSlice {
+	binaryEncoder.EncodeParameter_Uint16(uint16(len(parameterSlice)))
+	for currentIndex_parameterSlice, currentElement_parameterSlice := range parameterSlice {
 		encodeElement__(
-			encoder,
-			currentSliceIndex,
-			parameterElement,
+			binaryEncoder,
+			currentIndex_parameterSlice,
+			currentElement_parameterSlice,
 		)
 	}
 }
