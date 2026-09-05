@@ -78,7 +78,7 @@ func (this *_WorkspaceNetwork_) StopServer(
 	context_shutdownDeadline__HttpServer _CONTEXT.Context,
 ) error {
 	this.WebsocketController_Pty.WorkerCancel__Submission_GetWebsocketConnection()
-	this.WebsocketController_Pty.CloseWithCode(
+	this.WebsocketController_Pty.CloseWithCode_WebsocketConnection(
 		1001,
 		"Server Shutting Down",
 	)

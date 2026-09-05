@@ -29,14 +29,14 @@ const (
 	DISCONNECTED__Status_WebsocketConnection
 )
 
-type _Reply_GetWebsocketConnection_ struct {
+type _SubmissionReply_GetWebsocketConnection_ struct {
 	MaybeError_Submission error
 }
 
 type _Submission_GetWebsocketConnection_ struct {
-	ReplyChannel   chan _Reply_GetWebsocketConnection_
-	HttpRequest    *_HTTP.Request
-	ResponseWriter _HTTP.ResponseWriter
+	ResponseWriter_GetWebsocketConnection _HTTP.ResponseWriter
+	Request_GetWebsocketConnection        *_HTTP.Request
+	ReplyChannel                          chan _SubmissionReply_GetWebsocketConnection_
 }
 
 type _WebsocketController_ struct {
@@ -59,8 +59,8 @@ type _WebsocketController_ struct {
 }
 
 func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
-	responseWriter_getWebsocketConnection _HTTP.ResponseWriter,
-	request_getWebsocketConnection *_HTTP.Request,
+	responseWriter_GetWebsocketConnection _HTTP.ResponseWriter,
+	request_GetWebsocketConnection *_HTTP.Request,
 ) {
 	this.Mutex.Lock()
 	shouldCloseForTakeover := this.Status_WebsocketConnection == CONNECTED__Status_WebsocketConnection
@@ -69,54 +69,53 @@ func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
 	}
 	this.Mutex.Unlock()
 	if shouldCloseForTakeover {
-		this.CloseWithCode(
+		this.CloseWithCode_WebsocketConnection(
 			4000,
 			"Session Taken Over",
 		)
 	}
-	submissionReplyChannel_getWebsocketConnection := make(chan _Reply_GetWebsocketConnection_, 1)
-	submission_getWebsocketConnection := _Submission_GetWebsocketConnection_{
-		ReplyChannel:   submissionReplyChannel_getWebsocketConnection,
-		HttpRequest:    request_getWebsocketConnection,
-		ResponseWriter: responseWriter_getWebsocketConnection,
+	submission_GetWebsocketConnection := _Submission_GetWebsocketConnection_{
+		ResponseWriter_GetWebsocketConnection: responseWriter_GetWebsocketConnection,
+		Request_GetWebsocketConnection:        request_GetWebsocketConnection,
+		ReplyChannel:                          make(chan _SubmissionReply_GetWebsocketConnection_, 1),
 	}
 	select {
-	case this.QueueChannel__Submission_GetWebsocketConnection <- submission_getWebsocketConnection:
+	case this.QueueChannel__Submission_GetWebsocketConnection <- submission_GetWebsocketConnection:
 	default:
 		_HTTP.Error(
-			responseWriter_getWebsocketConnection,
+			responseWriter_GetWebsocketConnection,
 			"server busy",
 			_HTTP.StatusServiceUnavailable,
 		)
 		return
 	}
 	select {
-	case <-request_getWebsocketConnection.Context().Done():
+	case <-request_GetWebsocketConnection.Context().Done():
 		_HTTP.Error(
-			responseWriter_getWebsocketConnection,
+			responseWriter_GetWebsocketConnection,
 			"request canceled",
 			499,
 		)
 		return
-	case submissionReply_getWebsocketConnection := <-submissionReplyChannel_getWebsocketConnection:
-		if nil == submissionReply_getWebsocketConnection.MaybeError_Submission {
+	case submissionReply_GetWebsocketConnection := <-submission_GetWebsocketConnection.ReplyChannel:
+		if nil == submissionReply_GetWebsocketConnection.MaybeError_Submission {
 			return
-		} else if _ERRORS.Is(submissionReply_getWebsocketConnection.MaybeError_Submission, SUPERSEDED__ERROR___SUBMISSION__GET_WEBSOCKET_CONNECTION) {
+		} else if _ERRORS.Is(submissionReply_GetWebsocketConnection.MaybeError_Submission, SUPERSEDED__ERROR___SUBMISSION__GET_WEBSOCKET_CONNECTION) {
 			_HTTP.Error(
-				responseWriter_getWebsocketConnection,
-				submissionReply_getWebsocketConnection.MaybeError_Submission.Error(),
+				responseWriter_GetWebsocketConnection,
+				submissionReply_GetWebsocketConnection.MaybeError_Submission.Error(),
 				_HTTP.StatusConflict,
 			)
 			return
-		} else if _ERRORS.As(submissionReply_getWebsocketConnection.MaybeError_Submission, new(_WEBSOCKET.HandshakeError)) ||
-			_ERRORS.Is(submissionReply_getWebsocketConnection.MaybeError_Submission, _HTTP.ErrNotSupported) {
+		} else if _ERRORS.As(submissionReply_GetWebsocketConnection.MaybeError_Submission, new(_WEBSOCKET.HandshakeError)) ||
+			_ERRORS.Is(submissionReply_GetWebsocketConnection.MaybeError_Submission, _HTTP.ErrNotSupported) {
 			return
-		} else if _ERRORS.As(submissionReply_getWebsocketConnection.MaybeError_Submission, new(*_NET.OpError)) ||
-			_ERRORS.Is(submissionReply_getWebsocketConnection.MaybeError_Submission, _IO.EOF) ||
-			_ERRORS.Is(submissionReply_getWebsocketConnection.MaybeError_Submission, _IO.ErrUnexpectedEOF) {
+		} else if _ERRORS.As(submissionReply_GetWebsocketConnection.MaybeError_Submission, new(*_NET.OpError)) ||
+			_ERRORS.Is(submissionReply_GetWebsocketConnection.MaybeError_Submission, _IO.EOF) ||
+			_ERRORS.Is(submissionReply_GetWebsocketConnection.MaybeError_Submission, _IO.ErrUnexpectedEOF) {
 			return
 		} else {
-			// submissionReply_getWebsocketConnection.MaybeError_Submission != nil
+			// submissionReply_GetWebsocketConnection.MaybeError_Submission != nil
 			_FMT.Println("invalid path: HandleRequest_GetWebsocketConnection")
 			return
 		}
@@ -128,22 +127,22 @@ func (this *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 		select {
 		case <-this.WorkerContext__Submission_GetWebsocketConnection.Done():
 			return
-		case leadingSubmission_getWebsocketConnection := <-this.QueueChannel__Submission_GetWebsocketConnection:
-			latestSubmission_getWebsocketConnection := this.GetLatestSubmissionAndRejectPreceding__Submission_GetWebsocketConnection(leadingSubmission_getWebsocketConnection)
-			isConnected_WebsocketConnection, newId_WebsocketConnection := this.UpdateWebsocketConnection(latestSubmission_getWebsocketConnection)
+		case leadingSubmission_GetWebsocketConnection := <-this.QueueChannel__Submission_GetWebsocketConnection:
+			latestSubmission_GetWebsocketConnection := this.GetLatestAndRejectPreceding__Submission_GetWebsocketConnection(leadingSubmission_GetWebsocketConnection)
+			isConnected_WebsocketConnection, newId_WebsocketConnection := this.Update_WebsocketConnection(latestSubmission_GetWebsocketConnection)
 			if isConnected_WebsocketConnection {
 				for {
-					messageType_Gorilla, payload_binaryMessage, readError_WebsocketConnection := this.WebsocketConnection.ReadMessage()
+					messageType_Gorilla, payload_binaryMessage, maybeError_ReadMessage := this.WebsocketConnection.ReadMessage()
 					if _WEBSOCKET.BinaryMessage == messageType_Gorilla {
 						this.OnPayload_BinaryMessage__(
 							newId_WebsocketConnection,
 							payload_binaryMessage,
 						)
-					} else if readError_WebsocketConnection != nil {
-						this.HandleConnectionTeardown()
+					} else if maybeError_ReadMessage != nil {
+						this.Teardown_WebsocketConnection()
 						break
 					} else if _WEBSOCKET.TextMessage == messageType_Gorilla {
-						this.CloseWithCode(
+						this.CloseWithCode_WebsocketConnection(
 							1003,
 							"Text Payloads Unsupported",
 						)
@@ -157,25 +156,25 @@ func (this *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 	}
 }
 
-func (this *_WebsocketController_) GetLatestSubmissionAndRejectPreceding__Submission_GetWebsocketConnection(
-	leadingSubmission_getWebsocketConnection _Submission_GetWebsocketConnection_,
+func (this *_WebsocketController_) GetLatestAndRejectPreceding__Submission_GetWebsocketConnection(
+	leadingSubmission_GetWebsocketConnection _Submission_GetWebsocketConnection_,
 ) _Submission_GetWebsocketConnection_ {
-	latestSubmission_getWebsocketConnection := leadingSubmission_getWebsocketConnection
+	latestSubmission_GetWebsocketConnection := leadingSubmission_GetWebsocketConnection
 	for {
 		select {
-		case nextSubmission_getWebsocketConnection := <-this.QueueChannel__Submission_GetWebsocketConnection:
-			latestSubmission_getWebsocketConnection.ReplyChannel <- _Reply_GetWebsocketConnection_{
+		case nextSubmission_GetWebsocketConnection := <-this.QueueChannel__Submission_GetWebsocketConnection:
+			latestSubmission_GetWebsocketConnection.ReplyChannel <- _SubmissionReply_GetWebsocketConnection_{
 				MaybeError_Submission: SUPERSEDED__ERROR___SUBMISSION__GET_WEBSOCKET_CONNECTION,
 			}
-			latestSubmission_getWebsocketConnection = nextSubmission_getWebsocketConnection
+			latestSubmission_GetWebsocketConnection = nextSubmission_GetWebsocketConnection
 		default:
-			return latestSubmission_getWebsocketConnection
+			return latestSubmission_GetWebsocketConnection
 		}
 	}
 }
 
-func (this *_WebsocketController_) UpdateWebsocketConnection(
-	latestSubmission_getWebsocketConnection _Submission_GetWebsocketConnection_,
+func (this *_WebsocketController_) Update_WebsocketConnection(
+	latestSubmission_GetWebsocketConnection _Submission_GetWebsocketConnection_,
 ) (bool, uint64) {
 	this.Mutex.Lock()
 	if this.Status_WebsocketConnection != TAKEOVER_CONNECTING__Status_WebsocketConnection {
@@ -183,26 +182,26 @@ func (this *_WebsocketController_) UpdateWebsocketConnection(
 	}
 	this.Mutex.Unlock()
 	var nilHeader_UpgradeResponse _HTTP.Header = nil
-	websocketRequestUpgrader := _WEBSOCKET.Upgrader{}
-	newWebsocketConnection, maybeError_UpgradeRequest := websocketRequestUpgrader.Upgrade(
-		latestSubmission_getWebsocketConnection.ResponseWriter,
-		latestSubmission_getWebsocketConnection.HttpRequest,
+	requestUpgrader_GetWebsocketConnection := _WEBSOCKET.Upgrader{}
+	newWebsocketConnection, maybeError_UpgradeRequest := requestUpgrader_GetWebsocketConnection.Upgrade(
+		latestSubmission_GetWebsocketConnection.ResponseWriter_GetWebsocketConnection,
+		latestSubmission_GetWebsocketConnection.Request_GetWebsocketConnection,
 		nilHeader_UpgradeResponse,
 	)
-	latestSubmission_getWebsocketConnection.ReplyChannel <- _Reply_GetWebsocketConnection_{
+	latestSubmission_GetWebsocketConnection.ReplyChannel <- _SubmissionReply_GetWebsocketConnection_{
 		MaybeError_Submission: maybeError_UpgradeRequest,
 	}
 	this.Mutex.Lock()
 	isTakeoverConnecting := this.Status_WebsocketConnection == TAKEOVER_CONNECTING__Status_WebsocketConnection
 	this.Mutex.Unlock()
 	if newWebsocketConnection != nil && isTakeoverConnecting {
-		newId_WebsocketConnection := this.AttachConnection(
+		newId_WebsocketConnection := this.Attach_WebsocketConnection(
 			this.OnTakeoverConnected__,
 			newWebsocketConnection,
 		)
 		return true, newId_WebsocketConnection
 	} else if newWebsocketConnection != nil {
-		newId_WebsocketConnection := this.AttachConnection(
+		newId_WebsocketConnection := this.Attach_WebsocketConnection(
 			this.OnConnected__,
 			newWebsocketConnection,
 		)
@@ -218,12 +217,12 @@ func (this *_WebsocketController_) UpdateWebsocketConnection(
 		this.Mutex.Unlock()
 		return false, 0
 	} else {
-		_FMT.Println("invalid path: UpdateWebsocketConnection")
+		_FMT.Println("invalid path: Update_WebsocketConnection")
 		return false, 0
 	}
 }
 
-func (this *_WebsocketController_) AttachConnection(
+func (this *_WebsocketController_) Attach_WebsocketConnection(
 	OnConnected__ func(newId_WebsocketConnection uint64),
 	newWebsocketConnection *_WEBSOCKET.Conn,
 ) uint64 {
@@ -240,7 +239,7 @@ func (this *_WebsocketController_) AttachConnection(
 	return newId_WebsocketConnection
 }
 
-func (this *_WebsocketController_) HandleConnectionTeardown() {
+func (this *_WebsocketController_) Teardown_WebsocketConnection() {
 	var wasTakeoverPending bool
 	this.Mutex.Lock()
 	if this.IsTakeoverPending_WebsocketConnection {
@@ -258,6 +257,31 @@ func (this *_WebsocketController_) HandleConnectionTeardown() {
 		this.OnTakeoverDisconnected__()
 	} else {
 		this.OnDisconnected__()
+	}
+}
+
+func (this *_WebsocketController_) CloseWithCode_WebsocketConnection(
+	closeCode_WebsocketConnection int,
+	closeReason_WebsocketConnection string,
+) {
+	var capturedWebsocketConnection *_WEBSOCKET.Conn
+	this.Mutex.Lock()
+	if CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection {
+		capturedWebsocketConnection = this.WebsocketConnection
+	}
+	this.Mutex.Unlock()
+	if capturedWebsocketConnection != nil {
+		this.EgressMutex.Lock()
+		_ = capturedWebsocketConnection.WriteControl(
+			_WEBSOCKET.CloseMessage,
+			_WEBSOCKET.FormatCloseMessage(
+				closeCode_WebsocketConnection,
+				closeReason_WebsocketConnection,
+			),
+			_TIME.Now().Add(this.DeadlineTimeout_Write__),
+		)
+		_ = capturedWebsocketConnection.Close()
+		this.EgressMutex.Unlock()
 	}
 }
 
@@ -291,29 +315,4 @@ func (this *_WebsocketController_) WritePayload_BinaryMessage(
 	)
 	this.EgressMutex.Unlock()
 	return maybeError_write__capturedWebsocketConnection
-}
-
-func (this *_WebsocketController_) CloseWithCode(
-	closeCode_WebsocketConnection int,
-	closeReason_WebsocketConnection string,
-) {
-	var capturedWebsocketConnection *_WEBSOCKET.Conn
-	this.Mutex.Lock()
-	if CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection {
-		capturedWebsocketConnection = this.WebsocketConnection
-	}
-	this.Mutex.Unlock()
-	if capturedWebsocketConnection != nil {
-		this.EgressMutex.Lock()
-		_ = capturedWebsocketConnection.WriteControl(
-			_WEBSOCKET.CloseMessage,
-			_WEBSOCKET.FormatCloseMessage(
-				closeCode_WebsocketConnection,
-				closeReason_WebsocketConnection,
-			),
-			_TIME.Now().Add(this.DeadlineTimeout_Write__),
-		)
-		_ = capturedWebsocketConnection.Close()
-		this.EgressMutex.Unlock()
-	}
 }
