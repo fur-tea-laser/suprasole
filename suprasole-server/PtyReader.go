@@ -13,16 +13,16 @@ type _PtyReader_ struct {
 	OnExited_Closed__                func(exitSignal_PtyReader error)
 	OnExited_Eio__                   func(exitSignal_PtyReader error)
 	OnExited_SystemError__           func(exitSignal_PtyReader error)
-	MasterFileDescriptor_PtyDevice   *_OS.File
+	FileDescriptor_Master__PtyDevice *_OS.File
 	StagingBuffer                    []byte
 	UnflushedSliceSize_StagingBuffer int
 }
 
 func (this *_PtyReader_) RunWorker() {
 	var bytesRed_PtyDevice int
-	var exitSignal_PtyReader error
+	var maybeExitSignal_PtyReader error
 	for {
-		bytesRed_PtyDevice, exitSignal_PtyReader = this.MasterFileDescriptor_PtyDevice.Read(this.StagingBuffer[this.UnflushedSliceSize_StagingBuffer:])
+		bytesRed_PtyDevice, maybeExitSignal_PtyReader = this.FileDescriptor_Master__PtyDevice.Read(this.StagingBuffer[this.UnflushedSliceSize_StagingBuffer:])
 		this.UnflushedSliceSize_StagingBuffer += bytesRed_PtyDevice
 		if this.UnflushedSliceSize_StagingBuffer > 0 && this.OnTryFlush__(this.StagingBuffer[:this.UnflushedSliceSize_StagingBuffer]) {
 			this.UnflushedSliceSize_StagingBuffer = 0
@@ -31,18 +31,18 @@ func (this *_PtyReader_) RunWorker() {
 			this.OnBlockingFlush__(this.StagingBuffer[:this.UnflushedSliceSize_StagingBuffer])
 			this.UnflushedSliceSize_StagingBuffer = 0
 		}
-		if exitSignal_PtyReader != nil && 0 == this.UnflushedSliceSize_StagingBuffer {
+		if maybeExitSignal_PtyReader != nil && 0 == this.UnflushedSliceSize_StagingBuffer {
 			break
 		}
 	}
-	if _ERRORS.Is(exitSignal_PtyReader, _OS.ErrClosed) {
-		this.OnExited_Closed__(exitSignal_PtyReader)
-	} else if _ERRORS.Is(exitSignal_PtyReader, _SYSCALL.EIO) {
-		this.OnExited_Eio__(exitSignal_PtyReader)
-	} else if exitSignal_PtyReader != nil {
-		this.OnExited_SystemError__(exitSignal_PtyReader)
+	if _ERRORS.Is(maybeExitSignal_PtyReader, _OS.ErrClosed) {
+		this.OnExited_Closed__(maybeExitSignal_PtyReader)
+	} else if _ERRORS.Is(maybeExitSignal_PtyReader, _SYSCALL.EIO) {
+		this.OnExited_Eio__(maybeExitSignal_PtyReader)
+	} else if maybeExitSignal_PtyReader != nil {
+		this.OnExited_SystemError__(maybeExitSignal_PtyReader)
 	} else {
-		// exitSignal_PtyReader is guaranteed non-nil because a non-nil exitSignal_PtyReader is required to break out of the for loop above
+		// maybeExitSignal_PtyReader is guaranteed non-nil because a non-nil maybeExitSignal_PtyReader is required to break out of the for loop above
 		_FMT.Println("invalid path: _PtyReader_ RunWorker")
 	}
 }

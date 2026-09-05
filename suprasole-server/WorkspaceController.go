@@ -28,8 +28,8 @@ type _WorkspaceController_ struct {
 }
 
 type _NewApi__WorkspaceController_ struct {
-	HostPortAddress__   string
-	Defaults_PtyProxy__ _Defaults_PtyProxy_
+	Address_HttpServer__ string
+	Defaults_PtyProxy__  _Defaults_PtyProxy_
 }
 
 func New__WorkspaceController(
@@ -45,7 +45,7 @@ func New__WorkspaceController(
 		LifecycleCoordinator_WorkspacePty: nil,
 	}
 	newWorkspaceControllerResult.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
-		HostPortAddress__:                       api.HostPortAddress__,
+		Address_HttpServer__:                    api.Address_HttpServer__,
 		OnConnected_PtyWebsocket__:              newWorkspaceControllerResult.HandleConnected_PtyWebsocket,
 		OnTakeoverConnected_PtyWebsocket__:      newWorkspaceControllerResult.HandleTakeoverConnected_PtyWebsocket,
 		OnDisconnected_PtyWebsocket__:           newWorkspaceControllerResult.HandleDisconnected_PtyWebsocket,

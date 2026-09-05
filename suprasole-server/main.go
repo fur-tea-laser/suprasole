@@ -18,7 +18,7 @@ func main() {
 	)
 	_FLAG.Parse()
 	workspaceController := New__WorkspaceController(_NewApi__WorkspaceController_{
-		HostPortAddress__: *hostPortAddressFlag,
+		Address_HttpServer__: *hostPortAddressFlag,
 		Defaults_PtyProxy__: _Defaults_PtyProxy_{
 			ScrollbackLineCount_PtyTerminal__:       10000,
 			StagingBufferSize_PtyReader__:           16 * 1024,
