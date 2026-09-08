@@ -48,8 +48,8 @@ func (this *_PtyWriter_) RunWorker() {
 		select {
 		case <-this.WorkerContext.Done():
 			return
-		case nextInputOrder := <-this.QueueChannel_InputOrder:
-			nextInputOrder.WriteInput(this.FileDescriptor_Master__PtyDevice)
+		case inputOrder_next := <-this.QueueChannel_InputOrder:
+			inputOrder_next.WriteInput(this.FileDescriptor_Master__PtyDevice)
 		}
 	}
 }
