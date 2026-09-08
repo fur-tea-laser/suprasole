@@ -13,7 +13,7 @@ const (
 )
 
 type _InputOrder_PtyWriter_ interface {
-	WriteInput(fileDescriptor_master__PtyDevice *_OS.File)
+	WriteInput(FileDescriptor_Master__PtyDevice *_OS.File)
 }
 
 type _Passthrough__InputOrder_PtyWriter_ struct {
@@ -21,10 +21,10 @@ type _Passthrough__InputOrder_PtyWriter_ struct {
 }
 
 func (this *_Passthrough__InputOrder_PtyWriter_) WriteInput(
-	fileDescriptor_master__PtyDevice *_OS.File,
+	FileDescriptor_Master__PtyDevice *_OS.File,
 ) {
 	if len(this.InputData_PtyDevice) > 0 {
-		_, _ = fileDescriptor_master__PtyDevice.Write(this.InputData_PtyDevice)
+		_, _ = FileDescriptor_Master__PtyDevice.Write(this.InputData_PtyDevice)
 	}
 }
 
@@ -32,7 +32,7 @@ type _Paced__InputOrder_PtyWriter_ struct {
 }
 
 func (this *_Paced__InputOrder_PtyWriter_) WriteInput(
-	fileDescriptor_master__PtyDevice *_OS.File,
+	FileDescriptor_Master__PtyDevice *_OS.File,
 ) {
 }
 

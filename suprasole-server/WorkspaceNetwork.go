@@ -16,11 +16,11 @@ type _WorkspaceNetwork_ struct {
 
 type _NewApi__WorkspaceNetwork_ struct {
 	Address_HttpServer__                    string
-	OnConnected_PtyWebsocket__              func(newId_WebsocketConnection uint64)
-	OnTakeoverConnected_PtyWebsocket__      func(newId_WebsocketConnection uint64)
+	OnConnected_PtyWebsocket__              func(id_WebsocketConnection__new uint64)
+	OnConnected_Takeover__PtyWebsocket__    func(id_WebsocketConnection__new uint64)
 	OnDisconnected_PtyWebsocket__           func()
-	OnTakeoverDisconnected_PtyWebsocket__   func()
-	OnPayload_BinaryMessage__PtyWebsocket__ func(expectedId_WebsocketConnection uint64, payload_binaryMessage []byte)
+	OnDisconnected_Takeover__PtyWebsocket__ func()
+	OnPayload_BinaryMessage__PtyWebsocket__ func(id_WebsocketConnection__expected uint64, payload_binaryMessage []byte)
 }
 
 func New__WorkspaceNetwork(
@@ -32,9 +32,9 @@ func New__WorkspaceNetwork(
 		DeadlineTimeout_Read__:                60 * _TIME.Second,
 		DeadlineTimeout_Write__:               10 * _TIME.Second,
 		OnConnected__:                         api.OnConnected_PtyWebsocket__,
-		OnTakeoverConnected__:                 api.OnTakeoverConnected_PtyWebsocket__,
+		OnConnected_Takeover__:                api.OnConnected_Takeover__PtyWebsocket__,
 		OnDisconnected__:                      api.OnDisconnected_PtyWebsocket__,
-		OnTakeoverDisconnected__:              api.OnTakeoverDisconnected_PtyWebsocket__,
+		OnDisconnected_Takeover__:             api.OnDisconnected_Takeover__PtyWebsocket__,
 		OnPayload_BinaryMessage__:             api.OnPayload_BinaryMessage__PtyWebsocket__,
 		Mutex:                                 _SYNC.Mutex{},
 		EgressMutex:                           _SYNC.Mutex{},
@@ -61,20 +61,20 @@ func New__WorkspaceNetwork(
 	}
 }
 
-func (this *_WorkspaceNetwork_) StartServer() error {
-	serverListener, maybeError_serverListen := _NET.Listen(
+func (this *_WorkspaceNetwork_) Start() error {
+	serverListener, error_serverListen__maybe := _NET.Listen(
 		"tcp",
 		this.HttpServer.Addr,
 	)
-	if maybeError_serverListen != nil {
-		return maybeError_serverListen
+	if error_serverListen__maybe != nil {
+		return error_serverListen__maybe
 	}
 	go this.WebsocketController_Pty.RunWorker__Submission_GetWebsocketConnection()
 	go this.HttpServer.Serve(serverListener)
 	return nil
 }
 
-func (this *_WorkspaceNetwork_) StopServer(
+func (this *_WorkspaceNetwork_) Stop(
 	context_shutdownDeadline__HttpServer _CONTEXT.Context,
 ) error {
 	this.WebsocketController_Pty.WorkerCancel__Submission_GetWebsocketConnection()

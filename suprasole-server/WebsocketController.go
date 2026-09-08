@@ -223,7 +223,7 @@ func (this *_WebsocketController_) Update_WebsocketConnection(
 }
 
 func (this *_WebsocketController_) Attach_WebsocketConnection(
-	OnConnected__ func(newId_WebsocketConnection uint64),
+	onConnected__ func(newId_WebsocketConnection uint64),
 	newWebsocketConnection *_WEBSOCKET.Conn,
 ) uint64 {
 	this.Mutex.Lock()
@@ -235,7 +235,7 @@ func (this *_WebsocketController_) Attach_WebsocketConnection(
 	)
 	this.Status_WebsocketConnection = CONNECTED__Status_WebsocketConnection
 	this.Mutex.Unlock()
-	OnConnected__(newId_WebsocketConnection)
+	onConnected__(newId_WebsocketConnection)
 	return newId_WebsocketConnection
 }
 

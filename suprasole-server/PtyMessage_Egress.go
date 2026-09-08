@@ -19,12 +19,12 @@ type _PtyMessage_Egress_ interface {
 	EncodePayload() []byte
 }
 
-func Emit__PtyMessage_Egress(
-	websocketController *_WebsocketController_,
+func Emit__PtyMessage_Egress__WebsocketController_Pty(
+	WebsocketController_Pty *_WebsocketController_,
 	expectedId_WebsocketConnection uint64,
 	egressMessage _PtyMessage_Egress_,
 ) {
-	_ = websocketController.WritePayload_BinaryMessage(
+	_ = WebsocketController_Pty.WritePayload_BinaryMessage(
 		expectedId_WebsocketConnection,
 		egressMessage.EncodePayload(),
 	)

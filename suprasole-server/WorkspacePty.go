@@ -40,8 +40,15 @@ type _SystemError__ExitOutcome_PtyProxy_ struct {
 
 func (_SystemError__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
+type _Visibility_Client_ uint8
+
+const (
+	NOT_VISIBLE__Visibility_Client _Visibility_Client_ = 0
+	VISIBLE__Visibility_Client     _Visibility_Client_ = 1
+)
+
 type _WorkspacePty_ struct {
-	PtyProxy                  *_PtyProxy_
-	MaybeExitOutcome_PtyProxy _ExitOutcome_PtyProxy_
-	IsVisible_Client          bool
+	PtyProxy                    *_PtyProxy_
+	ExitOutcome_PtyProxy__maybe _ExitOutcome_PtyProxy_
+	Visibility_Client           _Visibility_Client_
 }
