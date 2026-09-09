@@ -261,14 +261,14 @@ func (This *_WorkspaceController_) HandleExited_SystemError__Pty(
 func (This *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 	orderBatch_ResizePty_pending map[uint32]_Order_ResizePty_,
 ) {
-	for _, order_ResizePty_pending_some := range orderBatch_ResizePty_pending {
+	for _, order_ResizePty__pending_some := range orderBatch_ResizePty_pending {
 		This.Mutex.Lock()
-		WorkspacePty_target := This.PtyPool[order_ResizePty_pending_some.Id_PtyProxy]
+		WorkspacePty_target := This.PtyPool[order_ResizePty__pending_some.Id_PtyProxy]
 		This.Mutex.Unlock()
 		if WorkspacePty_target != nil {
 			_ = WorkspacePty_target.PtyProxy.Resize(
-				order_ResizePty_pending_some.ColumnCount_PtyTerminal,
-				order_ResizePty_pending_some.RowCount_PtyTerminal,
+				order_ResizePty__pending_some.ColumnCount_PtyTerminal,
+				order_ResizePty__pending_some.RowCount_PtyTerminal,
 			)
 		}
 	}
