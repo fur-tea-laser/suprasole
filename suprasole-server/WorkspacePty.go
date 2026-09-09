@@ -48,7 +48,7 @@ const (
 )
 
 type _WorkspacePty_ struct {
-	PtyProxy                    *_PtyProxy_
-	ExitOutcome_PtyProxy__maybe _ExitOutcome_PtyProxy_
-	Visibility_Client           _Visibility_Client_
+	PtyProxy                   *_PtyProxy_
+	ExitOutcome_PtyProxy_maybe _ExitOutcome_PtyProxy_
+	Visibility_Client_current  _Visibility_Client_
 }

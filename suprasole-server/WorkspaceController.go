@@ -10,59 +10,52 @@ import (
 	_TIME "time"
 )
 
-type _Defaults_PtyProxy_ struct {
-	ScrollbackLineCount_PtyTerminal__       int
-	StagingBufferSize_PtyReader__           int
-	PostSnapshotBufferSize_PtyProxy__       int
-	QueueBufferSize_InputOrder__PtyWriter__ int
-}
-
 type _WorkspaceController_ struct {
-	Defaults_PtyProxy__               _Defaults_PtyProxy_
+	OptionConfig_PtyProxy__default__  _OptionConfig_PtyProxy_
 	Mutex                             _SYNC.Mutex
 	PtyPool                           map[uint32]*_WorkspacePty_
-	NextId_PtyProxy                   uint32
+	Id_PtyProxy_next                  uint32
 	WorkspaceNetwork                  *_WorkspaceNetwork_
 	MessageDebouncer__Batch_ResizePty *_MessageDebouncer__Batch_ResizePty_
 	LifecycleCoordinator_WorkspacePty *_LifecycleCoordinator_WorkspacePty_
 }
 
 type _NewApi__WorkspaceController_ struct {
-	Address_HttpServer__ string
-	Defaults_PtyProxy__  _Defaults_PtyProxy_
+	Address_HttpServer__             string
+	OptionConfig_PtyProxy__default__ _OptionConfig_PtyProxy_
 }
 
 func New__WorkspaceController(
 	api _NewApi__WorkspaceController_,
 ) *_WorkspaceController_ {
-	workspaceController_new_result := &_WorkspaceController_{
-		Defaults_PtyProxy__:               api.Defaults_PtyProxy__,
+	workspaceController_result := &_WorkspaceController_{
+		OptionConfig_PtyProxy__default__:  api.OptionConfig_PtyProxy__default__,
 		Mutex:                             _SYNC.Mutex{},
 		PtyPool:                           make(map[uint32]*_WorkspacePty_),
-		NextId_PtyProxy:                   0,
+		Id_PtyProxy_next:                  0,
 		WorkspaceNetwork:                  nil,
 		MessageDebouncer__Batch_ResizePty: nil,
 		LifecycleCoordinator_WorkspacePty: nil,
 	}
-	workspaceController_new_result.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
+	workspaceController_result.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
 		Address_HttpServer__:                    api.Address_HttpServer__,
-		OnConnected_PtyWebsocket__:              workspaceController_new_result.HandleConnected_PtyWebsocket,
-		OnConnected_Takeover__PtyWebsocket__:    workspaceController_new_result.HandleConnected_Takeover__PtyWebsocket,
-		OnDisconnected_PtyWebsocket__:           workspaceController_new_result.HandleDisconnected_PtyWebsocket,
-		OnDisconnected_Takeover__PtyWebsocket__: workspaceController_new_result.HandleDisconnected_Takeover__PtyWebsocket,
-		OnPayload_BinaryMessage__PtyWebsocket__: workspaceController_new_result.HandlePayload_BinaryMessage__PtyWebsocket,
+		OnConnected_PtyWebsocket__:              workspaceController_result.HandleConnected_PtyWebsocket,
+		OnConnected_Takeover__PtyWebsocket__:    workspaceController_result.HandleConnected_Takeover__PtyWebsocket,
+		OnDisconnected_PtyWebsocket__:           workspaceController_result.HandleDisconnected_PtyWebsocket,
+		OnDisconnected_Takeover__PtyWebsocket__: workspaceController_result.HandleDisconnected_Takeover__PtyWebsocket,
+		OnPayload_BinaryMessage__PtyWebsocket__: workspaceController_result.HandlePayload_BinaryMessage__PtyWebsocket,
 	})
-	workspaceController_new_result.MessageDebouncer__Batch_ResizePty = New__MessageDebouncer__Batch_ResizePty(_NewApi__MessageDebouncer__Batch_ResizePty_{
+	workspaceController_result.MessageDebouncer__Batch_ResizePty = New__MessageDebouncer__Batch_ResizePty(_NewApi__MessageDebouncer__Batch_ResizePty_{
 		DebounceTimeout:   50 * _TIME.Millisecond,
-		OnBatch_ResizePty: workspaceController_new_result.HandleBatch_ResizePty__Debouncer,
+		OnBatch_ResizePty: workspaceController_result.HandleBatch_ResizePty__Debouncer,
 	})
-	workspaceController_new_result.LifecycleCoordinator_WorkspacePty = New__LifecycleCoordinator_WorkspacePty(_NewApi__LifecycleCoordinator_WorkspacePty_{
-		OnConnect_PtyWebsocket__:    workspaceController_new_result.HandleConnect_PtyWebsocket__Coordinator,
-		OnDisconnect_PtyWebsocket__: workspaceController_new_result.HandleDisconnect_PtyWebsocket__Coordinator,
-		OnSync_PtyPool__:            workspaceController_new_result.HandleSync_PtyPool__Coordinator,
-		OnExit_PtyProxy__:           workspaceController_new_result.HandleExit_PtyProxy__Coordinator,
+	workspaceController_result.LifecycleCoordinator_WorkspacePty = New__LifecycleCoordinator_WorkspacePty(_NewApi__LifecycleCoordinator_WorkspacePty_{
+		OnConnect_PtyWebsocket__:    workspaceController_result.HandleConnect_PtyWebsocket__Coordinator,
+		OnDisconnect_PtyWebsocket__: workspaceController_result.HandleDisconnect_PtyWebsocket__Coordinator,
+		OnSync_PtyPool__:            workspaceController_result.HandleSync_PtyPool__Coordinator,
+		OnExit_PtyProxy__:           workspaceController_result.HandleExit_PtyProxy__Coordinator,
 	})
-	return workspaceController_new_result
+	return workspaceController_result
 }
 
 func (this *_WorkspaceController_) StartSession() error {
@@ -80,18 +73,18 @@ func (this *_WorkspaceController_) StopSession(
 }
 
 func (this *_WorkspaceController_) HandleConnected_PtyWebsocket(
-	id_WebsocketConnection__new uint64,
+	id_WebsocketConnection_new uint64,
 ) {
 	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Connect__WorkspaceOrder_LifecycleCoordinator_{
-		ExpectedId_WebsocketConnection: id_WebsocketConnection__new,
+		Id_WebsocketConnection_expected: id_WebsocketConnection_new,
 	}
 }
 
 func (this *_WorkspaceController_) HandleConnected_Takeover__PtyWebsocket(
-	id_WebsocketConnection__new uint64,
+	id_WebsocketConnection_new uint64,
 ) {
 	this.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Connect__WorkspaceOrder_LifecycleCoordinator_{
-		ExpectedId_WebsocketConnection: id_WebsocketConnection__new,
+		Id_WebsocketConnection_expected: id_WebsocketConnection_new,
 	}
 }
 
@@ -104,14 +97,14 @@ func (this *_WorkspaceController_) HandleDisconnected_Takeover__PtyWebsocket() {
 }
 
 func (this *_WorkspaceController_) HandlePayload_BinaryMessage__PtyWebsocket(
-	id_WebsocketConnection__expected uint64,
+	id_WebsocketConnection_expected uint64,
 	payload_binaryMessage []byte,
 ) {
 	__decodeWebsocketPayload_binaryMessage(
 		MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS,
 		"pty websocket client",
 		this,
-		id_WebsocketConnection__expected,
+		id_WebsocketConnection_expected,
 		payload_binaryMessage,
 	)
 }
@@ -120,15 +113,15 @@ func __decodeWebsocketPayload_binaryMessage[
 	__Code__Message_Ingress__ ~uint16,
 	__Message_Ingress__ interface {
 		Execute(
-			workspaceController *_WorkspaceController_,
-			id_WebsocketConnection__expected uint64,
+			WorkspaceController_this *_WorkspaceController_,
+			id_WebsocketConnection_expected uint64,
 		)
 	},
 ](
 	map_decodePayloadToMessage__ map[__Code__Message_Ingress__]func(payload_binaryMessage []byte) (__Message_Ingress__, error),
 	label_messageSource__ErrorLog__ string,
 	WorkspaceController_this *_WorkspaceController_,
-	id_WebsocketConnection__expected uint64,
+	id_WebsocketConnection_expected uint64,
 	payload_binaryMessage []byte,
 ) {
 	if len(payload_binaryMessage) < 2 {
@@ -139,17 +132,17 @@ func __decodeWebsocketPayload_binaryMessage[
 		)
 		return
 	}
-	messageCode := __Code__Message_Ingress__(_BINARY.BigEndian.Uint16(payload_binaryMessage[0:2]))
-	decodePayloadToMessage__ := map_decodePayloadToMessage__[messageCode]
-	if nil == decodePayloadToMessage__ {
+	code_messagePayload := __Code__Message_Ingress__(_BINARY.BigEndian.Uint16(payload_binaryMessage[:2]))
+	decodePayloadToMessage := map_decodePayloadToMessage__[code_messagePayload]
+	if nil == decodePayloadToMessage {
 		_FMT.Printf(
-			"%s message error: unrecognized message code: 0x%04x\n",
+			"%s decode message error: unrecognized message opcode: 0x%04x\n",
 			label_messageSource__ErrorLog__,
-			messageCode,
+			code_messagePayload,
 		)
 		return
 	}
-	ingressMessage_decoded, error_decodePayloadToMessage__maybe := decodePayloadToMessage__(payload_binaryMessage)
+	ingressMessage_decoded, error_decodePayloadToMessage__maybe := decodePayloadToMessage(payload_binaryMessage)
 	if error_decodePayloadToMessage__maybe != nil {
 		_FMT.Printf(
 			"%s decode message error: %v\n",
@@ -160,7 +153,7 @@ func __decodeWebsocketPayload_binaryMessage[
 	}
 	ingressMessage_decoded.Execute(
 		WorkspaceController_this,
-		id_WebsocketConnection__expected,
+		id_WebsocketConnection_expected,
 	)
 }
 
@@ -168,17 +161,17 @@ func (this *_WorkspaceController_) HandleSpawned_Pty(
 	ptyProxy_spawned *_PtyProxy_,
 ) {
 	workspacePty_new := &_WorkspacePty_{
-		Visibility_Client:           VISIBLE__Visibility_Client,
-		PtyProxy:                    ptyProxy_spawned,
-		ExitOutcome_PtyProxy__maybe: nil,
+		Visibility_Client_current:  VISIBLE__Visibility_Client,
+		PtyProxy:                   ptyProxy_spawned,
+		ExitOutcome_PtyProxy_maybe: nil,
 	}
 	this.Mutex.Lock()
 	this.PtyPool[ptyProxy_spawned.Id] = workspacePty_new
 	this.Mutex.Unlock()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		this.WorkspaceNetwork.WebsocketController_Pty,
-		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
-		_SpawnPtyStatus__PtyMessage_Egress_{
+		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
+		_Status_SpawnPty__PtyMessage_Egress_{
 			Status_SpawnPty: SUCCESS__Status_SpawnPty,
 			Id_PtyProxy:     ptyProxy_spawned.Id,
 		},
@@ -186,14 +179,14 @@ func (this *_WorkspaceController_) HandleSpawned_Pty(
 }
 
 func (this *_WorkspaceController_) HandleSpawnFailed_Pty(
-	id_PtyProxy__failed uint32,
+	id_PtyProxy_failed uint32,
 ) {
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		this.WorkspaceNetwork.WebsocketController_Pty,
-		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
-		_SpawnPtyStatus__PtyMessage_Egress_{
+		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
+		_Status_SpawnPty__PtyMessage_Egress_{
 			Status_SpawnPty: FAILURE__Status_SpawnPty,
-			Id_PtyProxy:     id_PtyProxy__failed,
+			Id_PtyProxy:     id_PtyProxy_failed,
 		},
 	)
 }
@@ -204,7 +197,7 @@ func (this *_WorkspaceController_) HandleOutput_Pty(
 ) {
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		this.WorkspaceNetwork.WebsocketController_Pty,
-		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
+		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
 		_PtyOutput__PtyMessage_Egress_{
 			Id_PtyProxy:         PtyProxy_source.Id,
 			OutputData_PtyProxy: outputData_PtyProxy,
@@ -282,26 +275,26 @@ func (this *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 }
 
 func (this *_WorkspaceController_) HandleConnect_PtyWebsocket__Coordinator(
-	id_WebsocketConnection__expected uint64,
+	id_WebsocketConnection_expected uint64,
 ) {
 	this.Mutex.Lock()
-	bulletinBatch_WorkspacePty__result := make([]_Bulletin_WorkspacePty_, 0, len(this.PtyPool))
+	bulletinBatch_WorkspacePty_result := make([]_Bulletin_WorkspacePty_, 0, len(this.PtyPool))
 	for _, WorkspacePty_some := range this.PtyPool {
-		bulletinBatch_WorkspacePty__result = append(
-			bulletinBatch_WorkspacePty__result,
+		bulletinBatch_WorkspacePty_result = append(
+			bulletinBatch_WorkspacePty_result,
 			_Bulletin_WorkspacePty_{
-				Id_PtyProxy:                 WorkspacePty_some.PtyProxy.Id,
-				ExitOutcome_PtyProxy__maybe: WorkspacePty_some.ExitOutcome_PtyProxy__maybe,
-				Visibility_Client:           WorkspacePty_some.Visibility_Client,
+				Id_PtyProxy:                WorkspacePty_some.PtyProxy.Id,
+				ExitOutcome_PtyProxy_maybe: WorkspacePty_some.ExitOutcome_PtyProxy_maybe,
+				Visibility_Client_current:  WorkspacePty_some.Visibility_Client_current,
 			},
 		)
 	}
 	this.Mutex.Unlock()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		this.WorkspaceNetwork.WebsocketController_Pty,
-		id_WebsocketConnection__expected,
+		id_WebsocketConnection_expected,
 		_WorkspaceManifest__PtyMessage_Egress_{
-			BulletinBatch_WorkspacePty: bulletinBatch_WorkspacePty__result,
+			BulletinBatch_WorkspacePty: bulletinBatch_WorkspacePty_result,
 		},
 	)
 }
@@ -311,7 +304,7 @@ func (this *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() 
 	ptyPool_cloned := _MAPS.Clone(this.PtyPool)
 	this.Mutex.Unlock()
 	for _, WorkspacePty_some := range ptyPool_cloned {
-		switch WorkspacePty_some.PtyProxy.Mode {
+		switch WorkspacePty_some.PtyProxy.Mode_current {
 		case LIVE_RUNNING__Mode_PtyProxy:
 			WorkspacePty_some.PtyProxy.TransitionMode_LiveToPreSnapshot()
 		case POST_SNAPSHOT__RUNNING___Mode_PtyProxy:
@@ -319,64 +312,60 @@ func (this *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() 
 		case PRE_SNAPSHOT__RUNNING___Mode_PtyProxy:
 		case EXITED__Mode_PtyProxy:
 		default:
-			// SPAWNING__Mode_PtyProxy == WorkspacePty_some.PtyProxy.Mode
+			// SPAWNING__Mode_PtyProxy == WorkspacePty_some.PtyProxy.Mode_current
 			_FMT.Println("invalid path: HandleDisconnect_PtyWebsocket__Coordinator")
 		}
 	}
 }
 
 func (this *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
-	id_WebsocketConnection__expected uint64,
-	message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_,
+	id_WebsocketConnection_expected uint64,
+	message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_,
 ) {
 	this.Mutex.Lock()
 	ptyPool_cloned := _MAPS.Clone(this.PtyPool)
 	this.Mutex.Unlock()
 	for _, WorkspacePty_some := range ptyPool_cloned {
-		order_SyncPty__maybe := message_SyncWorkspace.SyncPtyOrders[WorkspacePty_some.PtyProxy.Id]
+		order_SyncPty_maybe := message__Batch_SyncPty.OrderBatch_SyncPty[WorkspacePty_some.PtyProxy.Id]
 		this.Mutex.Lock()
-		visibility_Client__captured := WorkspacePty_some.Visibility_Client
-		if order_SyncPty__maybe != nil {
-			WorkspacePty_some.Visibility_Client = VISIBLE__Visibility_Client
+		visibility_Client_captured := WorkspacePty_some.Visibility_Client_current
+		if order_SyncPty_maybe != nil {
+			WorkspacePty_some.Visibility_Client_current = VISIBLE__Visibility_Client
 		} else {
-			WorkspacePty_some.Visibility_Client = NOT_VISIBLE__Visibility_Client
+			WorkspacePty_some.Visibility_Client_current = NOT_VISIBLE__Visibility_Client
 		}
 		this.Mutex.Unlock()
-		if order_SyncPty__maybe != nil && VISIBLE__Visibility_Client == visibility_Client__captured {
+		if order_SyncPty_maybe != nil && VISIBLE__Visibility_Client == visibility_Client_captured {
 			_ = WorkspacePty_some.PtyProxy.Resize(
-				order_SyncPty__maybe.ColumnCount_PtyTerminal,
-				order_SyncPty__maybe.RowCount_PtyTerminal,
+				order_SyncPty_maybe.ColumnCount_PtyTerminal,
+				order_SyncPty_maybe.RowCount_PtyTerminal,
 			)
-		} else if order_SyncPty__maybe != nil && NOT_VISIBLE__Visibility_Client == visibility_Client__captured && WorkspacePty_some.ExitOutcome_PtyProxy__maybe != nil {
+		} else if order_SyncPty_maybe != nil && NOT_VISIBLE__Visibility_Client == visibility_Client_captured && WorkspacePty_some.ExitOutcome_PtyProxy_maybe != nil {
 			_ = WorkspacePty_some.PtyProxy.Resize(
-				order_SyncPty__maybe.ColumnCount_PtyTerminal,
-				order_SyncPty__maybe.RowCount_PtyTerminal,
+				order_SyncPty_maybe.ColumnCount_PtyTerminal,
+				order_SyncPty_maybe.RowCount_PtyTerminal,
 			)
 			__emitSnapshot_SyncPty__WebsocketController_Pty(
 				WorkspacePty_some.PtyProxy.EmitSnapshot_Exited,
 				this.WorkspaceNetwork.WebsocketController_Pty,
-				id_WebsocketConnection__expected,
+				id_WebsocketConnection_expected,
 				WorkspacePty_some.PtyProxy.Id,
-				order_SyncPty__maybe.ColumnCount_PtyTerminal,
-				order_SyncPty__maybe.RowCount_PtyTerminal,
 			)
-		} else if order_SyncPty__maybe != nil && NOT_VISIBLE__Visibility_Client == visibility_Client__captured && nil == WorkspacePty_some.ExitOutcome_PtyProxy__maybe {
+		} else if order_SyncPty_maybe != nil && NOT_VISIBLE__Visibility_Client == visibility_Client_captured && nil == WorkspacePty_some.ExitOutcome_PtyProxy_maybe {
 			_ = WorkspacePty_some.PtyProxy.Resize(
-				order_SyncPty__maybe.ColumnCount_PtyTerminal,
-				order_SyncPty__maybe.RowCount_PtyTerminal,
+				order_SyncPty_maybe.ColumnCount_PtyTerminal,
+				order_SyncPty_maybe.RowCount_PtyTerminal,
 			)
 			__emitSnapshot_SyncPty__WebsocketController_Pty(
 				WorkspacePty_some.PtyProxy.TransitionMode_PreToPostSnapshot,
 				this.WorkspaceNetwork.WebsocketController_Pty,
-				id_WebsocketConnection__expected,
+				id_WebsocketConnection_expected,
 				WorkspacePty_some.PtyProxy.Id,
-				order_SyncPty__maybe.ColumnCount_PtyTerminal,
-				order_SyncPty__maybe.RowCount_PtyTerminal,
 			)
 			WorkspacePty_some.PtyProxy.TransitionMode_PostSnapshotToLive()
-		} else if nil == order_SyncPty__maybe && VISIBLE__Visibility_Client == visibility_Client__captured {
+		} else if nil == order_SyncPty_maybe && VISIBLE__Visibility_Client == visibility_Client_captured {
 			WorkspacePty_some.PtyProxy.TransitionMode_LiveToPreSnapshot()
-		} else if nil == order_SyncPty__maybe && NOT_VISIBLE__Visibility_Client == visibility_Client__captured {
+		} else if nil == order_SyncPty_maybe && NOT_VISIBLE__Visibility_Client == visibility_Client_captured {
 		} else {
 			_FMT.Println("invalid path: HandleSync_PtyPool__Coordinator")
 		}
@@ -386,45 +375,41 @@ func (this *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
 func __emitSnapshot_SyncPty__WebsocketController_Pty(
 	onEmitSnapshot__ func(),
 	WebsocketController_Pty *_WebsocketController_,
-	id_WebsocketConnection__expected uint64,
-	id_PtyProxy__target uint32,
-	columnCount_PtyTerminal int,
-	rowCount_PtyTerminal int,
+	id_WebsocketConnection_expected uint64,
+	id_PtyProxy_target uint32,
 ) {
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		WebsocketController_Pty,
-		id_WebsocketConnection__expected,
-		_Start_SyncPty__PtyMessage_Egress_{
-			Id_PtyProxy:             id_PtyProxy__target,
-			ColumnCount_PtyTerminal: columnCount_PtyTerminal,
-			RowCount_PtyTerminal:    rowCount_PtyTerminal,
+		id_WebsocketConnection_expected,
+		_StartTask_SyncPty__PtyMessage_Egress_{
+			Id_PtyProxy: id_PtyProxy_target,
 		},
 	)
 	onEmitSnapshot__()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		WebsocketController_Pty,
-		id_WebsocketConnection__expected,
-		_Complete_SyncPty__PtyMessage_Egress_{
-			Id_PtyProxy: id_PtyProxy__target,
+		id_WebsocketConnection_expected,
+		_CompleteTask_SyncPty__PtyMessage_Egress_{
+			Id_PtyProxy: id_PtyProxy_target,
 		},
 	)
 }
 
 func (this *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
-	id_PtyProxy__exited uint32,
+	id_PtyProxy_exited uint32,
 	exitOutcome_PtyProxy _ExitOutcome_PtyProxy_,
 ) {
 	this.Mutex.Lock()
-	WorkspacePty_target := this.PtyPool[id_PtyProxy__exited]
-	WorkspacePty_target.ExitOutcome_PtyProxy__maybe = exitOutcome_PtyProxy
+	WorkspacePty_target := this.PtyPool[id_PtyProxy_exited]
+	WorkspacePty_target.ExitOutcome_PtyProxy_maybe = exitOutcome_PtyProxy
 	this.Mutex.Unlock()
 	WorkspacePty_target.PtyProxy.TransitionMode_ToExited()
 	WorkspacePty_target.PtyProxy.PtyWriter.WorkerCancel()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		this.WorkspaceNetwork.WebsocketController_Pty,
-		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection,
+		this.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
 		_PtyExit__PtyMessage_Egress_{
-			Id_PtyProxy:          id_PtyProxy__exited,
+			Id_PtyProxy:          id_PtyProxy_exited,
 			ExitOutcome_PtyProxy: exitOutcome_PtyProxy,
 		},
 	)

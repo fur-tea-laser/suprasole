@@ -7,12 +7,12 @@ import (
 type _Code__PtyMessage_Egress_ uint16
 
 const (
-	SPAWN_PTY_STATUS___Code__PtyMessage_Egress   _Code__PtyMessage_Egress_ = 0x0002
-	PTY_EXIT___Code__PtyMessage_Egress           _Code__PtyMessage_Egress_ = 0x0005
-	PTY_OUTPUT___Code__PtyMessage_Egress         _Code__PtyMessage_Egress_ = 0x0008
-	WORKSPACE_MANIFEST___Code__PtyMessage_Egress _Code__PtyMessage_Egress_ = 0x0009
-	START__SYNC_PTY___Code__PtyMessage_Egress    _Code__PtyMessage_Egress_ = 0x000b
-	COMPLETE__SYNC_PTY___Code__PtyMessage_Egress _Code__PtyMessage_Egress_ = 0x000c
+	STATUS__SPAWN_PTY___Code__PtyMessage_Egress       _Code__PtyMessage_Egress_ = 0x0002
+	PTY_EXIT___Code__PtyMessage_Egress                _Code__PtyMessage_Egress_ = 0x0005
+	PTY_OUTPUT___Code__PtyMessage_Egress              _Code__PtyMessage_Egress_ = 0x0008
+	WORKSPACE_MANIFEST___Code__PtyMessage_Egress      _Code__PtyMessage_Egress_ = 0x0009
+	START_TASK__SYNC_PTY___Code__PtyMessage_Egress    _Code__PtyMessage_Egress_ = 0x000b
+	COMPLETE_TASK__SYNC_PTY___Code__PtyMessage_Egress _Code__PtyMessage_Egress_ = 0x000c
 )
 
 type _PtyMessage_Egress_ interface {
@@ -21,23 +21,23 @@ type _PtyMessage_Egress_ interface {
 
 func Emit__PtyMessage_Egress__WebsocketController_Pty(
 	WebsocketController_Pty *_WebsocketController_,
-	expectedId_WebsocketConnection uint64,
+	id_WebsocketConnection_expected uint64,
 	egressMessage _PtyMessage_Egress_,
 ) {
 	_ = WebsocketController_Pty.WritePayload_BinaryMessage(
-		expectedId_WebsocketConnection,
+		id_WebsocketConnection_expected,
 		egressMessage.EncodePayload(),
 	)
 }
 
-type _PtyBulletin_WorkspaceManifest_ struct {
-	Id_PtyProxy               uint32
-	MaybeExitOutcome_PtyProxy _ExitOutcome_PtyProxy_
-	IsVisible_Client          bool
+type _Bulletin_WorkspacePty_ struct {
+	Id_PtyProxy                uint32
+	ExitOutcome_PtyProxy_maybe _ExitOutcome_PtyProxy_
+	Visibility_Client_current  _Visibility_Client_
 }
 
 type _WorkspaceManifest__PtyMessage_Egress_ struct {
-	PtyBulletins []_PtyBulletin_WorkspaceManifest_
+	BulletinBatch_WorkspacePty []_Bulletin_WorkspacePty_
 }
 
 func encodeStruct__ExitOutcome_PtyProxy(
@@ -89,21 +89,21 @@ func (this _WorkspaceManifest__PtyMessage_Egress_) EncodePayload() []byte {
 	binaryEncoder_WorkspaceManifest := New__BinaryEncoder_WebsocketMessage()
 	// Opcode
 	binaryEncoder_WorkspaceManifest.EncodeParameter_Uint16(uint16(WORKSPACE_MANIFEST___Code__PtyMessage_Egress))
-	// PtyBulletins
+	// BulletinBatch_WorkspacePty
 	EncodeParameter__Slice16__BinaryEncoder_WebsocketMessage(
 		&binaryEncoder_WorkspaceManifest,
-		this.PtyBulletins,
-		func(binaryEncoder_WorkspaceManifest *_BinaryEncoder_WebsocketMessage_, currentSliceIndex int, ptyBulletin _PtyBulletin_WorkspaceManifest_) {
+		this.BulletinBatch_WorkspacePty,
+		func(binaryEncoder_WorkspaceManifest *_BinaryEncoder_WebsocketMessage_, sliceIndex_current int, bulletin_WorkspacePty _Bulletin_WorkspacePty_) {
 			// Id_PtyProxy
-			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint32(ptyBulletin.Id_PtyProxy)
-			// IsVisible_Client
-			binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(ptyBulletin.IsVisible_Client)
-			if ptyBulletin.MaybeExitOutcome_PtyProxy != nil {
+			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint32(bulletin_WorkspacePty.Id_PtyProxy)
+			// Visibility_Client_current
+			binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(VISIBLE__Visibility_Client == bulletin_WorkspacePty.Visibility_Client_current)
+			if bulletin_WorkspacePty.ExitOutcome_PtyProxy_maybe != nil {
 				// HasExitOutcome
 				binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(true)
 				encodeStruct__ExitOutcome_PtyProxy(
 					binaryEncoder_WorkspaceManifest,
-					ptyBulletin.MaybeExitOutcome_PtyProxy,
+					bulletin_WorkspacePty.ExitOutcome_PtyProxy_maybe,
 				)
 			} else {
 				// HasExitOutcome
@@ -121,20 +121,20 @@ const (
 	FAILURE__Status_SpawnPty _Status_SpawnPty_ = 0x01
 )
 
-type _SpawnPtyStatus__PtyMessage_Egress_ struct {
+type _Status_SpawnPty__PtyMessage_Egress_ struct {
 	Status_SpawnPty _Status_SpawnPty_
 	Id_PtyProxy     uint32
 }
 
-func (this _SpawnPtyStatus__PtyMessage_Egress_) EncodePayload() []byte {
-	binaryEncoder_SpawnPtyStatus := New__BinaryEncoder_WebsocketMessage()
+func (this _Status_SpawnPty__PtyMessage_Egress_) EncodePayload() []byte {
+	binaryEncoder__Status_SpawnPty := New__BinaryEncoder_WebsocketMessage()
 	// Opcode
-	binaryEncoder_SpawnPtyStatus.EncodeParameter_Uint16(uint16(SPAWN_PTY_STATUS___Code__PtyMessage_Egress))
+	binaryEncoder__Status_SpawnPty.EncodeParameter_Uint16(uint16(STATUS__SPAWN_PTY___Code__PtyMessage_Egress))
 	// Id_PtyProxy
-	binaryEncoder_SpawnPtyStatus.EncodeParameter_Uint32(this.Id_PtyProxy)
+	binaryEncoder__Status_SpawnPty.EncodeParameter_Uint32(this.Id_PtyProxy)
 	// Status_SpawnPty
-	binaryEncoder_SpawnPtyStatus.EncodeParameter_Uint8(uint8(this.Status_SpawnPty))
-	return binaryEncoder_SpawnPtyStatus.Bytes()
+	binaryEncoder__Status_SpawnPty.EncodeParameter_Uint8(uint8(this.Status_SpawnPty))
+	return binaryEncoder__Status_SpawnPty.Bytes()
 }
 
 type _PtyExit__PtyMessage_Egress_ struct {
@@ -172,34 +172,28 @@ func (this _PtyOutput__PtyMessage_Egress_) EncodePayload() []byte {
 	return binaryEncoder_PtyOutput.Bytes()
 }
 
-type _Start_SyncPty__PtyMessage_Egress_ struct {
-	Id_PtyProxy             uint32
-	ColumnCount_PtyTerminal int
-	RowCount_PtyTerminal    int
-}
-
-func (this _Start_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
-	binaryEncoder_Start_SyncPty := New__BinaryEncoder_WebsocketMessage()
-	// Opcode
-	binaryEncoder_Start_SyncPty.EncodeParameter_Uint16(uint16(START__SYNC_PTY___Code__PtyMessage_Egress))
-	// Id_PtyProxy
-	binaryEncoder_Start_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
-	// ColumnCount_PtyTerminal
-	binaryEncoder_Start_SyncPty.EncodeParameter_Uint16(uint16(this.ColumnCount_PtyTerminal))
-	// RowCount_PtyTerminal
-	binaryEncoder_Start_SyncPty.EncodeParameter_Uint16(uint16(this.RowCount_PtyTerminal))
-	return binaryEncoder_Start_SyncPty.Bytes()
-}
-
-type _Complete_SyncPty__PtyMessage_Egress_ struct {
+type _StartTask_SyncPty__PtyMessage_Egress_ struct {
 	Id_PtyProxy uint32
 }
 
-func (this _Complete_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
-	binaryEncoder_Complete_SyncPty := New__BinaryEncoder_WebsocketMessage()
+func (this _StartTask_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
+	binaryEncoder__StartTask_SyncPty := New__BinaryEncoder_WebsocketMessage()
 	// Opcode
-	binaryEncoder_Complete_SyncPty.EncodeParameter_Uint16(uint16(COMPLETE__SYNC_PTY___Code__PtyMessage_Egress))
+	binaryEncoder__StartTask_SyncPty.EncodeParameter_Uint16(uint16(START_TASK__SYNC_PTY___Code__PtyMessage_Egress))
 	// Id_PtyProxy
-	binaryEncoder_Complete_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
-	return binaryEncoder_Complete_SyncPty.Bytes()
+	binaryEncoder__StartTask_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
+	return binaryEncoder__StartTask_SyncPty.Bytes()
+}
+
+type _CompleteTask_SyncPty__PtyMessage_Egress_ struct {
+	Id_PtyProxy uint32
+}
+
+func (this _CompleteTask_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
+	binaryEncoder__CompleteTask_SyncPty := New__BinaryEncoder_WebsocketMessage()
+	// Opcode
+	binaryEncoder__CompleteTask_SyncPty.EncodeParameter_Uint16(uint16(COMPLETE_TASK__SYNC_PTY___Code__PtyMessage_Egress))
+	// Id_PtyProxy
+	binaryEncoder__CompleteTask_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
+	return binaryEncoder__CompleteTask_SyncPty.Bytes()
 }

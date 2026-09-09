@@ -10,7 +10,7 @@ type _BinaryDecoder_WebsocketMessage_ struct {
 	Label_MessageStruct__         string
 	Buffer__Payload_BinaryMessage []byte
 	Cursor_Buffer                 int
-	MaybeError_Earliest           error
+	Error_Earliest__maybe         error
 }
 
 type _NewApi__BinaryDecoder_WebsocketMessage_ struct {
@@ -26,7 +26,7 @@ func New__BinaryDecoder_WebsocketMessage(
 		Label_MessageStruct__:         api.Label_MessageStruct__,
 		Buffer__Payload_BinaryMessage: api.Buffer__Payload_BinaryMessage,
 		Cursor_Buffer:                 api.Cursor_Buffer,
-		MaybeError_Earliest:           nil,
+		Error_Earliest__maybe:         nil,
 	}
 }
 
@@ -35,10 +35,10 @@ func (this *_BinaryDecoder_WebsocketMessage_) CanDecodeParameter(
 	label_expectedParameter string,
 	label_targetType string,
 ) bool {
-	if this.MaybeError_Earliest != nil {
+	if this.Error_Earliest__maybe != nil {
 		return false
 	} else if remainingBytes := len(this.Buffer__Payload_BinaryMessage) - this.Cursor_Buffer; remainingBytes < requiredByteCount {
-		this.MaybeError_Earliest = _FMT.Errorf(
+		this.Error_Earliest__maybe = _FMT.Errorf(
 			"[%s] failed to decode %s for '%s': unexpected end of payload at offset %d (need %d bytes, remaining %d)",
 			this.Label_MessageStruct__,
 			label_targetType,
@@ -118,10 +118,10 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_Bytes16(
 func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_TrailingBytes(
 	label_expectedParameter string,
 ) []byte {
-	if this.MaybeError_Earliest != nil {
+	if this.Error_Earliest__maybe != nil {
 		return nil
 	} else if this.Cursor_Buffer > len(this.Buffer__Payload_BinaryMessage) {
-		this.MaybeError_Earliest = _FMT.Errorf(
+		this.Error_Earliest__maybe = _FMT.Errorf(
 			"[%s] failed to decode trailing bytes for '%s': cursor offset %d exceeds payload length %d",
 			this.Label_MessageStruct__,
 			label_expectedParameter,
@@ -136,10 +136,10 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter_TrailingBytes(
 }
 
 func (this *_BinaryDecoder_WebsocketMessage_) AssertEndOfPayload() {
-	if this.MaybeError_Earliest != nil {
+	if this.Error_Earliest__maybe != nil {
 		return
 	} else if this.Cursor_Buffer != len(this.Buffer__Payload_BinaryMessage) {
-		this.MaybeError_Earliest = _FMT.Errorf(
+		this.Error_Earliest__maybe = _FMT.Errorf(
 			"[%s] payload size mismatch: expected exactly %d bytes, got %d bytes (unconsumed %d trailing bytes at offset %d)",
 			this.Label_MessageStruct__,
 			this.Cursor_Buffer,
@@ -154,7 +154,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter__Slice16_String16(
 	label_expectedParameter string,
 ) []string {
 	count_decodedSlice := int(this.DecodeParameter_Uint16(label_expectedParameter + ".Count"))
-	if this.MaybeError_Earliest != nil {
+	if this.Error_Earliest__maybe != nil {
 		return nil
 	}
 	decodedSliceResult_expectedParameter := make([]string, 0, count_decodedSlice)
@@ -177,7 +177,7 @@ func (this *_BinaryDecoder_WebsocketMessage_) DecodeParameter__Slice16_Uint32(
 	label_expectedParameter string,
 ) []uint32 {
 	count_decodedSlice := int(this.DecodeParameter_Uint16(label_expectedParameter + ".Count"))
-	if this.MaybeError_Earliest != nil {
+	if this.Error_Earliest__maybe != nil {
 		return nil
 	}
 	decodedSliceResult_expectedParameter := make([]uint32, 0, count_decodedSlice)
@@ -204,7 +204,7 @@ func DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage[
 	decodeElement__ func(binaryDecoder *_BinaryDecoder_WebsocketMessage_, currentIndex_decodedSlice int) __Element__,
 ) []__Element__ {
 	count_decodedSlice := int(binaryDecoder.DecodeParameter_Uint16(label_expectedParameter + ".Count"))
-	if binaryDecoder.MaybeError_Earliest != nil {
+	if binaryDecoder.Error_Earliest__maybe != nil {
 		return nil
 	}
 	decodedSliceResult_expectedParameter := make([]__Element__, 0, count_decodedSlice)
@@ -213,7 +213,7 @@ func DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage[
 			binaryDecoder,
 			currentIndex_decodedSlice,
 		)
-		if binaryDecoder.MaybeError_Earliest != nil {
+		if binaryDecoder.Error_Earliest__maybe != nil {
 			return nil
 		}
 		decodedSliceResult_expectedParameter = append(
@@ -233,7 +233,7 @@ func DecodeParameter__Map16__BinaryDecoder_WebsocketMessage[
 	decodeEntry__ func(binaryDecoder *_BinaryDecoder_WebsocketMessage_, currentIndex_decodedMap int) (__Key__, __Value__),
 ) map[__Key__]__Value__ {
 	count_decodedMap := int(binaryDecoder.DecodeParameter_Uint16(label_expectedParameter + ".Count"))
-	if binaryDecoder.MaybeError_Earliest != nil {
+	if binaryDecoder.Error_Earliest__maybe != nil {
 		return nil
 	}
 	decodedMapResult_expectedParameter := make(map[__Key__]__Value__, count_decodedMap)
@@ -242,7 +242,7 @@ func DecodeParameter__Map16__BinaryDecoder_WebsocketMessage[
 			binaryDecoder,
 			currentIndex_decodedMap,
 		)
-		if binaryDecoder.MaybeError_Earliest != nil {
+		if binaryDecoder.Error_Earliest__maybe != nil {
 			return nil
 		}
 		decodedMapResult_expectedParameter[decodedKey] = decodedValue

@@ -27,16 +27,16 @@ func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 }
 
 type _Sync__WorkspaceOrder_LifecycleCoordinator_ struct {
-	ExpectedId_WebsocketConnection uint64
-	Message_SyncWorkspace          _SyncWorkspace__PtyMessage_Ingress_
+	Id_WebsocketConnection__expected uint64
+	Message__Batch_SyncPty           _Batch_SyncPty__PtyMessage_Ingress_
 }
 
 func (this _Sync__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
 	lifecycleCoordinator.OnSync_PtyPool__(
-		this.ExpectedId_WebsocketConnection,
-		this.Message_SyncWorkspace,
+		this.Id_WebsocketConnection__expected,
+		this.Message__Batch_SyncPty,
 	)
 }
 
@@ -57,7 +57,7 @@ func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 type _LifecycleCoordinator_WorkspacePty_ struct {
 	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
 	OnDisconnect_PtyWebsocket__ func()
-	OnSync_PtyPool__            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
+	OnSync_PtyPool__            func(id_WebsocketConnection__expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
 	OnExit_PtyProxy__           func(exitedId_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 	WorkerContext               _CONTEXT.Context
 	WorkerCancel                _CONTEXT.CancelFunc
@@ -67,7 +67,7 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
 	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
 	OnDisconnect_PtyWebsocket__ func()
-	OnSync_PtyPool__            func(expectedId_WebsocketConnection uint64, message_SyncWorkspace _SyncWorkspace__PtyMessage_Ingress_)
+	OnSync_PtyPool__            func(id_WebsocketConnection__expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
 	OnExit_PtyProxy__           func(exitedId_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
