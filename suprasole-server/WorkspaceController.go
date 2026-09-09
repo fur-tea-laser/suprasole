@@ -46,8 +46,8 @@ func New__WorkspaceController(
 		OnPayload_BinaryMessage__PtyWebsocket__: workspaceController_result.HandlePayload_BinaryMessage__PtyWebsocket,
 	})
 	workspaceController_result.MessageDebouncer__Batch_ResizePty = New__MessageDebouncer__Batch_ResizePty(_NewApi__MessageDebouncer__Batch_ResizePty_{
-		DebounceTimeout:   50 * _TIME.Millisecond,
-		OnBatch_ResizePty: workspaceController_result.HandleBatch_ResizePty__Debouncer,
+		DebounceTimeout__:               50 * _TIME.Millisecond,
+		OnFlush__OrderBatch_ResizePty__: workspaceController_result.HandleBatch_ResizePty__Debouncer,
 	})
 	workspaceController_result.LifecycleCoordinator_WorkspacePty = New__LifecycleCoordinator_WorkspacePty(_NewApi__LifecycleCoordinator_WorkspacePty_{
 		OnConnect_PtyWebsocket__:    workspaceController_result.HandleConnect_PtyWebsocket__Coordinator,
@@ -259,16 +259,16 @@ func (this *_WorkspaceController_) HandleExited_SystemError__Pty(
 }
 
 func (this *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
-	orderBatch_ResizePty__pending map[uint32]_Order_ResizePty_,
+	orderBatch_ResizePty_pending map[uint32]_Order_ResizePty_,
 ) {
-	for _, order_ResizePty__pending_some := range orderBatch_ResizePty__pending {
+	for _, order_ResizePty_pending_some := range orderBatch_ResizePty_pending {
 		this.Mutex.Lock()
-		WorkspacePty_target := this.PtyPool[order_ResizePty__pending_some.Id_PtyProxy]
+		WorkspacePty_target := this.PtyPool[order_ResizePty_pending_some.Id_PtyProxy]
 		this.Mutex.Unlock()
 		if WorkspacePty_target != nil {
 			_ = WorkspacePty_target.PtyProxy.Resize(
-				order_ResizePty__pending_some.ColumnCount_PtyTerminal,
-				order_ResizePty__pending_some.RowCount_PtyTerminal,
+				order_ResizePty_pending_some.ColumnCount_PtyTerminal,
+				order_ResizePty_pending_some.RowCount_PtyTerminal,
 			)
 		}
 	}

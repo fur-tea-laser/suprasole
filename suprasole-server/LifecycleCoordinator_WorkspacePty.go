@@ -9,13 +9,13 @@ type _WorkspaceOrder_LifecycleCoordinator_ interface {
 }
 
 type _Connect__WorkspaceOrder_LifecycleCoordinator_ struct {
-	ExpectedId_WebsocketConnection uint64
+	Id_WebsocketConnection_expected uint64
 }
 
 func (this _Connect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnConnect_PtyWebsocket__(this.ExpectedId_WebsocketConnection)
+	lifecycleCoordinator.OnConnect_PtyWebsocket__(this.Id_WebsocketConnection_expected)
 }
 
 type _Disconnect__WorkspaceOrder_LifecycleCoordinator_ struct{}
@@ -27,15 +27,15 @@ func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
 }
 
 type _Sync__WorkspaceOrder_LifecycleCoordinator_ struct {
-	Id_WebsocketConnection__expected uint64
-	Message__Batch_SyncPty           _Batch_SyncPty__PtyMessage_Ingress_
+	Id_WebsocketConnection_expected uint64
+	Message__Batch_SyncPty          _Batch_SyncPty__PtyMessage_Ingress_
 }
 
 func (this _Sync__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
 	lifecycleCoordinator.OnSync_PtyPool__(
-		this.Id_WebsocketConnection__expected,
+		this.Id_WebsocketConnection_expected,
 		this.Message__Batch_SyncPty,
 	)
 }
@@ -55,20 +55,20 @@ func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 }
 
 type _LifecycleCoordinator_WorkspacePty_ struct {
-	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
+	OnConnect_PtyWebsocket__    func(id_WebsocketConnection_expected uint64)
 	OnDisconnect_PtyWebsocket__ func()
-	OnSync_PtyPool__            func(id_WebsocketConnection__expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
-	OnExit_PtyProxy__           func(exitedId_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnSync_PtyPool__            func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
+	OnExit_PtyProxy__           func(id_PtyProxy_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	QueueChannel_WorkspaceOrder chan _WorkspaceOrder_LifecycleCoordinator_
 	WorkerContext               _CONTEXT.Context
 	WorkerCancel                _CONTEXT.CancelFunc
-	QueueChannel_WorkspaceOrder chan _WorkspaceOrder_LifecycleCoordinator_
 }
 
 type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
-	OnConnect_PtyWebsocket__    func(expectedId_WebsocketConnection uint64)
+	OnConnect_PtyWebsocket__    func(id_WebsocketConnection_expected uint64)
 	OnDisconnect_PtyWebsocket__ func()
-	OnSync_PtyPool__            func(id_WebsocketConnection__expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
-	OnExit_PtyProxy__           func(exitedId_PtyProxy uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnSync_PtyPool__            func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
+	OnExit_PtyProxy__           func(id_PtyProxy_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
 func New__LifecycleCoordinator_WorkspacePty(
@@ -80,9 +80,9 @@ func New__LifecycleCoordinator_WorkspacePty(
 		OnDisconnect_PtyWebsocket__: api.OnDisconnect_PtyWebsocket__,
 		OnSync_PtyPool__:            api.OnSync_PtyPool__,
 		OnExit_PtyProxy__:           api.OnExit_PtyProxy__,
+		QueueChannel_WorkspaceOrder: make(chan _WorkspaceOrder_LifecycleCoordinator_, 16),
 		WorkerContext:               workerContext,
 		WorkerCancel:                workerCancel,
-		QueueChannel_WorkspaceOrder: make(chan _WorkspaceOrder_LifecycleCoordinator_, 16),
 	}
 }
 
@@ -91,93 +91,87 @@ func (this *_LifecycleCoordinator_WorkspacePty_) RunWorker() {
 		select {
 		case <-this.WorkerContext.Done():
 			return
-		case leadingOrder := <-this.QueueChannel_WorkspaceOrder:
-			pendingOrders := this.DrainPendingOrders(leadingOrder)
-			reconciledOrders := this.ReconcileOrders(pendingOrders)
-			for _, currentReconciledOrder := range reconciledOrders {
-				currentReconciledOrder.Execute(this)
+		case order_leading := <-this.QueueChannel_WorkspaceOrder:
+			orderBatch_pending := this.Drain__QueueChannel_WorkspaceOrder(order_leading)
+			orderBatch_reconciled := this.Reconcile__orderBatch_pending(orderBatch_pending)
+			for _, order__reconciled_current := range orderBatch_reconciled {
+				order__reconciled_current.Execute(this)
 			}
 		}
 	}
 }
 
-func (this *_LifecycleCoordinator_WorkspacePty_) DrainPendingOrders(
-	leadingOrder _WorkspaceOrder_LifecycleCoordinator_,
+func (this *_LifecycleCoordinator_WorkspacePty_) Drain__QueueChannel_WorkspaceOrder(
+	order_leading _WorkspaceOrder_LifecycleCoordinator_,
 ) []_WorkspaceOrder_LifecycleCoordinator_ {
-	pendingOrdersResult := []_WorkspaceOrder_LifecycleCoordinator_{leadingOrder}
+	orderBatch__pending_result := []_WorkspaceOrder_LifecycleCoordinator_{order_leading}
 	for {
 		select {
-		case nextPendingOrder := <-this.QueueChannel_WorkspaceOrder:
-			pendingOrdersResult = append(
-				pendingOrdersResult,
-				nextPendingOrder,
+		case order__pending_next := <-this.QueueChannel_WorkspaceOrder:
+			orderBatch__pending_result = append(
+				orderBatch__pending_result,
+				order__pending_next,
 			)
 		default:
-			return pendingOrdersResult
+			return orderBatch__pending_result
 		}
 	}
 }
 
-func isConnect__LastOrder_Network(
-	networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_,
-) bool {
-	if len(networkOrdersResult) == 0 {
-		return false
-	} else {
-		_, isConnect := networkOrdersResult[len(networkOrdersResult)-1].(_Connect__WorkspaceOrder_LifecycleCoordinator_)
-		return isConnect
-	}
-}
-
-func isSync__LastOrder_Network(
-	networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_,
-) bool {
-	if len(networkOrdersResult) == 0 {
-		return false
-	} else {
-		_, isSync := networkOrdersResult[len(networkOrdersResult)-1].(_Sync__WorkspaceOrder_LifecycleCoordinator_)
-		return isSync
-	}
-}
-
-func (this *_LifecycleCoordinator_WorkspacePty_) ReconcileOrders(
-	pendingOrders []_WorkspaceOrder_LifecycleCoordinator_,
+func (this *_LifecycleCoordinator_WorkspacePty_) Reconcile__orderBatch_pending(
+	orderBatch_pending []_WorkspaceOrder_LifecycleCoordinator_,
 ) []_WorkspaceOrder_LifecycleCoordinator_ {
-	var exitOrdersResult []_WorkspaceOrder_LifecycleCoordinator_
-	var networkOrdersResult []_WorkspaceOrder_LifecycleCoordinator_
-	for _, currentPendingOrder := range pendingOrders {
-		switch theCurrentPendingOrder := currentPendingOrder.(type) {
+	var orderBatch_ExitPty_result []_WorkspaceOrder_LifecycleCoordinator_
+	var orderBatch_Session_result []_WorkspaceOrder_LifecycleCoordinator_
+	for _, order__pending_current := range orderBatch_pending {
+		switch order__pending_current_the := order__pending_current.(type) {
 		case _ExitPty__WorkspaceOrder_LifecycleCoordinator_:
-			exitOrdersResult = append(
-				exitOrdersResult,
-				theCurrentPendingOrder,
+			orderBatch_ExitPty_result = append(
+				orderBatch_ExitPty_result,
+				order__pending_current_the,
 			)
 		case _Disconnect__WorkspaceOrder_LifecycleCoordinator_:
-			networkOrdersResult = []_WorkspaceOrder_LifecycleCoordinator_{
-				theCurrentPendingOrder,
+			orderBatch_Session_result = []_WorkspaceOrder_LifecycleCoordinator_{
+				order__pending_current_the,
 			}
 		case _Connect__WorkspaceOrder_LifecycleCoordinator_:
-			if isConnect__LastOrder_Network(networkOrdersResult) {
-				networkOrdersResult[len(networkOrdersResult)-1] = theCurrentPendingOrder
-			} else {
-				networkOrdersResult = append(
-					networkOrdersResult,
-					theCurrentPendingOrder,
-				)
-			}
+			orderBatch_Session_result = upsertTail_Order__orderBatch_Session(
+				orderBatch_Session_result,
+				order__pending_current_the,
+			)
 		case _Sync__WorkspaceOrder_LifecycleCoordinator_:
-			if isSync__LastOrder_Network(networkOrdersResult) {
-				networkOrdersResult[len(networkOrdersResult)-1] = theCurrentPendingOrder
-			} else {
-				networkOrdersResult = append(
-					networkOrdersResult,
-					theCurrentPendingOrder,
-				)
-			}
+			orderBatch_Session_result = upsertTail_Order__orderBatch_Session(
+				orderBatch_Session_result,
+				order__pending_current_the,
+			)
 		}
 	}
 	return append(
-		exitOrdersResult,
-		networkOrdersResult...,
+		orderBatch_ExitPty_result,
+		orderBatch_Session_result...,
 	)
+}
+
+func upsertTail_Order__orderBatch_Session[
+	__Order__ _WorkspaceOrder_LifecycleCoordinator_,
+](
+	orderBatch_Session_result []_WorkspaceOrder_LifecycleCoordinator_,
+	order__pending_current_the __Order__,
+) []_WorkspaceOrder_LifecycleCoordinator_ {
+	if 0 == len(orderBatch_Session_result) {
+		return append(
+			orderBatch_Session_result,
+			order__pending_current_the,
+		)
+	}
+	switch orderBatch_Session_result[len(orderBatch_Session_result)-1].(type) {
+	case __Order__:
+		orderBatch_Session_result[len(orderBatch_Session_result)-1] = order__pending_current_the
+		return orderBatch_Session_result
+	default:
+		return append(
+			orderBatch_Session_result,
+			order__pending_current_the,
+		)
+	}
 }

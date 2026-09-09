@@ -11,49 +11,46 @@ import (
 )
 
 func main() {
-	hostPortAddressFlag := _FLAG.String(
-		"address",
+	cliOption__Address_HttpServer := _FLAG.String(
+		"Address_HttpServer",
 		"127.0.0.1:8000",
-		"Host and port address to listen on",
+		"Network address (host:port) for the HTTP server to listen on",
 	)
 	_FLAG.Parse()
 	workspaceController := New__WorkspaceController(_NewApi__WorkspaceController_{
-		Address_HttpServer__: *hostPortAddressFlag,
-		Defaults_PtyProxy__: _Defaults_PtyProxy_{
-			ScrollbackLineCount_PtyTerminal__:       10000,
-			StagingBufferSize_PtyReader__:           16 * 1024,
-			PostSnapshotBufferSize_PtyProxy__:       64 * 1024,
-			QueueBufferSize_InputOrder__PtyWriter__: 1024,
+		Address_HttpServer__: *cliOption__Address_HttpServer,
+		OptionConfig_PtyProxy__default__: _OptionConfig_PtyProxy_{
+			Count_ScrollbackLine__PtyTerminal:      10000,
+			Size_StagingBuffer__PtyReader:          16 * 1024,
+			Size_PostSnapshotBuffer__PtyProxy:      64 * 1024,
+			Size_QueueBuffer__InputOrder_PtyWriter: 1024,
 		},
 	})
-	startSessionError := workspaceController.StartSession()
-	if startSessionError != nil {
+	error_startSession_maybe := workspaceController.StartSession()
+	if error_startSession_maybe != nil {
 		_FMT.Fprintf(
 			_OS.Stderr,
 			"Error starting session: %v\n",
-			startSessionError,
+			error_startSession_maybe,
 		)
 		_OS.Exit(1)
 	}
 	_FMT.Printf(
 		"Suprasole server listening on %s\n",
-		*hostPortAddressFlag,
+		*cliOption__Address_HttpServer,
 	)
-	shutdownSignalChannel := make(
-		chan _OS.Signal,
-		1,
-	)
+	channel_shutdownSignal := make(chan _OS.Signal, 1)
 	_SIGNAL.Notify(
-		shutdownSignalChannel,
+		channel_shutdownSignal,
 		_OS.Interrupt,
 		_SYSCALL.SIGTERM,
 	)
-	<-shutdownSignalChannel
+	<-channel_shutdownSignal
 	_FMT.Println("Shutting down suprasole server...")
-	context_shutdownDeadline__HttpServer, cancelShutdownDeadline_HttpServer := _CONTEXT.WithTimeout(
+	context_shutdownDeadline__HttpServer, cancel_shutdownDeadline__HttpServer := _CONTEXT.WithTimeout(
 		_CONTEXT.Background(),
 		5*_TIME.Second,
 	)
 	_ = workspaceController.StopSession(context_shutdownDeadline__HttpServer)
-	cancelShutdownDeadline_HttpServer()
+	cancel_shutdownDeadline__HttpServer()
 }
