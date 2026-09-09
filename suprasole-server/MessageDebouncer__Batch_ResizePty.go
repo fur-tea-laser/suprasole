@@ -13,13 +13,13 @@ type _MessageDebouncer__Batch_ResizePty_ struct {
 	WorkerCancel                    _CONTEXT.CancelFunc
 }
 
-type _NewApi__MessageDebouncer__Batch_ResizePty_ struct {
+type _MakeApi__MessageDebouncer__Batch_ResizePty_ struct {
 	DebounceTimeout__               _TIME.Duration
 	OnFlush__OrderBatch_ResizePty__ func(orderBatch_ResizePty_pending map[uint32]_Order_ResizePty_)
 }
 
-func New__MessageDebouncer__Batch_ResizePty(
-	api _NewApi__MessageDebouncer__Batch_ResizePty_,
+func Make__MessageDebouncer__Batch_ResizePty(
+	api _MakeApi__MessageDebouncer__Batch_ResizePty_,
 ) *_MessageDebouncer__Batch_ResizePty_ {
 	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	return &_MessageDebouncer__Batch_ResizePty_{

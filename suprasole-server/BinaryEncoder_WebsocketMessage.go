@@ -8,7 +8,7 @@ type _BinaryEncoder_WebsocketMessage_ struct {
 	Buffer__Payload_BinaryMessage []byte
 }
 
-func New__BinaryEncoder_WebsocketMessage() _BinaryEncoder_WebsocketMessage_ {
+func Make__BinaryEncoder_WebsocketMessage() _BinaryEncoder_WebsocketMessage_ {
 	return _BinaryEncoder_WebsocketMessage_{
 		Buffer__Payload_BinaryMessage: make([]byte, 0),
 	}

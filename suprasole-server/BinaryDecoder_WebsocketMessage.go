@@ -13,14 +13,14 @@ type _BinaryDecoder_WebsocketMessage_ struct {
 	Error_Earliest_maybe          error
 }
 
-type _NewApi__BinaryDecoder_WebsocketMessage_ struct {
+type _MakeApi__BinaryDecoder_WebsocketMessage_ struct {
 	Label_MessageStruct__         string
 	Buffer__Payload_BinaryMessage []byte
 	Cursor_Buffer                 int
 }
 
-func New__BinaryDecoder_WebsocketMessage(
-	api _NewApi__BinaryDecoder_WebsocketMessage_,
+func Make__BinaryDecoder_WebsocketMessage(
+	api _MakeApi__BinaryDecoder_WebsocketMessage_,
 ) _BinaryDecoder_WebsocketMessage_ {
 	return _BinaryDecoder_WebsocketMessage_{
 		Label_MessageStruct__:         api.Label_MessageStruct__,

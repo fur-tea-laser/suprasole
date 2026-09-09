@@ -123,7 +123,7 @@ func (this *_WebsocketController_) HandleRequest_GetWebsocketConnection(
 			return
 		} else {
 			// submissionReply_GetWebsocketConnection.Error_Submission_maybe != nil
-			_FMT.Println("invalid path: HandleRequest_GetWebsocketConnection")
+			_FMT.Println("invalid path: _WebsocketController_ HandleRequest_GetWebsocketConnection")
 			return
 		}
 	}
@@ -155,7 +155,7 @@ func (this *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 						)
 						break
 					} else {
-						_FMT.Println("invalid path: RunWorker__Submission_GetWebsocketConnection read loop")
+						_FMT.Println("invalid path: _WebsocketController_ RunWorker__Submission_GetWebsocketConnection read loop")
 					}
 				}
 			}
@@ -224,7 +224,7 @@ func (this *_WebsocketController_) Update_WebsocketConnection(
 		this.Mutex.Unlock()
 		return false, 0
 	} else {
-		_FMT.Println("invalid path: Update_WebsocketConnection")
+		_FMT.Println("invalid path: _WebsocketController_ Update_WebsocketConnection")
 		return false, 0
 	}
 }
@@ -258,7 +258,7 @@ func (this *_WebsocketController_) Teardown_WebsocketConnection() {
 		this.Status_WebsocketConnection_current = DISCONNECTED__Status_WebsocketConnection
 		WebsocketConnection_closing = this.WebsocketConnection_current
 	} else {
-		_FMT.Println("invalid path: Teardown_WebsocketConnection state transition")
+		_FMT.Println("invalid path: _WebsocketController_ Teardown_WebsocketConnection state transition")
 	}
 	this.WebsocketConnection_current = nil
 	this.Mutex.Unlock()
@@ -270,7 +270,7 @@ func (this *_WebsocketController_) Teardown_WebsocketConnection() {
 	} else if NOT_PENDING__TakeoverStatus_WebsocketConnection == takeoverStatus_WebsocketConnection_captured {
 		this.OnDisconnected__()
 	} else {
-		_FMT.Println("invalid path: Teardown_WebsocketConnection callback dispatch")
+		_FMT.Println("invalid path: _WebsocketController_ Teardown_WebsocketConnection callback dispatch")
 	}
 }
 
@@ -313,7 +313,7 @@ func (this *_WebsocketController_) WritePayload_BinaryMessage(
 	} else if this.Id_WebsocketConnection_current != id_WebsocketConnection_expected {
 		error_state__WebsocketConnection__maybe = ERROR__CONNECTION_ID_MISALIGNED___WRITE_PAYLOAD__BINARY_MESSAGE
 	} else {
-		_FMT.Println("invalid path: WritePayload_BinaryMessage")
+		_FMT.Println("invalid path: _WebsocketController_ WritePayload_BinaryMessage")
 	}
 	this.Mutex.Unlock()
 	if error_state__WebsocketConnection__maybe != nil {

@@ -17,7 +17,7 @@ func main() {
 		"Network address (host:port) for the HTTP server to listen on",
 	)
 	_FLAG.Parse()
-	workspaceController := New__WorkspaceController(_NewApi__WorkspaceController_{
+	workspaceController := Make_WorkspaceController(_MakeApi_WorkspaceController_{
 		Address_HttpServer__: *cliOption__Address_HttpServer,
 		OptionConfig_PtyProxy__default__: _OptionConfig_PtyProxy_{
 			Count_ScrollbackLine__PtyTerminal:      10000,

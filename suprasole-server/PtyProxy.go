@@ -43,7 +43,7 @@ type _PtyProxy_ struct {
 	PostSnapshotBuffer               *_BYTES.Buffer
 }
 
-type _SpawnApi__PtyProxy_ struct {
+type _SpawnApi_PtyProxy_ struct {
 	OnSpawned_PtyProxy__                   func(ptyProxy *_PtyProxy_)
 	OnOutput_Live__PtyProxy__              func(ptyProxy *_PtyProxy_, outputData_PtyDevice []byte)
 	OnOutput_Snapshot__PtyProxy__          func(ptyProxy *_PtyProxy_, outputData_PtyTerminal []byte)
@@ -65,8 +65,8 @@ type _SpawnApi__PtyProxy_ struct {
 	Size_QueueBuffer__InputOrder_PtyWriter int
 }
 
-func Spawn__PtyProxy(
-	api _SpawnApi__PtyProxy_,
+func Spawn_PtyProxy(
+	api _SpawnApi_PtyProxy_,
 ) error {
 	ptyProxy_result := &_PtyProxy_{
 		OnOutput_Live__:                  api.OnOutput_Live__PtyProxy__,

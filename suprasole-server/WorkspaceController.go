@@ -20,13 +20,13 @@ type _WorkspaceController_ struct {
 	LifecycleCoordinator_WorkspacePty *_LifecycleCoordinator_WorkspacePty_
 }
 
-type _NewApi__WorkspaceController_ struct {
+type _MakeApi_WorkspaceController_ struct {
 	Address_HttpServer__             string
 	OptionConfig_PtyProxy__default__ _OptionConfig_PtyProxy_
 }
 
-func New__WorkspaceController(
-	api _NewApi__WorkspaceController_,
+func Make_WorkspaceController(
+	api _MakeApi_WorkspaceController_,
 ) *_WorkspaceController_ {
 	workspaceController_result := &_WorkspaceController_{
 		OptionConfig_PtyProxy__default__:  api.OptionConfig_PtyProxy__default__,
@@ -37,7 +37,7 @@ func New__WorkspaceController(
 		MessageDebouncer__Batch_ResizePty: nil,
 		LifecycleCoordinator_WorkspacePty: nil,
 	}
-	workspaceController_result.WorkspaceNetwork = New__WorkspaceNetwork(_NewApi__WorkspaceNetwork_{
+	workspaceController_result.WorkspaceNetwork = Make_WorkspaceNetwork(_MakeApi_WorkspaceNetwork_{
 		Address_HttpServer__:                    api.Address_HttpServer__,
 		OnConnected_PtyWebsocket__:              workspaceController_result.HandleConnected_PtyWebsocket,
 		OnConnected_Takeover__PtyWebsocket__:    workspaceController_result.HandleConnected_Takeover__PtyWebsocket,
@@ -45,11 +45,11 @@ func New__WorkspaceController(
 		OnDisconnected_Takeover__PtyWebsocket__: workspaceController_result.HandleDisconnected_Takeover__PtyWebsocket,
 		OnPayload_BinaryMessage__PtyWebsocket__: workspaceController_result.HandlePayload_BinaryMessage__PtyWebsocket,
 	})
-	workspaceController_result.MessageDebouncer__Batch_ResizePty = New__MessageDebouncer__Batch_ResizePty(_NewApi__MessageDebouncer__Batch_ResizePty_{
+	workspaceController_result.MessageDebouncer__Batch_ResizePty = Make__MessageDebouncer__Batch_ResizePty(_MakeApi__MessageDebouncer__Batch_ResizePty_{
 		DebounceTimeout__:               50 * _TIME.Millisecond,
 		OnFlush__OrderBatch_ResizePty__: workspaceController_result.HandleBatch_ResizePty__Debouncer,
 	})
-	workspaceController_result.LifecycleCoordinator_WorkspacePty = New__LifecycleCoordinator_WorkspacePty(_NewApi__LifecycleCoordinator_WorkspacePty_{
+	workspaceController_result.LifecycleCoordinator_WorkspacePty = Make__LifecycleCoordinator_WorkspacePty(_MakeApi__LifecycleCoordinator_WorkspacePty_{
 		OnConnect_PtyWebsocket__:    workspaceController_result.HandleConnect_PtyWebsocket__Coordinator,
 		OnDisconnect_PtyWebsocket__: workspaceController_result.HandleDisconnect_PtyWebsocket__Coordinator,
 		OnSync_PtyPool__:            workspaceController_result.HandleSync_PtyPool__Coordinator,
@@ -313,7 +313,7 @@ func (this *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() 
 		case EXITED__Mode_PtyProxy:
 		default:
 			// SPAWNING__Mode_PtyProxy == WorkspacePty_some.PtyProxy.Mode_current
-			_FMT.Println("invalid path: HandleDisconnect_PtyWebsocket__Coordinator")
+			_FMT.Println("invalid path: _WorkspaceController_ HandleDisconnect_PtyWebsocket__Coordinator")
 		}
 	}
 }
@@ -367,7 +367,7 @@ func (this *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
 			WorkspacePty_some.PtyProxy.TransitionMode_LiveToPreSnapshot()
 		} else if nil == order_SyncPty_maybe && NOT_VISIBLE__Visibility_Client == visibility_Client_captured {
 		} else {
-			_FMT.Println("invalid path: HandleSync_PtyPool__Coordinator")
+			_FMT.Println("invalid path: _WorkspaceController_ HandleSync_PtyPool__Coordinator")
 		}
 	}
 }

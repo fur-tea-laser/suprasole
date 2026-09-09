@@ -64,15 +64,15 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 	WorkerCancel                _CONTEXT.CancelFunc
 }
 
-type _NewApi__LifecycleCoordinator_WorkspacePty_ struct {
+type _MakeApi__LifecycleCoordinator_WorkspacePty_ struct {
 	OnConnect_PtyWebsocket__    func(id_WebsocketConnection_expected uint64)
 	OnDisconnect_PtyWebsocket__ func()
 	OnSync_PtyPool__            func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
 	OnExit_PtyProxy__           func(id_PtyProxy_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 }
 
-func New__LifecycleCoordinator_WorkspacePty(
-	api _NewApi__LifecycleCoordinator_WorkspacePty_,
+func Make__LifecycleCoordinator_WorkspacePty(
+	api _MakeApi__LifecycleCoordinator_WorkspacePty_,
 ) *_LifecycleCoordinator_WorkspacePty_ {
 	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	return &_LifecycleCoordinator_WorkspacePty_{

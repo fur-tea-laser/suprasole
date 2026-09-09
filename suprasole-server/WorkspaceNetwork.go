@@ -14,7 +14,7 @@ type _WorkspaceNetwork_ struct {
 	WebsocketController_Pty *_WebsocketController_
 }
 
-type _NewApi__WorkspaceNetwork_ struct {
+type _MakeApi_WorkspaceNetwork_ struct {
 	Address_HttpServer__                    string
 	OnConnected_PtyWebsocket__              func(id_WebsocketConnection_new uint64)
 	OnConnected_Takeover__PtyWebsocket__    func(id_WebsocketConnection_new uint64)
@@ -23,8 +23,8 @@ type _NewApi__WorkspaceNetwork_ struct {
 	OnPayload_BinaryMessage__PtyWebsocket__ func(id_WebsocketConnection_expected uint64, payload_binaryMessage []byte)
 }
 
-func New__WorkspaceNetwork(
-	api _NewApi__WorkspaceNetwork_,
+func Make_WorkspaceNetwork(
+	api _MakeApi_WorkspaceNetwork_,
 ) *_WorkspaceNetwork_ {
 	queueChannel__Submission_GetWebsocketConnection := make(chan _Submission_GetWebsocketConnection_, 16)
 	workerContext__Submission_GetWebsocketConnection, workerCancel__Submission_GetWebsocketConnection := _CONTEXT.WithCancel(_CONTEXT.Background())

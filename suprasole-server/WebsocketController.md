@@ -6,7 +6,7 @@ This section documents the architectural design principles, race-prevention inva
 
 ### 1. Ingress Concurrency Decoupling (HandleRequest_GetWebsocketConnection)
 * **HTTP Multi-Threading vs. Single-Worker Lifecycle Ownership**: Go's net/http handles incoming client requests across arbitrary worker goroutines. Allowing HTTP handlers to directly mutate socket pointers or execute upgrades triggers data races and split-brain session states.
-* **Invariant: Single-Source Takeover Signalling**: When a new connection arrives while an active session exists (CONNECTED__Status_WebsocketConnection), HandleRequest_GetWebsocketConnection does not perform socket teardown directly on the HTTP handler thread. Instead, it flags IsTakeoverPending = true under lock and sends a Close control frame. This forces the active read loop to exit cleanly and delegates teardown exclusively to the background worker thread, eliminating teardown-versus-upgrade race conditions.
+* **Invariant: Single-Source Takeover Signalling**: When a new connection arrives while an active session exists (CONNECTED__Status_WebsocketConnection), HandleRequest_GetWebsocketConnection does not perform socket teardown directly on the HTTP handler thread. Instead, it sets TakeoverStatus_WebsocketConnection_current = PENDING__TakeoverStatus_WebsocketConnection under lock and sends a Close control frame. This forces the active read loop to exit cleanly and delegates teardown exclusively to the background worker thread, eliminating teardown-versus-upgrade race conditions.
 * **Invariant: Bounded Queue Backpressure & Resiliency**: Bounding SubmissionQueue via non-blocking select fallback prevents server memory exhaustion during reconnect storms. Synchronous reply channels paired with context monitoring guarantee that client cancellations and obsolete requests release HTTP worker threads cleanly.
 
 ### 2. The Single-Threaded Core & Thread-Safe State Machine Isolation (RunLifecycleLoop)
@@ -21,7 +21,7 @@ This section documents the architectural design principles, race-prevention inva
 
 ### 4. Handoff Distinction & Status Preservation (UpdateWebsocketConnection)
 * **Granular Handoff Telemetry**: Provides downstream controllers with granular lifecycle hooks to distinguish cold connections from live session takeovers.
-* **Invariant: Preserved State Intent Across Upgrades**: By explicitly tracking TAKEOVER_CONNECTING__Status_WebsocketConnection state across the upgrade window, the worker deterministically fires takeover-specific callbacks (OnTakeoverConnected / OnTakeoverDisconnected) versus standard callbacks (OnConnected / OnDisconnected), and transitions to TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection versus UPGRADE_FAILED__Status_WebsocketConnection upon error. This guarantees that failure telemetry accurately reflects whether an established session was evicted during a failed takeover attempt.
+* **Invariant: Preserved State Intent Across Upgrades**: By explicitly tracking TAKEOVER_CONNECTING__Status_WebsocketConnection state across the upgrade window, the worker deterministically fires takeover-specific callbacks (OnConnected_Takeover / OnDisconnected_Takeover) versus standard callbacks (OnConnected / OnDisconnected), and transitions to TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection versus UPGRADE_FAILED__Status_WebsocketConnection upon error. This guarantees that failure telemetry accurately reflects whether an established session was evicted during a failed takeover attempt.
 
 ### 5. Single-Source Teardown & Callback Ordering (HandleConnectionTeardown)
 * **Teardown Race Elimination**: Teardowns originate from administrative eviction, client closure, or network drops. Executing teardown logic across multiple threads could trigger double-close panics or corrupted callback ordering.
@@ -36,7 +36,7 @@ This section documents the architectural design principles, race-prevention inva
 ## Inherent System Realities & Architectural Trade-Offs
 
 ### 1. Ingress Byte Discarding on Administrative Socket Closure
-* **Mechanism**: When an administrative teardown or session takeover occurs, HandleRequest_GetWebsocketConnection flags IsTakeoverPending = true and invokes CloseWithCode (or Close).
+* **Mechanism**: When an administrative teardown or session takeover occurs, HandleRequest_GetWebsocketConnection sets TakeoverStatus_WebsocketConnection_current = PENDING__TakeoverStatus_WebsocketConnection and invokes CloseWithCode (or Close).
 * **Inherent System Reality**: Any WebSocket binary message frames (e.g., client stdin keypresses or control frames) that were successfully transmitted across the TCP network and received into the OS kernel socket receive buffer (or Gorilla's internal buffer), but **not yet popped by ReadMessage()**, are discarded when Close() invalidates the underlying OS net descriptor.
 * **Network Delivery vs. Application Processing**: Even though network transmission succeeded, closing the descriptor terminates kernel receive queues (recv()) before RunLifecycleLoop can invoke ReadMessage() to process the queued frames into OnBinaryMessage.
 * **Library vs. Kernel Bounds**: Replacing Gorilla WebSocket with a custom WebSocket implementation would not prevent this, as closing the underlying socket connection at the OS level inherently purges unread kernel receive buffers.
@@ -80,12 +80,12 @@ This section documents the architectural design principles, race-prevention inva
 WritePayload_BinaryMessage safely serializes outbound binary payloads over the active WebSocket connection with write deadline protection and single-writer mutex serialization (EgressMutex).
 
 #### Parameters
-1. **expectedId_WebsocketConnection**: Expected generation uint64 ID of the connection session.
+1. **id_WebsocketConnection_expected**: Expected generation uint64 ID of the connection session.
 2. **payload_binaryMessage**: Raw binary slice ([]byte) transmitted as a WEBSOCKET.BinaryMessage over the wire (e.g., encoded egress message payloads or stdout bytes from the pseudo-terminal process).
 
 #### Whitelisting & Guard Invariants
-* **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: `CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection && expectedId_WebsocketConnection == this.Id_WebsocketConnection`. Egress is allowed if and only if the session is fully established and the target connection ID matches.
-* **Error Handling**: If the socket is offline or transitioning (STANDBY__Status_WebsocketConnection, CONNECTING__Status_WebsocketConnection, TAKEOVER_CONNECTING__Status_WebsocketConnection, or DISCONNECTED__Status_WebsocketConnection), it returns error "websocket is not connected" (NOT_CONNECTED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE). If the connection ID does not match, it returns "websocket connection id does not align" (CONNECTION_ID_MISALIGNED__ERROR___WRITE_PAYLOAD__BINARY_MESSAGE).
+* **Positive Status & Connection Whitelisting**: Performs a combined assertion under lock: `CONNECTED__Status_WebsocketConnection == this.Status_WebsocketConnection_current && id_WebsocketConnection_expected == this.Id_WebsocketConnection_current`. Egress is allowed if and only if the session is fully established and the target connection ID matches.
+* **Error Handling**: If the socket is offline or transitioning (STANDBY__Status_WebsocketConnection, CONNECTING__Status_WebsocketConnection, TAKEOVER_CONNECTING__Status_WebsocketConnection, or DISCONNECTED__Status_WebsocketConnection), it returns error "websocket is not connected" (ERROR__NOT_CONNECTED___WRITE_PAYLOAD__BINARY_MESSAGE). If the connection ID does not match, it returns "websocket connection id does not align" (ERROR__CONNECTION_ID_MISALIGNED___WRITE_PAYLOAD__BINARY_MESSAGE).
 
 #### SetWriteDeadline Error Discarding Rationale (_ = ...)
 * **Immediate Fallthrough to WriteMessage**: SetWriteDeadline configures an auxiliary write deadline on the net socket immediately prior to WriteMessage. If SetWriteDeadline fails due to a closed or broken socket (net.ErrClosed), calling WriteMessage on the very next line will instantly fail with the exact same underlying socket error.

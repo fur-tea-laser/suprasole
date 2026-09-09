@@ -36,8 +36,8 @@ type _PtyMessage_Ingress_ interface {
 func decodePayload_SpawnPty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
-	binaryDecoder_SpawnPty := New__BinaryDecoder_WebsocketMessage(
-		_NewApi__BinaryDecoder_WebsocketMessage_{
+	binaryDecoder_SpawnPty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
 			Label_MessageStruct__:         "SpawnPty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
@@ -175,7 +175,7 @@ func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_this.Id_PtyProxy_next++
 	WorkspaceController_this.Mutex.Unlock()
 	go func() {
-		startError_PtyCommand := Spawn__PtyProxy(_SpawnApi__PtyProxy_{
+		startError_PtyCommand := Spawn_PtyProxy(_SpawnApi_PtyProxy_{
 			OnSpawned_PtyProxy__:                   WorkspaceController_this.HandleSpawned_Pty,
 			OnOutput_Live__PtyProxy__:              WorkspaceController_this.HandleOutput_Pty,
 			OnOutput_Snapshot__PtyProxy__:          WorkspaceController_this.HandleOutput_Pty,
@@ -205,8 +205,8 @@ func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 func decodePayload_Batch_ResizePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
-	binaryDecoder__Batch_ResizePty := New__BinaryDecoder_WebsocketMessage(
-		_NewApi__BinaryDecoder_WebsocketMessage_{
+	binaryDecoder__Batch_ResizePty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
 			Label_MessageStruct__:         "Batch_ResizePty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
@@ -255,8 +255,8 @@ func (this _Batch_ResizePty__PtyMessage_Ingress_) Execute(
 func decodePayload_WriteInput_Pty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
-	binaryDecoder_WriteInput_Pty := New__BinaryDecoder_WebsocketMessage(
-		_NewApi__BinaryDecoder_WebsocketMessage_{
+	binaryDecoder_WriteInput_Pty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
 			Label_MessageStruct__:         "WriteInput_Pty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
@@ -303,8 +303,8 @@ func (this _WriteInput_Pty__PtyMessage_Ingress_) Execute(
 func decodePayload_TerminatePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
-	binaryDecoder_TerminatePty := New__BinaryDecoder_WebsocketMessage(
-		_NewApi__BinaryDecoder_WebsocketMessage_{
+	binaryDecoder_TerminatePty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
 			Label_MessageStruct__:         "TerminatePty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
@@ -342,8 +342,8 @@ func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 func decodePayload_Batch_RemovePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
-	binaryDecoder__Batch_RemovePty := New__BinaryDecoder_WebsocketMessage(
-		_NewApi__BinaryDecoder_WebsocketMessage_{
+	binaryDecoder__Batch_RemovePty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
 			Label_MessageStruct__:         "Batch_RemovePty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
@@ -396,8 +396,8 @@ func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
 func decodePayload_Batch_SyncPty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
-	binaryDecoder__Batch_SyncPty := New__BinaryDecoder_WebsocketMessage(
-		_NewApi__BinaryDecoder_WebsocketMessage_{
+	binaryDecoder__Batch_SyncPty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
 			Label_MessageStruct__:         "Batch_SyncPty",
 			Cursor_Buffer:                 2,
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
