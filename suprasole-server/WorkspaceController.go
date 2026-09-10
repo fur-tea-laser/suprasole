@@ -142,7 +142,7 @@ func __decodeWebsocketPayload_binaryMessage[
 		)
 		return
 	}
-	ingressMessage_decoded, error_decodePayloadToMessage__maybe := decodePayloadToMessage(payload_binaryMessage)
+	message_decoded, error_decodePayloadToMessage__maybe := decodePayloadToMessage(payload_binaryMessage)
 	if error_decodePayloadToMessage__maybe != nil {
 		_FMT.Printf(
 			"%s decode message error: %v\n",
@@ -151,7 +151,7 @@ func __decodeWebsocketPayload_binaryMessage[
 		)
 		return
 	}
-	ingressMessage_decoded.Execute(
+	message_decoded.Execute(
 		WorkspaceController_this,
 		id_WebsocketConnection_expected,
 	)
