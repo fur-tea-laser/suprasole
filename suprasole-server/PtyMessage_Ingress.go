@@ -166,40 +166,10 @@ func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded *_WorkspaceController_,
 	id_WebsocketConnection_expected uint64,
 ) {
-	optionConfig_PtyProxy_result := WorkspaceController_forwarded.OptionConfig_PtyProxy__default__
-	for _, option_PtyProxy_current := range this.OptionBatch_PtyProxy {
-		option_PtyProxy_current.Update_OptionConfig(&optionConfig_PtyProxy_result)
+	WorkspaceController_forwarded.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _SpawnPty__WorkspaceOrder_LifecycleCoordinator_{
+		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
+		Message__SpawnPty:               this,
 	}
-	WorkspaceController_forwarded.Mutex.Lock()
-	id_PtyProxy_new := WorkspaceController_forwarded.Id_PtyProxy_next
-	WorkspaceController_forwarded.Id_PtyProxy_next++
-	WorkspaceController_forwarded.Mutex.Unlock()
-	go func() {
-		startError_PtyCommand := Spawn_PtyProxy(_SpawnApi_PtyProxy_{
-			OnSpawned_PtyProxy__:                   WorkspaceController_forwarded.HandleSpawned_Pty,
-			OnOutput_Live__PtyProxy__:              WorkspaceController_forwarded.HandleOutput_Pty,
-			OnOutput_Snapshot__PtyProxy__:          WorkspaceController_forwarded.HandleOutput_Pty,
-			OnOutput_PostSnapshot__PtyProxy__:      WorkspaceController_forwarded.HandleOutput_Pty,
-			OnExited_Eio_Success__PtyProxy__:       WorkspaceController_forwarded.HandleExited_Eio_Success__Pty,
-			OnExited_Eio_Failure__PtyProxy__:       WorkspaceController_forwarded.HandleExited_Eio_Failure__Pty,
-			OnExited_Eio_Killed__PtyProxy__:        WorkspaceController_forwarded.HandleExited_Eio_Killed__Pty,
-			OnExited_Closed__PtyProxy__:            WorkspaceController_forwarded.HandleExited_Closed__Pty,
-			OnExited_SystemError__PtyProxy__:       WorkspaceController_forwarded.HandleExited_SystemError__Pty,
-			Id_PtyProxy:                            id_PtyProxy_new,
-			ColumnCount_PtyTerminal:                this.ColumnCount_PtyTerminal,
-			RowCount_PtyTerminal:                   this.RowCount_PtyTerminal,
-			Path_ShellBinary__PtyCommand:           this.Path_ShellBinary__PtyCommand,
-			DirectoryPath_PtyCommand:               this.DirectoryPath_PtyCommand,
-			EnvironmentVariables_PtyCommand:        this.EnvironmentVariables_PtyCommand,
-			Count_ScrollbackLine__PtyTerminal:      optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal,
-			Size_StagingBuffer__PtyReader:          optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader,
-			Size_PostSnapshotBuffer__PtyProxy:      optionConfig_PtyProxy_result.Size_PostSnapshotBuffer__PtyProxy,
-			Size_QueueBuffer__InputOrder_PtyWriter: optionConfig_PtyProxy_result.Size_QueueBuffer__InputOrder_PtyWriter,
-		})
-		if startError_PtyCommand != nil {
-			WorkspaceController_forwarded.HandleSpawnFailed_Pty(id_PtyProxy_new)
-		}
-	}()
 }
 
 func decodePayload_Batch_ResizePty(
@@ -289,14 +259,7 @@ func (this _WriteInput_Pty__PtyMessage_Ingress_) Execute(
 	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_PtyProxy]
 	WorkspaceController_forwarded.Mutex.Unlock()
 	if WorkspacePty_target != nil {
-		select {
-		case <-WorkspacePty_target.PtyProxy.PtyWriter.WorkerContext.Done():
-		default:
-			select {
-			case WorkspacePty_target.PtyProxy.PtyWriter.QueueChannel_InputOrder <- this.InputOrder_PtyWriter:
-			default:
-			}
-		}
+		WorkspacePty_target.State_current.HandleWriteInput_Ingress(this.InputOrder_PtyWriter)
 	}
 }
 
@@ -335,7 +298,7 @@ func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_PtyProxy]
 	WorkspaceController_forwarded.Mutex.Unlock()
 	if WorkspacePty_target != nil {
-		WorkspacePty_target.PtyProxy.Terminate_PtyProcess(this.TerminalSignal_PtyProcess)
+		WorkspacePty_target.State_current.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
 	}
 }
 
@@ -383,8 +346,8 @@ func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded.Mutex.Lock()
 	for _, order_RemovePty_current := range this.OrderBatch_RemovePty {
 		WorkspacePty_target := WorkspaceController_forwarded.PtyPool[order_RemovePty_current.Id_PtyProxy]
-		if WorkspacePty_target != nil && WorkspacePty_target.ExitOutcome_PtyProxy_maybe != nil {
-			delete(
+		if WorkspacePty_target != nil {
+			WorkspacePty_target.State_current.HandleRemove_Ingress(
 				WorkspaceController_forwarded.PtyPool,
 				order_RemovePty_current.Id_PtyProxy,
 			)
