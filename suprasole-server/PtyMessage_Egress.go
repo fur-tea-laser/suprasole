@@ -31,9 +31,10 @@ func Emit__PtyMessage_Egress__WebsocketController_Pty(
 }
 
 type _Bulletin_WorkspacePty_ struct {
-	Id_PtyProxy                uint32
-	ExitOutcome_PtyProxy_maybe _ExitOutcome_PtyProxy_
+	Id_WorkspacePty            uint32
+	Status_WorkspacePty        _Status_WorkspacePty_
 	Visibility_Client_current  _Visibility_Client_
+	ExitOutcome_PtyProxy_maybe _ExitOutcome_PtyProxy_
 }
 
 type _WorkspaceManifest__PtyMessage_Egress_ struct {
@@ -94,20 +95,17 @@ func (this _WorkspaceManifest__PtyMessage_Egress_) EncodePayload() []byte {
 		&binaryEncoder_WorkspaceManifest,
 		this.BulletinBatch_WorkspacePty,
 		func(binaryEncoder_WorkspaceManifest *_BinaryEncoder_WebsocketMessage_, sliceIndex_current int, bulletin_WorkspacePty _Bulletin_WorkspacePty_) {
-			// Id_PtyProxy
-			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint32(bulletin_WorkspacePty.Id_PtyProxy)
+			// Id_WorkspacePty
+			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint32(bulletin_WorkspacePty.Id_WorkspacePty)
+			// Status_WorkspacePty
+			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint8(uint8(bulletin_WorkspacePty.Status_WorkspacePty))
 			// Visibility_Client_current
 			binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(VISIBLE__Visibility_Client == bulletin_WorkspacePty.Visibility_Client_current)
-			if bulletin_WorkspacePty.ExitOutcome_PtyProxy_maybe != nil {
-				// HasExitOutcome
-				binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(true)
+			if EXITED__Status_WorkspacePty == bulletin_WorkspacePty.Status_WorkspacePty {
 				encodeStruct__ExitOutcome_PtyProxy(
 					binaryEncoder_WorkspaceManifest,
 					bulletin_WorkspacePty.ExitOutcome_PtyProxy_maybe,
 				)
-			} else {
-				// HasExitOutcome
-				binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(false)
 			}
 		},
 	)
@@ -117,8 +115,10 @@ func (this _WorkspaceManifest__PtyMessage_Egress_) EncodePayload() []byte {
 type _Status_SpawnPty_ byte
 
 const (
-	SUCCESS__Status_SpawnPty _Status_SpawnPty_ = 0x00
-	FAILURE__Status_SpawnPty _Status_SpawnPty_ = 0x01
+	SPAWNING__Status_SpawnPty _Status_SpawnPty_ = 0x00
+	CANCELED__Status_SpawnPty _Status_SpawnPty_ = 0x03
+	SUCCESS__Status_SpawnPty  _Status_SpawnPty_ = 0x01
+	FAILURE__Status_SpawnPty  _Status_SpawnPty_ = 0x02
 )
 
 type _Status_SpawnPty__PtyMessage_Egress_ struct {
