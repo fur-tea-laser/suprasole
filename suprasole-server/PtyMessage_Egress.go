@@ -31,10 +31,10 @@ func Emit__PtyMessage_Egress__WebsocketController_Pty(
 }
 
 type _Bulletin_WorkspacePty_ struct {
-	Id_WorkspacePty            uint32
-	Status_WorkspacePty        _Status_WorkspacePty_
-	Visibility_Client_current  _Visibility_Client_
-	ExitOutcome_PtyProxy_maybe _ExitOutcome_PtyProxy_
+	Id_WorkspacePty              uint32
+	Status_WorkspacePty          _Status_WorkspacePty_
+	Visibility__Client_connected _Visibility__Client_connected_
+	ExitOutcome_PtyProxy_maybe   _ExitOutcome_PtyProxy_
 }
 
 type _WorkspaceManifest__PtyMessage_Egress_ struct {
@@ -99,8 +99,8 @@ func (this _WorkspaceManifest__PtyMessage_Egress_) EncodePayload() []byte {
 			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint32(bulletin_WorkspacePty.Id_WorkspacePty)
 			// Status_WorkspacePty
 			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint8(uint8(bulletin_WorkspacePty.Status_WorkspacePty))
-			// Visibility_Client_current
-			binaryEncoder_WorkspaceManifest.EncodeParameter_Bool(VISIBLE__Visibility_Client == bulletin_WorkspacePty.Visibility_Client_current)
+			// Visibility__Client_connected
+			binaryEncoder_WorkspaceManifest.EncodeParameter_Uint8(uint8(bulletin_WorkspacePty.Visibility__Client_connected))
 			if EXITED__Status_WorkspacePty == bulletin_WorkspacePty.Status_WorkspacePty {
 				encodeStruct__ExitOutcome_PtyProxy(
 					binaryEncoder_WorkspaceManifest,

@@ -2,6 +2,7 @@ package main
 
 import (
 	_FMT "fmt"
+	_SYNC "sync"
 )
 
 type _ExitReason_PtyProxy_ int
@@ -44,13 +45,6 @@ type _SystemError__ExitOutcome_PtyProxy_ struct {
 
 func (_SystemError__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _Visibility_Client_ uint8
-
-const (
-	NOT_VISIBLE__Visibility_Client _Visibility_Client_ = 0
-	VISIBLE__Visibility_Client     _Visibility_Client_ = 1
-)
-
 type _Status_WorkspacePty_ uint8
 
 const (
@@ -59,16 +53,25 @@ const (
 	EXITED__Status_WorkspacePty   _Status_WorkspacePty_ = 0x02
 )
 
+type _Visibility__Client_connected_ uint8
+
+const (
+	DISCONNECTED_UNKNOWN___Visibility__Client_connected _Visibility__Client_connected_ = 0
+	VISIBLE___Visibility__Client_connected              _Visibility__Client_connected_ = 1
+	NOT_VISIBLE___Visibility__Client_connected          _Visibility__Client_connected_ = 2
+)
+
 type _State__WorkspacePty_ interface {
 	HandleWriteInput_Ingress(order _InputOrder_PtyWriter_)
 	HandleTerminate_Ingress(terminalSignal int)
 	HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32)
 	HandleResize_Debouncer(columnCount int, rowCount int)
 	HandleDisconnect_Coordinator()
-	HandlePopulateBulletin_Manifest(bulletin_result *_Bulletin_WorkspacePty_)
+	Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_)
+	HandleSync_Coordinator(order_SyncPty_maybe *_Order_SyncPty_, visibility__Client_connected__previous _Visibility__Client_connected_, WebsocketController_Pty *_WebsocketController_, id_WebsocketConnection_expected uint64, id_WorkspacePty uint32)
 }
 
-type _DeferredResize__SpawningState_WorkspacePty_ struct {
+type _ResizeGeometry__SpawningState_WorkspacePty_ struct {
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 }
@@ -81,8 +84,9 @@ const (
 )
 
 type _SpawningState__WorkspacePty_ struct {
-	CancellationStatus   _CancellationStatus_SpawningState_
-	DeferredResize_maybe *_DeferredResize__SpawningState_WorkspacePty_
+	Mutex                          _SYNC.Mutex
+	CancellationStatus             _CancellationStatus_SpawningState_
+	ResizeGeometry__deferred_maybe *_ResizeGeometry__SpawningState_WorkspacePty_
 }
 
 func (this *_SpawningState__WorkspacePty_) HandleWriteInput_Ingress(order _InputOrder_PtyWriter_) {
@@ -90,7 +94,9 @@ func (this *_SpawningState__WorkspacePty_) HandleWriteInput_Ingress(order _Input
 }
 
 func (this *_SpawningState__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+	this.Mutex.Lock()
 	this.CancellationStatus = CANCELED__CancellationStatus_SpawningState
+	this.Mutex.Unlock()
 }
 
 func (this *_SpawningState__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
@@ -99,19 +105,36 @@ func (this *_SpawningState__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint
 }
 
 func (this *_SpawningState__WorkspacePty_) HandleResize_Debouncer(columnCount int, rowCount int) {
-	this.DeferredResize_maybe = &_DeferredResize__SpawningState_WorkspacePty_{
+	this.Mutex.Lock()
+	this.ResizeGeometry__deferred_maybe = &_ResizeGeometry__SpawningState_WorkspacePty_{
 		ColumnCount_PtyTerminal: columnCount,
 		RowCount_PtyTerminal:    rowCount,
 	}
+	this.Mutex.Unlock()
 }
 
 func (this *_SpawningState__WorkspacePty_) HandleDisconnect_Coordinator() {
-	// Valid invocation: The coordinator broadcasts disconnect events across all sessions in PtyPool when the websocket disconnects.
-	// No action required: Process spawning is in flight and no PtyProxy exists yet. Spawn completion independently derives PRE_SNAPSHOT mode if disconnected.
 }
 
-func (this *_SpawningState__WorkspacePty_) HandlePopulateBulletin_Manifest(bulletin_result *_Bulletin_WorkspacePty_) {
+func (this *_SpawningState__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
 	bulletin_result.Status_WorkspacePty = SPAWNING__Status_WorkspacePty
+}
+
+func (this *_SpawningState__WorkspacePty_) HandleSync_Coordinator(
+	order_SyncPty_maybe *_Order_SyncPty_,
+	_ _Visibility__Client_connected_,
+	_ *_WebsocketController_,
+	_ uint64,
+	_ uint32,
+) {
+	if order_SyncPty_maybe != nil {
+		this.Mutex.Lock()
+		this.ResizeGeometry__deferred_maybe = &_ResizeGeometry__SpawningState_WorkspacePty_{
+			ColumnCount_PtyTerminal: order_SyncPty_maybe.ColumnCount_PtyTerminal,
+			RowCount_PtyTerminal:    order_SyncPty_maybe.RowCount_PtyTerminal,
+		}
+		this.Mutex.Unlock()
+	}
 }
 
 type _ActiveState__WorkspacePty_ struct {
@@ -154,8 +177,34 @@ func (this *_ActiveState__WorkspacePty_) HandleDisconnect_Coordinator() {
 	}
 }
 
-func (this *_ActiveState__WorkspacePty_) HandlePopulateBulletin_Manifest(bulletin_result *_Bulletin_WorkspacePty_) {
+func (this *_ActiveState__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
 	bulletin_result.Status_WorkspacePty = ACTIVE__Status_WorkspacePty
+}
+
+func (this *_ActiveState__WorkspacePty_) HandleSync_Coordinator(
+	order_SyncPty_maybe *_Order_SyncPty_,
+	visibility__Client_connected__previous _Visibility__Client_connected_,
+	WebsocketController_Pty *_WebsocketController_,
+	id_WebsocketConnection_expected uint64,
+	id_WorkspacePty uint32,
+) {
+	if order_SyncPty_maybe != nil {
+		_ = this.PtyProxy.Resize(
+			order_SyncPty_maybe.ColumnCount_PtyTerminal,
+			order_SyncPty_maybe.RowCount_PtyTerminal,
+		)
+	}
+	if order_SyncPty_maybe != nil && visibility__Client_connected__previous != VISIBLE___Visibility__Client_connected {
+		__emitSnapshot_SyncPty__WebsocketController_Pty(
+			this.PtyProxy.TransitionMode_PreToPostSnapshot,
+			WebsocketController_Pty,
+			id_WebsocketConnection_expected,
+			id_WorkspacePty,
+		)
+		this.PtyProxy.TransitionMode_PostSnapshotToLive()
+	} else if nil == order_SyncPty_maybe && VISIBLE___Visibility__Client_connected == visibility__Client_connected__previous {
+		this.PtyProxy.TransitionMode_LiveToPreSnapshot()
+	}
 }
 
 type _ExitedState__WorkspacePty_ struct {
@@ -185,17 +234,61 @@ func (this *_ExitedState__WorkspacePty_) HandleResize_Debouncer(columnCount int,
 }
 
 func (this *_ExitedState__WorkspacePty_) HandleDisconnect_Coordinator() {
-	// Valid invocation: The coordinator broadcasts disconnect events across all sessions in PtyPool when the websocket disconnects.
-	// No action required: The session has already exited and live streaming is inactive.
 }
 
-func (this *_ExitedState__WorkspacePty_) HandlePopulateBulletin_Manifest(bulletin_result *_Bulletin_WorkspacePty_) {
+func (this *_ExitedState__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
 	bulletin_result.Status_WorkspacePty = EXITED__Status_WorkspacePty
 	bulletin_result.ExitOutcome_PtyProxy_maybe = this.ExitOutcome
 }
 
+func (this *_ExitedState__WorkspacePty_) HandleSync_Coordinator(
+	order_SyncPty_maybe *_Order_SyncPty_,
+	visibility__Client_connected__previous _Visibility__Client_connected_,
+	WebsocketController_Pty *_WebsocketController_,
+	id_WebsocketConnection_expected uint64,
+	id_WorkspacePty uint32,
+) {
+	if order_SyncPty_maybe != nil {
+		_ = this.PtyProxy.Resize(
+			order_SyncPty_maybe.ColumnCount_PtyTerminal,
+			order_SyncPty_maybe.RowCount_PtyTerminal,
+		)
+	}
+	if order_SyncPty_maybe != nil && visibility__Client_connected__previous != VISIBLE___Visibility__Client_connected {
+		__emitSnapshot_SyncPty__WebsocketController_Pty(
+			this.PtyProxy.EmitSnapshot_Exited,
+			WebsocketController_Pty,
+			id_WebsocketConnection_expected,
+			id_WorkspacePty,
+		)
+	}
+}
+
 type _WorkspacePty_ struct {
-	Id                        uint32
-	Visibility_Client_current _Visibility_Client_
-	State_current             _State__WorkspacePty_
+	Id                                    uint32
+	Visibility__Client_connected__current _Visibility__Client_connected_
+	State_current                         _State__WorkspacePty_
+}
+
+func __emitSnapshot_SyncPty__WebsocketController_Pty(
+	onEmitSnapshot__ func(),
+	WebsocketController_Pty *_WebsocketController_,
+	id_WebsocketConnection_expected uint64,
+	id_WorkspacePty_target uint32,
+) {
+	Emit__PtyMessage_Egress__WebsocketController_Pty(
+		WebsocketController_Pty,
+		id_WebsocketConnection_expected,
+		_StartTask_SyncPty__PtyMessage_Egress_{
+			Id_PtyProxy: id_WorkspacePty_target,
+		},
+	)
+	onEmitSnapshot__()
+	Emit__PtyMessage_Egress__WebsocketController_Pty(
+		WebsocketController_Pty,
+		id_WebsocketConnection_expected,
+		_CompleteTask_SyncPty__PtyMessage_Egress_{
+			Id_PtyProxy: id_WorkspacePty_target,
+		},
+	)
 }
