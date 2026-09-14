@@ -208,6 +208,21 @@ func (This *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() 
 	}
 }
 
+func (this *_State_Spawning__WorkspacePty_) HandleDisconnect_Coordinator() {
+}
+
+func (this *_State_Active__WorkspacePty_) HandleDisconnect_Coordinator() {
+	switch this.PtyProxy.Mode_current {
+	case LIVE_RUNNING__Mode_PtyProxy:
+		this.PtyProxy.TransitionMode_LiveToPreSnapshot()
+	case POST_SNAPSHOT__RUNNING___Mode_PtyProxy:
+		this.PtyProxy.TransitionMode_PostSnapshotToPreSnapshot()
+	}
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleDisconnect_Coordinator() {
+}
+
 func (This *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
 	id_WebsocketConnection_expected uint64,
 	message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_,
@@ -234,6 +249,95 @@ func (This *_WorkspaceController_) HandleSync_PtyPool__Coordinator(
 			WorkspacePty_some.Id,
 		)
 	}
+}
+
+func (this *_State_Spawning__WorkspacePty_) HandleSync_Coordinator(
+	order_SyncPty_maybe *_Order_SyncPty_,
+	_ _Visibility__Client_connected_,
+	_ *_WebsocketController_,
+	_ uint64,
+	_ uint32,
+) {
+	if order_SyncPty_maybe != nil {
+		this.Mutex.Lock()
+		this.ResizeGeometry__deferred_maybe = &_ResizeGeometry___State_Spawning__WorkspacePty_{
+			ColumnCount_PtyTerminal: order_SyncPty_maybe.ColumnCount_PtyTerminal,
+			RowCount_PtyTerminal:    order_SyncPty_maybe.RowCount_PtyTerminal,
+		}
+		this.Mutex.Unlock()
+	}
+}
+
+func (this *_State_Active__WorkspacePty_) HandleSync_Coordinator(
+	order_SyncPty_maybe *_Order_SyncPty_,
+	visibility__Client_connected__previous _Visibility__Client_connected_,
+	WebsocketController_Pty *_WebsocketController_,
+	id_WebsocketConnection_expected uint64,
+	id_WorkspacePty uint32,
+) {
+	if order_SyncPty_maybe != nil {
+		_ = this.PtyProxy.Resize(
+			order_SyncPty_maybe.ColumnCount_PtyTerminal,
+			order_SyncPty_maybe.RowCount_PtyTerminal,
+		)
+	}
+	if order_SyncPty_maybe != nil && visibility__Client_connected__previous != VISIBLE___Visibility__Client_connected {
+		__emitSnapshot_SyncPty__WebsocketController_Pty(
+			this.PtyProxy.TransitionMode_PreToPostSnapshot,
+			WebsocketController_Pty,
+			id_WebsocketConnection_expected,
+			id_WorkspacePty,
+		)
+		this.PtyProxy.TransitionMode_PostSnapshotToLive()
+	} else if nil == order_SyncPty_maybe && VISIBLE___Visibility__Client_connected == visibility__Client_connected__previous {
+		this.PtyProxy.TransitionMode_LiveToPreSnapshot()
+	}
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleSync_Coordinator(
+	order_SyncPty_maybe *_Order_SyncPty_,
+	visibility__Client_connected__previous _Visibility__Client_connected_,
+	WebsocketController_Pty *_WebsocketController_,
+	id_WebsocketConnection_expected uint64,
+	id_WorkspacePty uint32,
+) {
+	if order_SyncPty_maybe != nil {
+		_ = this.PtyProxy.Resize(
+			order_SyncPty_maybe.ColumnCount_PtyTerminal,
+			order_SyncPty_maybe.RowCount_PtyTerminal,
+		)
+	}
+	if order_SyncPty_maybe != nil && visibility__Client_connected__previous != VISIBLE___Visibility__Client_connected {
+		__emitSnapshot_SyncPty__WebsocketController_Pty(
+			this.PtyProxy.EmitSnapshot_Exited,
+			WebsocketController_Pty,
+			id_WebsocketConnection_expected,
+			id_WorkspacePty,
+		)
+	}
+}
+
+func __emitSnapshot_SyncPty__WebsocketController_Pty(
+	onEmitSnapshot__ func(),
+	WebsocketController_Pty *_WebsocketController_,
+	id_WebsocketConnection_expected uint64,
+	id_WorkspacePty_target uint32,
+) {
+	Emit__PtyMessage_Egress__WebsocketController_Pty(
+		WebsocketController_Pty,
+		id_WebsocketConnection_expected,
+		_TaskStart_SyncPty__PtyMessage_Egress_{
+			Id_PtyProxy: id_WorkspacePty_target,
+		},
+	)
+	onEmitSnapshot__()
+	Emit__PtyMessage_Egress__WebsocketController_Pty(
+		WebsocketController_Pty,
+		id_WebsocketConnection_expected,
+		_TaskComplete_SyncPty__PtyMessage_Egress_{
+			Id_PtyProxy: id_WorkspacePty_target,
+		},
+	)
 }
 
 func (This *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(

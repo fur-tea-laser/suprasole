@@ -2,6 +2,7 @@ package main
 
 import (
 	_ERRORS "errors"
+	_FMT "fmt"
 )
 
 var MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
@@ -263,6 +264,26 @@ func (this _WriteInput_Pty__PtyMessage_Ingress_) Execute(
 	}
 }
 
+func (this *_State_Spawning__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
+	_FMT.Println("invalid path: _State_Spawning__WorkspacePty_ HandleWriteInput_Ingress")
+}
+
+func (this *_State_Active__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
+	select {
+	case <-this.PtyProxy.PtyWriter.WorkerContext.Done():
+	default:
+		select {
+		case this.PtyProxy.PtyWriter.QueueChannel_InputOrder <- inputOrder_PtyWriter:
+		default:
+		}
+	}
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
+	// Valid invocation: Client keystrokes transmitted prior to receiving process exit status cross in-flight across the network.
+	// No action required: The process has already exited and the input writer is closed. In-flight input is safely dropped.
+}
+
 func decodePayload_TerminatePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
@@ -300,6 +321,21 @@ func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	if WorkspacePty_target != nil {
 		WorkspacePty_target.State_current.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
 	}
+}
+
+func (this *_State_Spawning__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+	this.Mutex.Lock()
+	this.CancellationStatus = CANCELED____CancellationStatus___State_Spawning__WorkspacePty
+	this.Mutex.Unlock()
+}
+
+func (this *_State_Active__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+	this.PtyProxy.Terminate_PtyProcess(terminalSignal)
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+	// Valid invocation: A client termination request crosses in-flight across the network with natural process exit on the server.
+	// No action required: The process has already exited and its exit outcome is finalized.
 }
 
 func decodePayload_Batch_RemovePty(
@@ -354,6 +390,20 @@ func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
 		}
 	}
 	WorkspaceController_forwarded.Mutex.Unlock()
+}
+
+func (this *_State_Spawning__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+	// Valid invocation: Client requested removal, but spawning sessions must remain in PtyPool until the OS spawn worker completes.
+	// No action required: Session is retained in PtyPool; coordinator will purge upon spawn failure or cancellation.
+}
+
+func (this *_State_Active__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+	// Valid invocation: Client requested removal, but active running sessions cannot be purged.
+	// No action required: Running sessions remain protected in PtyPool until process termination.
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+	delete(ptyPool, id_WorkspacePty)
 }
 
 func decodePayload_Batch_SyncPty(

@@ -15,3 +15,35 @@ func (This *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 		}
 	}
 }
+
+func (this *_State_Spawning__WorkspacePty_) HandleResize_Debouncer(
+	columnCount_PtyTerminal int,
+	rowCount_PtyTerminal int,
+) {
+	this.Mutex.Lock()
+	this.ResizeGeometry__deferred_maybe = &_ResizeGeometry___State_Spawning__WorkspacePty_{
+		ColumnCount_PtyTerminal: columnCount_PtyTerminal,
+		RowCount_PtyTerminal:    rowCount_PtyTerminal,
+	}
+	this.Mutex.Unlock()
+}
+
+func (this *_State_Active__WorkspacePty_) HandleResize_Debouncer(
+	columnCount_PtyTerminal int,
+	rowCount_PtyTerminal int,
+) {
+	_ = this.PtyProxy.Resize(
+		columnCount_PtyTerminal,
+		rowCount_PtyTerminal,
+	)
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleResize_Debouncer(
+	columnCount_PtyTerminal int,
+	rowCount_PtyTerminal int,
+) {
+	_ = this.PtyProxy.Resize(
+		columnCount_PtyTerminal,
+		rowCount_PtyTerminal,
+	)
+}
