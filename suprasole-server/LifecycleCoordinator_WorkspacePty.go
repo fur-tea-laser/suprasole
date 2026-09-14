@@ -56,7 +56,7 @@ func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 
 type _SpawnPty__WorkspaceOrder_LifecycleCoordinator_ struct {
 	Id_WebsocketConnection_expected uint64
-	Message__SpawnPty               _SpawnPty__PtyMessage_Ingress_
+	Message_SpawnPty                _SpawnPty__PtyMessage_Ingress_
 }
 
 func (this _SpawnPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
@@ -64,13 +64,13 @@ func (this _SpawnPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 ) {
 	lifecycleCoordinator.OnSpawnPty__(
 		this.Id_WebsocketConnection_expected,
-		this.Message__SpawnPty,
+		this.Message_SpawnPty,
 	)
 }
 
 type _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_ struct {
 	Id_WorkspacePty_spawned uint32
-	PtyProxy                *_PtyProxy_
+	PtyProxy_quiescent      *_PtyProxy_
 }
 
 func (this _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_) Execute(
@@ -78,7 +78,7 @@ func (this _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_) Exec
 ) {
 	lifecycleCoordinator.OnStatus_SpawnPty__Success__(
 		this.Id_WorkspacePty_spawned,
-		this.PtyProxy,
+		this.PtyProxy_quiescent,
 	)
 }
 
@@ -102,7 +102,7 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 	OnSync_PtyPool__             func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
 	OnExit_PtyProxy__            func(id_WorkspacePty_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 	OnSpawnPty__                 func(id_WebsocketConnection_expected uint64, message _SpawnPty__PtyMessage_Ingress_)
-	OnStatus_SpawnPty__Success__ func(id_WorkspacePty_spawned uint32, ptyProxy *_PtyProxy_)
+	OnStatus_SpawnPty__Success__ func(id_WorkspacePty_spawned uint32, ptyProxy_quiescent *_PtyProxy_)
 	OnStatus_SpawnPty__Failure__ func(id_WorkspacePty_failed uint32, error_Start__PtyCommand error)
 	QueueChannel_WorkspaceOrder  chan _WorkspaceOrder_LifecycleCoordinator_
 	WorkerContext                _CONTEXT.Context
@@ -115,7 +115,7 @@ type _MakeApi__LifecycleCoordinator_WorkspacePty_ struct {
 	OnSync_PtyPool__             func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
 	OnExit_PtyProxy__            func(id_WorkspacePty_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 	OnSpawnPty__                 func(id_WebsocketConnection_expected uint64, message _SpawnPty__PtyMessage_Ingress_)
-	OnStatus_SpawnPty__Success__ func(id_WorkspacePty_spawned uint32, ptyProxy *_PtyProxy_)
+	OnStatus_SpawnPty__Success__ func(id_WorkspacePty_spawned uint32, ptyProxy_quiescent *_PtyProxy_)
 	OnStatus_SpawnPty__Failure__ func(id_WorkspacePty_failed uint32, error_Start__PtyCommand error)
 }
 

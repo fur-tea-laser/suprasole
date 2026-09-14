@@ -174,8 +174,8 @@ func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
 	This.PtyPool[id_WorkspacePty_new] = &_WorkspacePty_{
 		Visibility__Client_connected__current: VISIBLE___Visibility__Client_connected,
 		Id:                                    id_WorkspacePty_new,
-		State_current: &_SpawningState__WorkspacePty_{
-			CancellationStatus:             NOT_CANCELED__CancellationStatus_SpawningState,
+		State_current: &_State_Spawning__WorkspacePty_{
+			CancellationStatus:             NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty,
 			ResizeGeometry__deferred_maybe: nil,
 		},
 	}
@@ -217,7 +217,7 @@ func backgroundSpawn_PtyProxy__Coordinator(
 	LifecycleCoordinator_WorkspacePty *_LifecycleCoordinator_WorkspacePty_,
 	spawnApi_PtyProxy _SpawnApi_PtyProxy_,
 ) {
-	ptyProxy_spawned, error_start__PtyCommand__maybe := Spawn_PtyProxy(spawnApi_PtyProxy)
+	ptyProxy_quiescent, error_start__PtyCommand__maybe := Spawn_PtyProxy(spawnApi_PtyProxy)
 	if error_start__PtyCommand__maybe != nil {
 		LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_{
 			Id_WorkspacePty_failed:  spawnApi_PtyProxy.Id_WorkspacePty,
@@ -227,28 +227,28 @@ func backgroundSpawn_PtyProxy__Coordinator(
 	}
 	LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_{
 		Id_WorkspacePty_spawned: spawnApi_PtyProxy.Id_WorkspacePty,
-		PtyProxy:                ptyProxy_spawned,
+		PtyProxy_quiescent:      ptyProxy_quiescent,
 	}
 }
 
 func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 	id_WorkspacePty_spawned uint32,
-	ptyProxy_spawned *_PtyProxy_,
+	ptyProxy_quiescent *_PtyProxy_,
 ) {
 	This.Mutex.Lock()
 	WorkspacePty_target := This.PtyPool[id_WorkspacePty_spawned]
-	State__WorkspacePty_target__spawning := WorkspacePty_target.State_current.(*_SpawningState__WorkspacePty_)
+	State__WorkspacePty_target__spawning := WorkspacePty_target.State_current.(*_State_Spawning__WorkspacePty_)
 	State__WorkspacePty_target__spawning.Mutex.Lock()
-	cancellationStatus := State__WorkspacePty_target__spawning.CancellationStatus
+	cancellationStatus_captured := State__WorkspacePty_target__spawning.CancellationStatus
 	resizeGeometry__deferred_maybe := State__WorkspacePty_target__spawning.ResizeGeometry__deferred_maybe
 	State__WorkspacePty_target__spawning.Mutex.Unlock()
-	if CANCELED__CancellationStatus_SpawningState == cancellationStatus {
+	if CANCELED____CancellationStatus___State_Spawning__WorkspacePty == cancellationStatus_captured {
 		delete(This.PtyPool, id_WorkspacePty_spawned)
 	}
 	visibility__Client_connected__current := WorkspacePty_target.Visibility__Client_connected__current
 	This.Mutex.Unlock()
-	if CANCELED__CancellationStatus_SpawningState == cancellationStatus {
-		ptyProxy_spawned.Terminate_PtyProcess(int(_SYSCALL.SIGTERM))
+	if CANCELED____CancellationStatus___State_Spawning__WorkspacePty == cancellationStatus_captured {
+		ptyProxy_quiescent.Terminate_PtyProcess(int(_SYSCALL.SIGTERM))
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
 			This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
@@ -260,23 +260,23 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 		return
 	}
 	if resizeGeometry__deferred_maybe != nil {
-		_ = ptyProxy_spawned.Resize(
+		_ = ptyProxy_quiescent.Resize(
 			resizeGeometry__deferred_maybe.ColumnCount_PtyTerminal,
 			resizeGeometry__deferred_maybe.RowCount_PtyTerminal,
 		)
 	}
 	This.Mutex.Lock()
 	if CONNECTED__Status_WebsocketConnection == This.WorkspaceNetwork.WebsocketController_Pty.Status_WebsocketConnection_current && VISIBLE___Visibility__Client_connected == visibility__Client_connected__current {
-		ptyProxy_spawned.Mode_current = LIVE_RUNNING__Mode_PtyProxy
+		ptyProxy_quiescent.Mode_current = LIVE_RUNNING__Mode_PtyProxy
 	} else {
-		ptyProxy_spawned.Mode_current = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
+		ptyProxy_quiescent.Mode_current = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
 	}
-	WorkspacePty_target.State_current = &_ActiveState__WorkspacePty_{
-		PtyProxy: ptyProxy_spawned,
+	WorkspacePty_target.State_current = &_State_Active__WorkspacePty_{
+		PtyProxy: ptyProxy_quiescent,
 	}
 	This.Mutex.Unlock()
-	go ptyProxy_spawned.PtyReader.RunWorker()
-	go ptyProxy_spawned.PtyWriter.RunWorker()
+	go ptyProxy_quiescent.PtyReader.RunWorker()
+	go ptyProxy_quiescent.PtyWriter.RunWorker()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		This.WorkspaceNetwork.WebsocketController_Pty,
 		This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
@@ -294,13 +294,13 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Failure__Coordinator(
 	This.Mutex.Lock()
 	WorkspacePty_target := This.PtyPool[id_WorkspacePty_failed]
 	delete(This.PtyPool, id_WorkspacePty_failed)
+	State__WorkspacePty_target__spawning := WorkspacePty_target.State_current.(*_State_Spawning__WorkspacePty_)
 	This.Mutex.Unlock()
-	State__WorkspacePty_target__spawning := WorkspacePty_target.State_current.(*_SpawningState__WorkspacePty_)
 	State__WorkspacePty_target__spawning.Mutex.Lock()
-	cancellationStatus := State__WorkspacePty_target__spawning.CancellationStatus
+	cancellationStatus_captured := State__WorkspacePty_target__spawning.CancellationStatus
 	State__WorkspacePty_target__spawning.Mutex.Unlock()
-	switch cancellationStatus {
-	case CANCELED__CancellationStatus_SpawningState:
+	switch cancellationStatus_captured {
+	case CANCELED____CancellationStatus___State_Spawning__WorkspacePty:
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
 			This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
@@ -309,7 +309,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Failure__Coordinator(
 				Id_PtyProxy:     id_WorkspacePty_failed,
 			},
 		)
-	case NOT_CANCELED__CancellationStatus_SpawningState:
+	case NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty:
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
 			This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
@@ -395,7 +395,7 @@ func (This *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 ) {
 	for _, order_ResizePty__pending_some := range orderBatch_ResizePty_pending {
 		This.Mutex.Lock()
-		WorkspacePty_target := This.PtyPool[order_ResizePty__pending_some.Id_PtyProxy]
+		WorkspacePty_target := This.PtyPool[order_ResizePty__pending_some.Id_WorkspacePty]
 		This.Mutex.Unlock()
 		if WorkspacePty_target != nil {
 			WorkspacePty_target.State_current.HandleResize_Debouncer(
@@ -480,12 +480,12 @@ func (This *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
 ) {
 	This.Mutex.Lock()
 	WorkspacePty_target := This.PtyPool[id_WorkspacePty_exited]
-	State__WorkspacePty_target__active := WorkspacePty_target.State_current.(*_ActiveState__WorkspacePty_)
+	State__WorkspacePty_target__active := WorkspacePty_target.State_current.(*_State_Active__WorkspacePty_)
 	This.Mutex.Unlock()
 	State__WorkspacePty_target__active.PtyProxy.TransitionMode_ToExited()
 	State__WorkspacePty_target__active.PtyProxy.PtyWriter.WorkerCancel()
 	This.Mutex.Lock()
-	WorkspacePty_target.State_current = &_ExitedState__WorkspacePty_{
+	WorkspacePty_target.State_current = &_State_Exited__WorkspacePty_{
 		PtyProxy:    State__WorkspacePty_target__active.PtyProxy,
 		ExitOutcome: exitOutcome_PtyProxy,
 	}

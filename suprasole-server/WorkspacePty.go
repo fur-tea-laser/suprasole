@@ -61,66 +61,69 @@ const (
 	NOT_VISIBLE___Visibility__Client_connected          _Visibility__Client_connected_ = 2
 )
 
-type _State__WorkspacePty_ interface {
-	HandleWriteInput_Ingress(order _InputOrder_PtyWriter_)
+type _State_WorkspacePty_ interface {
+	HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_)
 	HandleTerminate_Ingress(terminalSignal int)
 	HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32)
-	HandleResize_Debouncer(columnCount int, rowCount int)
+	HandleResize_Debouncer(columnCount_PtyTerminal int, rowCount_PtyTerminal int)
 	HandleDisconnect_Coordinator()
 	Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_)
 	HandleSync_Coordinator(order_SyncPty_maybe *_Order_SyncPty_, visibility__Client_connected__previous _Visibility__Client_connected_, WebsocketController_Pty *_WebsocketController_, id_WebsocketConnection_expected uint64, id_WorkspacePty uint32)
 }
 
-type _ResizeGeometry__SpawningState_WorkspacePty_ struct {
+type _ResizeGeometry___State_Spawning__WorkspacePty_ struct {
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 }
 
-type _CancellationStatus_SpawningState_ uint8
+type _CancellationStatus___State_Spawning__WorkspacePty_ uint8
 
 const (
-	NOT_CANCELED__CancellationStatus_SpawningState _CancellationStatus_SpawningState_ = 0
-	CANCELED__CancellationStatus_SpawningState     _CancellationStatus_SpawningState_ = 1
+	NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty _CancellationStatus___State_Spawning__WorkspacePty_ = 0
+	CANCELED____CancellationStatus___State_Spawning__WorkspacePty     _CancellationStatus___State_Spawning__WorkspacePty_ = 1
 )
 
-type _SpawningState__WorkspacePty_ struct {
+type _State_Spawning__WorkspacePty_ struct {
 	Mutex                          _SYNC.Mutex
-	CancellationStatus             _CancellationStatus_SpawningState_
-	ResizeGeometry__deferred_maybe *_ResizeGeometry__SpawningState_WorkspacePty_
+	CancellationStatus             _CancellationStatus___State_Spawning__WorkspacePty_
+	ResizeGeometry__deferred_maybe *_ResizeGeometry___State_Spawning__WorkspacePty_
 }
 
-func (this *_SpawningState__WorkspacePty_) HandleWriteInput_Ingress(order _InputOrder_PtyWriter_) {
-	_FMT.Println("invalid path: _SpawningState__WorkspacePty_ HandleWriteInput_Ingress")
+func (this *_State_Spawning__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
+	_FMT.Println("invalid path: _State_Spawning__WorkspacePty_ HandleWriteInput_Ingress")
 }
 
-func (this *_SpawningState__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+func (this *_State_Spawning__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
 	this.Mutex.Lock()
-	this.CancellationStatus = CANCELED__CancellationStatus_SpawningState
+	this.CancellationStatus = CANCELED____CancellationStatus___State_Spawning__WorkspacePty
 	this.Mutex.Unlock()
 }
 
-func (this *_SpawningState__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+func (this *_State_Spawning__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
 	// Valid invocation: Client requested removal, but spawning sessions must remain in PtyPool until the OS spawn worker completes.
 	// No action required: Session is retained in PtyPool; coordinator will purge upon spawn failure or cancellation.
 }
 
-func (this *_SpawningState__WorkspacePty_) HandleResize_Debouncer(columnCount int, rowCount int) {
+func (this *_State_Spawning__WorkspacePty_) HandleResize_Debouncer(
+	columnCount_PtyTerminal int,
+	rowCount_PtyTerminal int,
+) {
 	this.Mutex.Lock()
-	this.ResizeGeometry__deferred_maybe = &_ResizeGeometry__SpawningState_WorkspacePty_{
-		ColumnCount_PtyTerminal: columnCount,
-		RowCount_PtyTerminal:    rowCount,
+	this.ResizeGeometry__deferred_maybe = &_ResizeGeometry___State_Spawning__WorkspacePty_{
+		ColumnCount_PtyTerminal: columnCount_PtyTerminal,
+		RowCount_PtyTerminal:    rowCount_PtyTerminal,
 	}
 	this.Mutex.Unlock()
 }
 
-func (this *_SpawningState__WorkspacePty_) HandleDisconnect_Coordinator() {
+func (this *_State_Spawning__WorkspacePty_) HandleDisconnect_Coordinator() {
 }
 
-func (this *_SpawningState__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
+func (this *_State_Spawning__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
 	bulletin_result.Status_WorkspacePty = SPAWNING__Status_WorkspacePty
 }
 
-func (this *_SpawningState__WorkspacePty_) HandleSync_Coordinator(
+func (this *_State_Spawning__WorkspacePty_) HandleSync_Coordinator(
 	order_SyncPty_maybe *_Order_SyncPty_,
 	_ _Visibility__Client_connected_,
 	_ *_WebsocketController_,
@@ -129,7 +132,7 @@ func (this *_SpawningState__WorkspacePty_) HandleSync_Coordinator(
 ) {
 	if order_SyncPty_maybe != nil {
 		this.Mutex.Lock()
-		this.ResizeGeometry__deferred_maybe = &_ResizeGeometry__SpawningState_WorkspacePty_{
+		this.ResizeGeometry__deferred_maybe = &_ResizeGeometry___State_Spawning__WorkspacePty_{
 			ColumnCount_PtyTerminal: order_SyncPty_maybe.ColumnCount_PtyTerminal,
 			RowCount_PtyTerminal:    order_SyncPty_maybe.RowCount_PtyTerminal,
 		}
@@ -137,38 +140,41 @@ func (this *_SpawningState__WorkspacePty_) HandleSync_Coordinator(
 	}
 }
 
-type _ActiveState__WorkspacePty_ struct {
+type _State_Active__WorkspacePty_ struct {
 	PtyProxy *_PtyProxy_
 }
 
-func (this *_ActiveState__WorkspacePty_) HandleWriteInput_Ingress(order _InputOrder_PtyWriter_) {
+func (this *_State_Active__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
 	select {
 	case <-this.PtyProxy.PtyWriter.WorkerContext.Done():
 	default:
 		select {
-		case this.PtyProxy.PtyWriter.QueueChannel_InputOrder <- order:
+		case this.PtyProxy.PtyWriter.QueueChannel_InputOrder <- inputOrder_PtyWriter:
 		default:
 		}
 	}
 }
 
-func (this *_ActiveState__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+func (this *_State_Active__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
 	this.PtyProxy.Terminate_PtyProcess(terminalSignal)
 }
 
-func (this *_ActiveState__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+func (this *_State_Active__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
 	// Valid invocation: Client requested removal, but active running sessions cannot be purged.
 	// No action required: Running sessions remain protected in PtyPool until process termination.
 }
 
-func (this *_ActiveState__WorkspacePty_) HandleResize_Debouncer(columnCount int, rowCount int) {
+func (this *_State_Active__WorkspacePty_) HandleResize_Debouncer(
+	columnCount_PtyTerminal int,
+	rowCount_PtyTerminal int,
+) {
 	_ = this.PtyProxy.Resize(
-		columnCount,
-		rowCount,
+		columnCount_PtyTerminal,
+		rowCount_PtyTerminal,
 	)
 }
 
-func (this *_ActiveState__WorkspacePty_) HandleDisconnect_Coordinator() {
+func (this *_State_Active__WorkspacePty_) HandleDisconnect_Coordinator() {
 	switch this.PtyProxy.Mode_current {
 	case LIVE_RUNNING__Mode_PtyProxy:
 		this.PtyProxy.TransitionMode_LiveToPreSnapshot()
@@ -177,11 +183,11 @@ func (this *_ActiveState__WorkspacePty_) HandleDisconnect_Coordinator() {
 	}
 }
 
-func (this *_ActiveState__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
+func (this *_State_Active__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
 	bulletin_result.Status_WorkspacePty = ACTIVE__Status_WorkspacePty
 }
 
-func (this *_ActiveState__WorkspacePty_) HandleSync_Coordinator(
+func (this *_State_Active__WorkspacePty_) HandleSync_Coordinator(
 	order_SyncPty_maybe *_Order_SyncPty_,
 	visibility__Client_connected__previous _Visibility__Client_connected_,
 	WebsocketController_Pty *_WebsocketController_,
@@ -207,41 +213,44 @@ func (this *_ActiveState__WorkspacePty_) HandleSync_Coordinator(
 	}
 }
 
-type _ExitedState__WorkspacePty_ struct {
+type _State_Exited__WorkspacePty_ struct {
 	PtyProxy    *_PtyProxy_
 	ExitOutcome _ExitOutcome_PtyProxy_
 }
 
-func (this *_ExitedState__WorkspacePty_) HandleWriteInput_Ingress(order _InputOrder_PtyWriter_) {
+func (this *_State_Exited__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
 	// Valid invocation: Client keystrokes transmitted prior to receiving process exit status cross in-flight across the network.
 	// No action required: The process has already exited and the input writer is closed. In-flight input is safely dropped.
 }
 
-func (this *_ExitedState__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+func (this *_State_Exited__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
 	// Valid invocation: A client termination request crosses in-flight across the network with natural process exit on the server.
 	// No action required: The process has already exited and its exit outcome is finalized.
 }
 
-func (this *_ExitedState__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+func (this *_State_Exited__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
 	delete(ptyPool, id_WorkspacePty)
 }
 
-func (this *_ExitedState__WorkspacePty_) HandleResize_Debouncer(columnCount int, rowCount int) {
+func (this *_State_Exited__WorkspacePty_) HandleResize_Debouncer(
+	columnCount_PtyTerminal int,
+	rowCount_PtyTerminal int,
+) {
 	_ = this.PtyProxy.Resize(
-		columnCount,
-		rowCount,
+		columnCount_PtyTerminal,
+		rowCount_PtyTerminal,
 	)
 }
 
-func (this *_ExitedState__WorkspacePty_) HandleDisconnect_Coordinator() {
+func (this *_State_Exited__WorkspacePty_) HandleDisconnect_Coordinator() {
 }
 
-func (this *_ExitedState__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
+func (this *_State_Exited__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
 	bulletin_result.Status_WorkspacePty = EXITED__Status_WorkspacePty
 	bulletin_result.ExitOutcome_PtyProxy_maybe = this.ExitOutcome
 }
 
-func (this *_ExitedState__WorkspacePty_) HandleSync_Coordinator(
+func (this *_State_Exited__WorkspacePty_) HandleSync_Coordinator(
 	order_SyncPty_maybe *_Order_SyncPty_,
 	visibility__Client_connected__previous _Visibility__Client_connected_,
 	WebsocketController_Pty *_WebsocketController_,
@@ -267,7 +276,7 @@ func (this *_ExitedState__WorkspacePty_) HandleSync_Coordinator(
 type _WorkspacePty_ struct {
 	Id                                    uint32
 	Visibility__Client_connected__current _Visibility__Client_connected_
-	State_current                         _State__WorkspacePty_
+	State_current                         _State_WorkspacePty_
 }
 
 func __emitSnapshot_SyncPty__WebsocketController_Pty(
@@ -279,7 +288,7 @@ func __emitSnapshot_SyncPty__WebsocketController_Pty(
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		WebsocketController_Pty,
 		id_WebsocketConnection_expected,
-		_StartTask_SyncPty__PtyMessage_Egress_{
+		_TaskStart_SyncPty__PtyMessage_Egress_{
 			Id_PtyProxy: id_WorkspacePty_target,
 		},
 	)
@@ -287,7 +296,7 @@ func __emitSnapshot_SyncPty__WebsocketController_Pty(
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		WebsocketController_Pty,
 		id_WebsocketConnection_expected,
-		_CompleteTask_SyncPty__PtyMessage_Egress_{
+		_TaskComplete_SyncPty__PtyMessage_Egress_{
 			Id_PtyProxy: id_WorkspacePty_target,
 		},
 	)

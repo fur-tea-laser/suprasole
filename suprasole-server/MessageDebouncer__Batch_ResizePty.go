@@ -68,13 +68,13 @@ func (this *_MessageDebouncer__Batch_ResizePty_) DrainAndCoalesceQueueChannel(
 	orderBatch_ResizePty_pending map[uint32]_Order_ResizePty_,
 ) {
 	for _, order_ResizePty_some := range message_leading.OrderBatch_ResizePty {
-		orderBatch_ResizePty_pending[order_ResizePty_some.Id_PtyProxy] = order_ResizePty_some
+		orderBatch_ResizePty_pending[order_ResizePty_some.Id_WorkspacePty] = order_ResizePty_some
 	}
 	for {
 		select {
 		case message_next := <-this.QueueChannel:
 			for _, order_ResizePty_some := range message_next.OrderBatch_ResizePty {
-				orderBatch_ResizePty_pending[order_ResizePty_some.Id_PtyProxy] = order_ResizePty_some
+				orderBatch_ResizePty_pending[order_ResizePty_some.Id_WorkspacePty] = order_ResizePty_some
 			}
 		default:
 			return

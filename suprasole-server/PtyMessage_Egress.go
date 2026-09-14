@@ -11,8 +11,8 @@ const (
 	PTY_EXIT___Code__PtyMessage_Egress                _Code__PtyMessage_Egress_ = 0x0005
 	PTY_OUTPUT___Code__PtyMessage_Egress              _Code__PtyMessage_Egress_ = 0x0008
 	WORKSPACE_MANIFEST___Code__PtyMessage_Egress      _Code__PtyMessage_Egress_ = 0x0009
-	START_TASK__SYNC_PTY___Code__PtyMessage_Egress    _Code__PtyMessage_Egress_ = 0x000b
-	COMPLETE_TASK__SYNC_PTY___Code__PtyMessage_Egress _Code__PtyMessage_Egress_ = 0x000c
+	TASK_START__SYNC_PTY___Code__PtyMessage_Egress    _Code__PtyMessage_Egress_ = 0x000b
+	TASK_COMPLETE__SYNC_PTY___Code__PtyMessage_Egress _Code__PtyMessage_Egress_ = 0x000c
 )
 
 type _PtyMessage_Egress_ interface {
@@ -45,7 +45,7 @@ func encodeStruct__ExitOutcome_PtyProxy(
 	binaryEncoder *_BinaryEncoder_WebsocketMessage_,
 	exitOutcome_PtyProxy _ExitOutcome_PtyProxy_,
 ) {
-	switch theExitOutcome := exitOutcome_PtyProxy.(type) {
+	switch exitOutcome_the := exitOutcome_PtyProxy.(type) {
 	case _Success__ExitOutcome_PtyProxy_:
 		// ExitReason
 		binaryEncoder.EncodeParameter_Uint8(uint8(SUCCESS__ExitReason_PtyProxy))
@@ -57,7 +57,7 @@ func encodeStruct__ExitOutcome_PtyProxy(
 		// ExitReason
 		binaryEncoder.EncodeParameter_Uint8(uint8(FAILURE__ExitReason_PtyProxy))
 		// ExitCode
-		binaryEncoder.EncodeParameter_Int32(int32(theExitOutcome.ExitCode_PtyProcess))
+		binaryEncoder.EncodeParameter_Int32(int32(exitOutcome_the.ExitCode_PtyProcess))
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(0)
 	case _Killed__ExitOutcome_PtyProxy_:
@@ -66,7 +66,7 @@ func encodeStruct__ExitOutcome_PtyProxy(
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(0)
 		// ExitSignal
-		binaryEncoder.EncodeParameter_Int32(int32(theExitOutcome.ExitSignal_PtyProcess))
+		binaryEncoder.EncodeParameter_Int32(int32(exitOutcome_the.ExitSignal_PtyProcess))
 	case _Closed__ExitOutcome_PtyProxy_:
 		// ExitReason
 		binaryEncoder.EncodeParameter_Uint8(uint8(CLOSED__ExitReason_PtyProxy))
@@ -172,28 +172,28 @@ func (this _PtyOutput__PtyMessage_Egress_) EncodePayload() []byte {
 	return binaryEncoder_PtyOutput.Bytes()
 }
 
-type _StartTask_SyncPty__PtyMessage_Egress_ struct {
+type _TaskStart_SyncPty__PtyMessage_Egress_ struct {
 	Id_PtyProxy uint32
 }
 
-func (this _StartTask_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
-	binaryEncoder__StartTask_SyncPty := Make__BinaryEncoder_WebsocketMessage()
+func (this _TaskStart_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
+	binaryEncoder__TaskStart_SyncPty := Make__BinaryEncoder_WebsocketMessage()
 	// Opcode
-	binaryEncoder__StartTask_SyncPty.EncodeParameter_Uint16(uint16(START_TASK__SYNC_PTY___Code__PtyMessage_Egress))
+	binaryEncoder__TaskStart_SyncPty.EncodeParameter_Uint16(uint16(TASK_START__SYNC_PTY___Code__PtyMessage_Egress))
 	// Id_PtyProxy
-	binaryEncoder__StartTask_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
-	return binaryEncoder__StartTask_SyncPty.Bytes()
+	binaryEncoder__TaskStart_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
+	return binaryEncoder__TaskStart_SyncPty.Bytes()
 }
 
-type _CompleteTask_SyncPty__PtyMessage_Egress_ struct {
+type _TaskComplete_SyncPty__PtyMessage_Egress_ struct {
 	Id_PtyProxy uint32
 }
 
-func (this _CompleteTask_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
-	binaryEncoder__CompleteTask_SyncPty := Make__BinaryEncoder_WebsocketMessage()
+func (this _TaskComplete_SyncPty__PtyMessage_Egress_) EncodePayload() []byte {
+	binaryEncoder__TaskComplete_SyncPty := Make__BinaryEncoder_WebsocketMessage()
 	// Opcode
-	binaryEncoder__CompleteTask_SyncPty.EncodeParameter_Uint16(uint16(COMPLETE_TASK__SYNC_PTY___Code__PtyMessage_Egress))
+	binaryEncoder__TaskComplete_SyncPty.EncodeParameter_Uint16(uint16(TASK_COMPLETE__SYNC_PTY___Code__PtyMessage_Egress))
 	// Id_PtyProxy
-	binaryEncoder__CompleteTask_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
-	return binaryEncoder__CompleteTask_SyncPty.Bytes()
+	binaryEncoder__TaskComplete_SyncPty.EncodeParameter_Uint32(this.Id_PtyProxy)
+	return binaryEncoder__TaskComplete_SyncPty.Bytes()
 }
