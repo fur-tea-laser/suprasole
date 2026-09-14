@@ -118,40 +118,16 @@ type _Count_ScrollbackLine__Option_PtyProxy_ struct {
 	Count_ScrollbackLine__PtyTerminal int
 }
 
-func (this _Count_ScrollbackLine__Option_PtyProxy_) Update_OptionConfig(
-	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
-) {
-	optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal = this.Count_ScrollbackLine__PtyTerminal
-}
-
 type _Size_StagingBuffer__Option_PtyProxy_ struct {
 	Size_StagingBuffer__PtyReader int
-}
-
-func (this _Size_StagingBuffer__Option_PtyProxy_) Update_OptionConfig(
-	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
-) {
-	optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader = this.Size_StagingBuffer__PtyReader
 }
 
 type _Size_PostSnapshotBuffer__Option_PtyProxy_ struct {
 	Size_PostSnapshotBuffer__PtyProxy int
 }
 
-func (this _Size_PostSnapshotBuffer__Option_PtyProxy_) Update_OptionConfig(
-	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
-) {
-	optionConfig_PtyProxy_result.Size_PostSnapshotBuffer__PtyProxy = this.Size_PostSnapshotBuffer__PtyProxy
-}
-
 type _Size_QueueBuffer__InputOrder_PtyWriter___Option_PtyProxy_ struct {
 	Size_QueueBuffer__InputOrder_PtyWriter int
-}
-
-func (this _Size_QueueBuffer__InputOrder_PtyWriter___Option_PtyProxy_) Update_OptionConfig(
-	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
-) {
-	optionConfig_PtyProxy_result.Size_QueueBuffer__InputOrder_PtyWriter = this.Size_QueueBuffer__InputOrder_PtyWriter
 }
 
 type _SpawnPty__PtyMessage_Ingress_ struct {

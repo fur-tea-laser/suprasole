@@ -88,26 +88,13 @@ type _State_Spawning__WorkspacePty_ struct {
 	ResizeGeometry__deferred_maybe *_ResizeGeometry___State_Spawning__WorkspacePty_
 }
 
-func (this *_State_Spawning__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
-	bulletin_result.Status_WorkspacePty = SPAWNING__Status_WorkspacePty
-}
-
 type _State_Active__WorkspacePty_ struct {
 	PtyProxy *_PtyProxy_
-}
-
-func (this *_State_Active__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
-	bulletin_result.Status_WorkspacePty = ACTIVE__Status_WorkspacePty
 }
 
 type _State_Exited__WorkspacePty_ struct {
 	PtyProxy    *_PtyProxy_
 	ExitOutcome _ExitOutcome_PtyProxy_
-}
-
-func (this *_State_Exited__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
-	bulletin_result.Status_WorkspacePty = EXITED__Status_WorkspacePty
-	bulletin_result.ExitOutcome_PtyProxy_maybe = this.ExitOutcome
 }
 
 type _WorkspacePty_ struct {

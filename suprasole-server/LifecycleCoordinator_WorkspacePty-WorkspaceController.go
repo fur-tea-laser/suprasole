@@ -58,6 +58,30 @@ func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
 	)
 }
 
+func (this _Count_ScrollbackLine__Option_PtyProxy_) Update_OptionConfig(
+	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
+) {
+	optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal = this.Count_ScrollbackLine__PtyTerminal
+}
+
+func (this _Size_StagingBuffer__Option_PtyProxy_) Update_OptionConfig(
+	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
+) {
+	optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader = this.Size_StagingBuffer__PtyReader
+}
+
+func (this _Size_PostSnapshotBuffer__Option_PtyProxy_) Update_OptionConfig(
+	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
+) {
+	optionConfig_PtyProxy_result.Size_PostSnapshotBuffer__PtyProxy = this.Size_PostSnapshotBuffer__PtyProxy
+}
+
+func (this _Size_QueueBuffer__InputOrder_PtyWriter___Option_PtyProxy_) Update_OptionConfig(
+	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
+) {
+	optionConfig_PtyProxy_result.Size_QueueBuffer__InputOrder_PtyWriter = this.Size_QueueBuffer__InputOrder_PtyWriter
+}
+
 func backgroundSpawn_PtyProxy__Coordinator(
 	LifecycleCoordinator_WorkspacePty *_LifecycleCoordinator_WorkspacePty_,
 	spawnApi_PtyProxy _SpawnApi_PtyProxy_,
@@ -194,6 +218,19 @@ func (This *_WorkspaceController_) HandleConnect_PtyWebsocket__Coordinator(
 			BulletinBatch_WorkspacePty: bulletinBatch_WorkspacePty_result,
 		},
 	)
+}
+
+func (this *_State_Spawning__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
+	bulletin_result.Status_WorkspacePty = SPAWNING__Status_WorkspacePty
+}
+
+func (this *_State_Active__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
+	bulletin_result.Status_WorkspacePty = ACTIVE__Status_WorkspacePty
+}
+
+func (this *_State_Exited__WorkspacePty_) Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_) {
+	bulletin_result.Status_WorkspacePty = EXITED__Status_WorkspacePty
+	bulletin_result.ExitOutcome_PtyProxy_maybe = this.ExitOutcome
 }
 
 func (This *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() {
