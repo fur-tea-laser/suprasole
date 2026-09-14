@@ -41,34 +41,82 @@ func (this _Sync__WorkspaceOrder_LifecycleCoordinator_) Execute(
 }
 
 type _ExitPty__WorkspaceOrder_LifecycleCoordinator_ struct {
-	Id_PtyProxy          uint32
-	ExitOutcome_PtyProxy _ExitOutcome_PtyProxy_
+	Id_WorkspacePty_exited uint32
+	ExitOutcome_PtyProxy   _ExitOutcome_PtyProxy_
 }
 
 func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
 	lifecycleCoordinator.OnExit_PtyProxy__(
-		this.Id_PtyProxy,
+		this.Id_WorkspacePty_exited,
 		this.ExitOutcome_PtyProxy,
 	)
 }
 
+type _SpawnPty__WorkspaceOrder_LifecycleCoordinator_ struct {
+	Id_WebsocketConnection_expected uint64
+	Message_SpawnPty                _SpawnPty__PtyMessage_Ingress_
+}
+
+func (this _SpawnPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+) {
+	lifecycleCoordinator.OnSpawnPty__(
+		this.Id_WebsocketConnection_expected,
+		this.Message_SpawnPty,
+	)
+}
+
+type _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_ struct {
+	Id_WorkspacePty_spawned uint32
+	PtyProxy_dormant        *_PtyProxy_
+}
+
+func (this _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+) {
+	lifecycleCoordinator.OnStatus_SpawnPty__Success__(
+		this.Id_WorkspacePty_spawned,
+		this.PtyProxy_dormant,
+	)
+}
+
+type _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_ struct {
+	Id_WorkspacePty_failed  uint32
+	Error_Start__PtyCommand error
+}
+
+func (this _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+) {
+	lifecycleCoordinator.OnStatus_SpawnPty__Failure__(
+		this.Id_WorkspacePty_failed,
+		this.Error_Start__PtyCommand,
+	)
+}
+
 type _LifecycleCoordinator_WorkspacePty_ struct {
-	OnConnect_PtyWebsocket__    func(id_WebsocketConnection_expected uint64)
-	OnDisconnect_PtyWebsocket__ func()
-	OnSync_PtyPool__            func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
-	OnExit_PtyProxy__           func(id_PtyProxy_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
-	QueueChannel_WorkspaceOrder chan _WorkspaceOrder_LifecycleCoordinator_
-	WorkerContext               _CONTEXT.Context
-	WorkerCancel                _CONTEXT.CancelFunc
+	OnConnect_PtyWebsocket__     func(id_WebsocketConnection_expected uint64)
+	OnDisconnect_PtyWebsocket__  func()
+	OnSync_PtyPool__             func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
+	OnExit_PtyProxy__            func(id_WorkspacePty_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnSpawnPty__                 func(id_WebsocketConnection_expected uint64, message _SpawnPty__PtyMessage_Ingress_)
+	OnStatus_SpawnPty__Success__ func(id_WorkspacePty_spawned uint32, ptyProxy_dormant *_PtyProxy_)
+	OnStatus_SpawnPty__Failure__ func(id_WorkspacePty_failed uint32, error_Start__PtyCommand error)
+	QueueChannel_WorkspaceOrder  chan _WorkspaceOrder_LifecycleCoordinator_
+	WorkerContext                _CONTEXT.Context
+	WorkerCancel                 _CONTEXT.CancelFunc
 }
 
 type _MakeApi__LifecycleCoordinator_WorkspacePty_ struct {
-	OnConnect_PtyWebsocket__    func(id_WebsocketConnection_expected uint64)
-	OnDisconnect_PtyWebsocket__ func()
-	OnSync_PtyPool__            func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
-	OnExit_PtyProxy__           func(id_PtyProxy_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnConnect_PtyWebsocket__     func(id_WebsocketConnection_expected uint64)
+	OnDisconnect_PtyWebsocket__  func()
+	OnSync_PtyPool__             func(id_WebsocketConnection_expected uint64, message__Batch_SyncPty _Batch_SyncPty__PtyMessage_Ingress_)
+	OnExit_PtyProxy__            func(id_WorkspacePty_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
+	OnSpawnPty__                 func(id_WebsocketConnection_expected uint64, message _SpawnPty__PtyMessage_Ingress_)
+	OnStatus_SpawnPty__Success__ func(id_WorkspacePty_spawned uint32, ptyProxy_dormant *_PtyProxy_)
+	OnStatus_SpawnPty__Failure__ func(id_WorkspacePty_failed uint32, error_Start__PtyCommand error)
 }
 
 func Make__LifecycleCoordinator_WorkspacePty(
@@ -76,13 +124,16 @@ func Make__LifecycleCoordinator_WorkspacePty(
 ) *_LifecycleCoordinator_WorkspacePty_ {
 	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
 	return &_LifecycleCoordinator_WorkspacePty_{
-		OnConnect_PtyWebsocket__:    api.OnConnect_PtyWebsocket__,
-		OnDisconnect_PtyWebsocket__: api.OnDisconnect_PtyWebsocket__,
-		OnSync_PtyPool__:            api.OnSync_PtyPool__,
-		OnExit_PtyProxy__:           api.OnExit_PtyProxy__,
-		QueueChannel_WorkspaceOrder: make(chan _WorkspaceOrder_LifecycleCoordinator_, 16),
-		WorkerContext:               workerContext,
-		WorkerCancel:                workerCancel,
+		OnConnect_PtyWebsocket__:     api.OnConnect_PtyWebsocket__,
+		OnDisconnect_PtyWebsocket__:  api.OnDisconnect_PtyWebsocket__,
+		OnSync_PtyPool__:             api.OnSync_PtyPool__,
+		OnExit_PtyProxy__:            api.OnExit_PtyProxy__,
+		OnSpawnPty__:                 api.OnSpawnPty__,
+		OnStatus_SpawnPty__Success__: api.OnStatus_SpawnPty__Success__,
+		OnStatus_SpawnPty__Failure__: api.OnStatus_SpawnPty__Failure__,
+		QueueChannel_WorkspaceOrder:  make(chan _WorkspaceOrder_LifecycleCoordinator_, 128),
+		WorkerContext:                workerContext,
+		WorkerCancel:                 workerCancel,
 	}
 }
 
@@ -122,12 +173,19 @@ func (this *_LifecycleCoordinator_WorkspacePty_) Reconcile__orderBatch_pending(
 	orderBatch_pending []_WorkspaceOrder_LifecycleCoordinator_,
 ) []_WorkspaceOrder_LifecycleCoordinator_ {
 	var orderBatch_ExitPty_result []_WorkspaceOrder_LifecycleCoordinator_
+	var orderBatch_SpawnPty_result []_WorkspaceOrder_LifecycleCoordinator_
 	var orderBatch_Session_result []_WorkspaceOrder_LifecycleCoordinator_
+	var orderBatch__Status_SpawnPty__result []_WorkspaceOrder_LifecycleCoordinator_
 	for _, order__pending_current := range orderBatch_pending {
 		switch order__pending_current_the := order__pending_current.(type) {
 		case _ExitPty__WorkspaceOrder_LifecycleCoordinator_:
 			orderBatch_ExitPty_result = append(
 				orderBatch_ExitPty_result,
+				order__pending_current_the,
+			)
+		case _SpawnPty__WorkspaceOrder_LifecycleCoordinator_:
+			orderBatch_SpawnPty_result = append(
+				orderBatch_SpawnPty_result,
 				order__pending_current_the,
 			)
 		case _Disconnect__WorkspaceOrder_LifecycleCoordinator_:
@@ -144,11 +202,29 @@ func (this *_LifecycleCoordinator_WorkspacePty_) Reconcile__orderBatch_pending(
 				orderBatch_Session_result,
 				order__pending_current_the,
 			)
+		case _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_:
+			orderBatch__Status_SpawnPty__result = append(
+				orderBatch__Status_SpawnPty__result,
+				order__pending_current_the,
+			)
+		case _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_:
+			orderBatch__Status_SpawnPty__result = append(
+				orderBatch__Status_SpawnPty__result,
+				order__pending_current_the,
+			)
+		default:
+			panic("invalid path: _LifecycleCoordinator_WorkspacePty_ Reconcile__orderBatch_pending")
 		}
 	}
 	return append(
 		orderBatch_ExitPty_result,
-		orderBatch_Session_result...,
+		append(
+			orderBatch_SpawnPty_result,
+			append(
+				orderBatch_Session_result,
+				orderBatch__Status_SpawnPty__result...,
+			)...,
+		)...,
 	)
 }
 
