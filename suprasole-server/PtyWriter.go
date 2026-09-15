@@ -20,20 +20,7 @@ type _Passthrough__InputOrder_PtyWriter_ struct {
 	InputData_PtyDevice []byte
 }
 
-func (this *_Passthrough__InputOrder_PtyWriter_) WriteInput(
-	FileDescriptor_Master__PtyDevice *_OS.File,
-) {
-	if len(this.InputData_PtyDevice) > 0 {
-		_, _ = FileDescriptor_Master__PtyDevice.Write(this.InputData_PtyDevice)
-	}
-}
-
 type _Paced__InputOrder_PtyWriter_ struct {
-}
-
-func (this *_Paced__InputOrder_PtyWriter_) WriteInput(
-	FileDescriptor_Master__PtyDevice *_OS.File,
-) {
 }
 
 type _PtyWriter_ struct {
@@ -41,15 +28,4 @@ type _PtyWriter_ struct {
 	QueueChannel_InputOrder          chan _InputOrder_PtyWriter_
 	WorkerContext                    _CONTEXT.Context
 	WorkerCancel                     _CONTEXT.CancelFunc
-}
-
-func (this *_PtyWriter_) RunWorker() {
-	for {
-		select {
-		case <-this.WorkerContext.Done():
-			return
-		case inputOrder_next := <-this.QueueChannel_InputOrder:
-			inputOrder_next.WriteInput(this.FileDescriptor_Master__PtyDevice)
-		}
-	}
 }
