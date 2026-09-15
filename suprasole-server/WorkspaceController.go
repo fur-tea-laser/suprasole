@@ -1,7 +1,6 @@
 package main
 
 import (
-	_CONTEXT "context"
 	_SYNC "sync"
 	_TIME "time"
 )
@@ -55,18 +54,4 @@ func Make_WorkspaceController(
 		OnStatus_SpawnPty__Failure__: workspaceController_result.HandleStatus_SpawnPty__Failure__Coordinator,
 	})
 	return workspaceController_result
-}
-
-func (This *_WorkspaceController_) StartSession() error {
-	go This.MessageDebouncer__Batch_ResizePty.RunWorker()
-	go This.LifecycleCoordinator_WorkspacePty.RunWorker()
-	return This.WorkspaceNetwork.Start()
-}
-
-func (This *_WorkspaceController_) StopSession(
-	context_shutdownDeadline__HttpServer _CONTEXT.Context,
-) error {
-	This.MessageDebouncer__Batch_ResizePty.WorkerCancel()
-	This.LifecycleCoordinator_WorkspacePty.WorkerCancel()
-	return This.WorkspaceNetwork.Stop(context_shutdownDeadline__HttpServer)
 }
