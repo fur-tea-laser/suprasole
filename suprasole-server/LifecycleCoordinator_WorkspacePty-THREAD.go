@@ -1,9 +1,16 @@
 package main
 
 import (
+	_BYTES "bytes"
+	_CONTEXT "context"
 	_MAPS "maps"
+	_EXEC "os/exec"
 	_SYSCALL "syscall"
+
+	_PTY "github.com/creack/pty"
+	_XTERM "github.com/gitpod-io/xterm-go"
 )
+
 
 func (this *_LifecycleCoordinator_WorkspacePty_) RunWorker() {
 	for {
@@ -270,6 +277,62 @@ func backgroundSpawn_PtyProxy__Coordinator(
 		Id_WorkspacePty_spawned: spawnApi_PtyProxy.Id_WorkspacePty,
 		PtyProxy_quiescent:      ptyProxy_quiescent,
 	}
+}
+
+func Spawn_PtyProxy(
+	api _SpawnApi_PtyProxy_,
+) (*_PtyProxy_, error) {
+	ptyCommand_PtyProxy_result := _EXEC.Command(api.Path_ShellBinary__PtyCommand)
+	ptyCommand_PtyProxy_result.Env = api.EnvironmentVariables_PtyCommand
+	ptyCommand_PtyProxy_result.Dir = api.DirectoryPath_PtyCommand
+	fileDescriptor_master__PtyDevice, error_start__PtyCommand__maybe := _PTY.Start(ptyCommand_PtyProxy_result)
+	if error_start__PtyCommand__maybe != nil {
+		return nil, error_start__PtyCommand__maybe
+	}
+	ptyProxy_result := &_PtyProxy_{
+		OnOutput_Live__:                  api.OnOutput_Live__PtyProxy__,
+		OnOutput_Snapshot__:              api.OnOutput_Snapshot__PtyProxy__,
+		OnOutput_PostSnapshot__:          api.OnOutput_PostSnapshot__PtyProxy__,
+		OnExited_Eio_Success__:           api.OnExited_Eio_Success__PtyProxy__,
+		OnExited_Eio_Failure__:           api.OnExited_Eio_Failure__PtyProxy__,
+		OnExited_Eio_Killed__:            api.OnExited_Eio_Killed__PtyProxy__,
+		OnExited_Closed__:                api.OnExited_Closed__PtyProxy__,
+		OnExited_SystemError__:           api.OnExited_SystemError__PtyProxy__,
+		Id_WorkspacePty:                  api.Id_WorkspacePty,
+		Mode_current:                     SPAWNING__Mode_PtyProxy,
+		PtyCommand:                       ptyCommand_PtyProxy_result,
+		FileDescriptor_Master__PtyDevice: fileDescriptor_master__PtyDevice,
+		PtyTerminal:                      nil,
+		PtyReader:                        nil,
+		PtyWriter:                        nil,
+		PostSnapshotBuffer:               nil,
+	}
+	ptyProxy_result.PtyReader = &_PtyReader_{
+		OnTryFlush__:                       ptyProxy_result.HandleTryFlush,
+		OnBlockingFlush__:                  ptyProxy_result.HandleBlockingFlush,
+		OnExited_Closed__:                  ptyProxy_result.HandleExited_Closed,
+		OnExited_Eio__:                     ptyProxy_result.HandleExited_Eio,
+		OnExited_SystemError__:             ptyProxy_result.HandleExited_SystemError,
+		StagingBuffer:                      make([]byte, api.Size_StagingBuffer__PtyReader),
+		Size_UnflushedSlice__StagingBuffer: 0,
+		FileDescriptor_Master__PtyDevice:   fileDescriptor_master__PtyDevice,
+	}
+	workerContext_PtyWriter, workerCancel_PtyWriter := _CONTEXT.WithCancel(_CONTEXT.Background())
+	ptyProxy_result.PtyWriter = &_PtyWriter_{
+		QueueChannel_InputOrder:          make(chan _InputOrder_PtyWriter_, api.Size_QueueBuffer__InputOrder_PtyWriter),
+		WorkerContext:                    workerContext_PtyWriter,
+		WorkerCancel:                     workerCancel_PtyWriter,
+		FileDescriptor_Master__PtyDevice: fileDescriptor_master__PtyDevice,
+	}
+	ptyProxy_result.PostSnapshotBuffer = _BYTES.NewBuffer(
+		make([]byte, 0, api.Size_PostSnapshotBuffer__PtyProxy),
+	)
+	ptyProxy_result.PtyTerminal = _XTERM.New(
+		_XTERM.WithCols(api.ColumnCount_PtyTerminal),
+		_XTERM.WithRows(api.RowCount_PtyTerminal),
+		_XTERM.WithScrollback(api.Count_ScrollbackLine__PtyTerminal),
+	)
+	return ptyProxy_result, nil
 }
 
 func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
