@@ -1,7 +1,6 @@
 package main
 
 import (
-	_FMT "fmt"
 	_HTTP "net/http"
 	_TIME "time"
 
@@ -18,7 +17,7 @@ func (This *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 			isConnected_WebsocketConnection, id_WebsocketConnection_new := This.Update_WebsocketConnection(submission_GetWebsocketConnection_latest)
 			if isConnected_WebsocketConnection {
 				for {
-					messageType_Gorilla, payload_binaryMessage, error_ReadMessage_maybe := This.WebsocketConnection_current.ReadMessage()
+					messageType_Gorilla, payload_binaryMessage, error_ReadMessage_maybe := This.WebsocketConnection_state.ReadMessage()
 					if _WEBSOCKET.BinaryMessage == messageType_Gorilla {
 						This.OnPayload_BinaryMessage__(
 							id_WebsocketConnection_new,
@@ -34,7 +33,7 @@ func (This *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 						)
 						break
 					} else {
-						_FMT.Println("invalid path: _WebsocketController_ RunWorker__Submission_GetWebsocketConnection read loop")
+						panic("invalid path: _WebsocketController_ RunWorker__Submission_GetWebsocketConnection read loop")
 					}
 				}
 			}
@@ -63,8 +62,8 @@ func (This *_WebsocketController_) Update_WebsocketConnection(
 	submission_GetWebsocketConnection_latest _Submission_GetWebsocketConnection_,
 ) (bool, uint64) {
 	This.Mutex.Lock()
-	if This.Status_WebsocketConnection_current != TAKEOVER_CONNECTING__Status_WebsocketConnection {
-		This.Status_WebsocketConnection_current = CONNECTING__Status_WebsocketConnection
+	if This.Status_WebsocketConnection_state != TAKEOVER_CONNECTING__Status_WebsocketConnection {
+		This.Status_WebsocketConnection_state = CONNECTING__Status_WebsocketConnection
 	}
 	This.Mutex.Unlock()
 	var header_UpgradeResponse_nil _HTTP.Header = nil
@@ -78,7 +77,7 @@ func (This *_WebsocketController_) Update_WebsocketConnection(
 		Error_Submission_maybe: error_UpgradeRequest_maybe,
 	}
 	This.Mutex.Lock()
-	status_WebsocketConnection_captured := This.Status_WebsocketConnection_current
+	status_WebsocketConnection_captured := This.Status_WebsocketConnection_state
 	This.Mutex.Unlock()
 	if websocketConnection_new != nil && TAKEOVER_CONNECTING__Status_WebsocketConnection == status_WebsocketConnection_captured {
 		id_WebsocketConnection_new := This.Attach_WebsocketConnection(
@@ -94,17 +93,16 @@ func (This *_WebsocketController_) Update_WebsocketConnection(
 		return true, id_WebsocketConnection_new
 	} else if error_UpgradeRequest_maybe != nil && TAKEOVER_CONNECTING__Status_WebsocketConnection == status_WebsocketConnection_captured {
 		This.Mutex.Lock()
-		This.Status_WebsocketConnection_current = TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection
+		This.Status_WebsocketConnection_state = TAKEOVER_UPGRADE_FAILED__Status_WebsocketConnection
 		This.Mutex.Unlock()
 		return false, 0
 	} else if error_UpgradeRequest_maybe != nil && CONNECTING__Status_WebsocketConnection == status_WebsocketConnection_captured {
 		This.Mutex.Lock()
-		This.Status_WebsocketConnection_current = UPGRADE_FAILED__Status_WebsocketConnection
+		This.Status_WebsocketConnection_state = UPGRADE_FAILED__Status_WebsocketConnection
 		This.Mutex.Unlock()
 		return false, 0
 	} else {
-		_FMT.Println("invalid path: _WebsocketController_ Update_WebsocketConnection")
-		return false, 0
+		panic("invalid path: _WebsocketController_ Update_WebsocketConnection")
 	}
 }
 
@@ -113,13 +111,13 @@ func (This *_WebsocketController_) Attach_WebsocketConnection(
 	websocketConnection_new *_WEBSOCKET.Conn,
 ) uint64 {
 	This.Mutex.Lock()
-	This.Id_WebsocketConnection_current++
-	id_WebsocketConnection_new := This.Id_WebsocketConnection_current
-	This.WebsocketConnection_current = websocketConnection_new
-	_ = This.WebsocketConnection_current.SetReadDeadline(
+	This.Id_WebsocketConnection_state++
+	id_WebsocketConnection_new := This.Id_WebsocketConnection_state
+	This.WebsocketConnection_state = websocketConnection_new
+	_ = This.WebsocketConnection_state.SetReadDeadline(
 		_TIME.Now().Add(This.DeadlineTimeout_Read__),
 	)
-	This.Status_WebsocketConnection_current = CONNECTED__Status_WebsocketConnection
+	This.Status_WebsocketConnection_state = CONNECTED__Status_WebsocketConnection
 	This.Mutex.Unlock()
 	onConnected__(id_WebsocketConnection_new)
 	return id_WebsocketConnection_new
@@ -129,17 +127,17 @@ func (This *_WebsocketController_) Teardown_WebsocketConnection() {
 	var takeoverStatus_WebsocketConnection_captured _TakeoverStatus_WebsocketConnection_
 	var WebsocketConnection_closing *_WEBSOCKET.Conn
 	This.Mutex.Lock()
-	takeoverStatus_WebsocketConnection_captured = This.TakeoverStatus_WebsocketConnection_current
+	takeoverStatus_WebsocketConnection_captured = This.TakeoverStatus_WebsocketConnection_state
 	if PENDING__TakeoverStatus_WebsocketConnection == takeoverStatus_WebsocketConnection_captured {
-		This.Status_WebsocketConnection_current = TAKEOVER_CONNECTING__Status_WebsocketConnection
-		This.TakeoverStatus_WebsocketConnection_current = NOT_PENDING__TakeoverStatus_WebsocketConnection
+		This.Status_WebsocketConnection_state = TAKEOVER_CONNECTING__Status_WebsocketConnection
+		This.TakeoverStatus_WebsocketConnection_state = NOT_PENDING__TakeoverStatus_WebsocketConnection
 	} else if NOT_PENDING__TakeoverStatus_WebsocketConnection == takeoverStatus_WebsocketConnection_captured {
-		This.Status_WebsocketConnection_current = DISCONNECTED__Status_WebsocketConnection
-		WebsocketConnection_closing = This.WebsocketConnection_current
+		This.Status_WebsocketConnection_state = DISCONNECTED__Status_WebsocketConnection
+		WebsocketConnection_closing = This.WebsocketConnection_state
 	} else {
-		_FMT.Println("invalid path: _WebsocketController_ Teardown_WebsocketConnection state transition")
+		panic("invalid path: _WebsocketController_ Teardown_WebsocketConnection [STATE_TRANSITION]")
 	}
-	This.WebsocketConnection_current = nil
+	This.WebsocketConnection_state = nil
 	This.Mutex.Unlock()
 	if WebsocketConnection_closing != nil {
 		_ = WebsocketConnection_closing.Close()
@@ -149,7 +147,6 @@ func (This *_WebsocketController_) Teardown_WebsocketConnection() {
 	} else if NOT_PENDING__TakeoverStatus_WebsocketConnection == takeoverStatus_WebsocketConnection_captured {
 		This.OnDisconnected__()
 	} else {
-		_FMT.Println("invalid path: _WebsocketController_ Teardown_WebsocketConnection callback dispatch")
+		panic("invalid path: _WebsocketController_ Teardown_WebsocketConnection [CALLBACK_DISPATCH]")
 	}
 }
-

@@ -1,8 +1,8 @@
 package main
 
-import (
-	_FMT "fmt"
-)
+type _PtyMessage_Egress_ interface {
+	EncodePayload() []byte
+}
 
 type _Code__PtyMessage_Egress_ uint16
 
@@ -15,10 +15,6 @@ const (
 	TASK_COMPLETE__SYNC_PTY___Code__PtyMessage_Egress _Code__PtyMessage_Egress_ = 0x000c
 )
 
-type _PtyMessage_Egress_ interface {
-	EncodePayload() []byte
-}
-
 func Emit__PtyMessage_Egress__WebsocketController_Pty(
 	WebsocketController_Pty *_WebsocketController_,
 	id_WebsocketConnection_expected uint64,
@@ -30,6 +26,10 @@ func Emit__PtyMessage_Egress__WebsocketController_Pty(
 	)
 }
 
+type _WorkspaceManifest__PtyMessage_Egress_ struct {
+	BulletinBatch_WorkspacePty []_Bulletin_WorkspacePty_
+}
+
 type _Bulletin_WorkspacePty_ struct {
 	Id_WorkspacePty              uint32
 	Status_WorkspacePty          _Status_WorkspacePty_
@@ -37,9 +37,23 @@ type _Bulletin_WorkspacePty_ struct {
 	ExitOutcome_PtyProxy_maybe   _ExitOutcome_PtyProxy_
 }
 
-type _WorkspaceManifest__PtyMessage_Egress_ struct {
-	BulletinBatch_WorkspacePty []_Bulletin_WorkspacePty_
-}
+type _Status_WorkspacePty_ uint8
+
+const (
+	SPAWNING__Status_WorkspacePty _Status_WorkspacePty_ = 0x00
+	ACTIVE__Status_WorkspacePty   _Status_WorkspacePty_ = 0x01
+	EXITED__Status_WorkspacePty   _Status_WorkspacePty_ = 0x02
+)
+
+type _ExitReason_PtyProxy_ int
+
+const (
+	SUCCESS__ExitReason_PtyProxy _ExitReason_PtyProxy_ = iota
+	FAILURE__ExitReason_PtyProxy
+	KILLED__ExitReason_PtyProxy
+	CLOSED__ExitReason_PtyProxy
+	SYSTEM_ERROR__ExitReason_PtyProxy
+)
 
 func encodeStruct__ExitOutcome_PtyProxy(
 	binaryEncoder *_BinaryEncoder_WebsocketMessage_,
@@ -82,7 +96,7 @@ func encodeStruct__ExitOutcome_PtyProxy(
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(0)
 	default:
-		_FMT.Println("invalid path: encodeStruct__ExitOutcome_PtyProxy")
+		panic("invalid path: encodeStruct__ExitOutcome_PtyProxy")
 	}
 }
 
@@ -112,6 +126,11 @@ func (this _WorkspaceManifest__PtyMessage_Egress_) EncodePayload() []byte {
 	return binaryEncoder_WorkspaceManifest.Bytes()
 }
 
+type _Status_SpawnPty__PtyMessage_Egress_ struct {
+	Status_SpawnPty _Status_SpawnPty_
+	Id_PtyProxy     uint32
+}
+
 type _Status_SpawnPty_ byte
 
 const (
@@ -120,11 +139,6 @@ const (
 	SUCCESS__Status_SpawnPty  _Status_SpawnPty_ = 0x01
 	FAILURE__Status_SpawnPty  _Status_SpawnPty_ = 0x02
 )
-
-type _Status_SpawnPty__PtyMessage_Egress_ struct {
-	Status_SpawnPty _Status_SpawnPty_
-	Id_PtyProxy     uint32
-}
 
 func (this _Status_SpawnPty__PtyMessage_Egress_) EncodePayload() []byte {
 	binaryEncoder__Status_SpawnPty := Make__BinaryEncoder_WebsocketMessage()

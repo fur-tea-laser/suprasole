@@ -3,7 +3,6 @@ package main
 import (
 	_BYTES "bytes"
 	_ERRORS "errors"
-	_FMT "fmt"
 	_OS "os"
 	_SYSCALL "syscall"
 )
@@ -33,7 +32,7 @@ func (this *_PtyReader_) RunWorker() {
 		this.OnExited_SystemError__(exitSignal_PtyReader_maybe)
 	} else {
 		// exitSignal_PtyReader_maybe is guaranteed non-nil because a non-nil exitSignal_PtyReader_maybe is required to break out of the for loop above
-		_FMT.Println("invalid path: _PtyReader_ RunWorker")
+		panic("invalid path: _PtyReader_ RunWorker")
 	}
 }
 
@@ -68,7 +67,7 @@ func __flushReaderStagingBufferSliceIfLockAcquired(
 	UnflushedSlice_StagingBuffer__PtyReader []byte,
 ) bool {
 	if maybeAcquirePtyProxyMutexLock__() {
-		mode_PtyProxy_captured := PtyProxy_this.Mode_current
+		mode_PtyProxy_captured := PtyProxy_this.Mode_state
 		PtyProxy_this.PtyTerminal.Write(UnflushedSlice_StagingBuffer__PtyReader)
 		if LIVE_RUNNING__Mode_PtyProxy == mode_PtyProxy_captured {
 		} else if PRE_SNAPSHOT__RUNNING___Mode_PtyProxy == mode_PtyProxy_captured {
@@ -77,7 +76,7 @@ func __flushReaderStagingBufferSliceIfLockAcquired(
 		} else {
 			// SPAWNING__Mode_PtyProxy == mode_PtyProxy_captured
 			// EXITED__Mode_PtyProxy == mode_PtyProxy_captured
-			_FMT.Println("invalid path: _PtyProxy_ __flushReaderStagingBufferSliceIfLockAcquired")
+			panic("invalid path: _PtyProxy_ __flushReaderStagingBufferSliceIfLockAcquired")
 		}
 		PtyProxy_this.Mutex.Unlock()
 		if LIVE_RUNNING__Mode_PtyProxy == mode_PtyProxy_captured {
@@ -89,6 +88,30 @@ func __flushReaderStagingBufferSliceIfLockAcquired(
 		return true
 	}
 	return false
+}
+
+func (This *_WorkspaceController_) HandleOutput_Pty(
+	id_WorkspacePty uint32,
+	outputData_PtyProxy []byte,
+) {
+	Emit__PtyMessage_Egress__WebsocketController_Pty(
+		This.WorkspaceNetwork.WebsocketController_Pty,
+		This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state,
+		_PtyOutput__PtyMessage_Egress_{
+			Id_PtyProxy:         id_WorkspacePty,
+			OutputData_PtyProxy: outputData_PtyProxy,
+		},
+	)
+}
+
+func __executeExitedTeardown(
+	onDispatchExited__ func(exitSignal_PtyReader error),
+	PtyProxy_this *_PtyProxy_,
+	exitSignal_PtyReader error,
+) {
+	_ = PtyProxy_this.FileDescriptor_Master__PtyDevice.Close()
+	_ = PtyProxy_this.PtyCommand.Wait()
+	onDispatchExited__(exitSignal_PtyReader)
 }
 
 func (This *_PtyProxy_) HandleExited_Closed(
@@ -105,6 +128,15 @@ func (This *_PtyProxy_) HandleDispatchExited_Closed(
 	_ error,
 ) {
 	This.OnExited_Closed__(This)
+}
+
+func (This *_WorkspaceController_) HandleExited_Closed__Pty(
+	PtyProxy_exited *_PtyProxy_,
+) {
+	This.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
+		Id_WorkspacePty_exited: PtyProxy_exited.Id_WorkspacePty,
+		ExitOutcome_PtyProxy:   _Closed__ExitOutcome_PtyProxy_{},
+	}
 }
 
 func (This *_PtyProxy_) HandleExited_Eio(
@@ -128,51 +160,8 @@ func (This *_PtyProxy_) HandleDispatchExited_Eio(
 	} else if waitStatus_PtyProcess.Exited() {
 		This.OnExited_Eio_Failure__(This)
 	} else {
-		_FMT.Println("invalid path: _PtyProxy_ HandleDispatchExited_Eio")
+		panic("invalid path: _PtyProxy_ HandleDispatchExited_Eio")
 	}
-}
-
-func (This *_PtyProxy_) HandleExited_SystemError(
-	exitSignal_PtyReader error,
-) {
-	__executeExitedTeardown(
-		This.HandleDispatchExited_SystemError,
-		This,
-		exitSignal_PtyReader,
-	)
-}
-
-func (This *_PtyProxy_) HandleDispatchExited_SystemError(
-	exitSignal_PtyReader error,
-) {
-	This.OnExited_SystemError__(
-		This,
-		exitSignal_PtyReader,
-	)
-}
-
-func __executeExitedTeardown(
-	onDispatchExited__ func(exitSignal_PtyReader error),
-	PtyProxy_this *_PtyProxy_,
-	exitSignal_PtyReader error,
-) {
-	_ = PtyProxy_this.FileDescriptor_Master__PtyDevice.Close()
-	_ = PtyProxy_this.PtyCommand.Wait()
-	onDispatchExited__(exitSignal_PtyReader)
-}
-
-func (This *_WorkspaceController_) HandleOutput_Pty(
-	id_WorkspacePty uint32,
-	outputData_PtyProxy []byte,
-) {
-	Emit__PtyMessage_Egress__WebsocketController_Pty(
-		This.WorkspaceNetwork.WebsocketController_Pty,
-		This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_current,
-		_PtyOutput__PtyMessage_Egress_{
-			Id_PtyProxy:         id_WorkspacePty,
-			OutputData_PtyProxy: outputData_PtyProxy,
-		},
-	)
 }
 
 func (This *_WorkspaceController_) HandleExited_Eio_Success__Pty(
@@ -207,13 +196,23 @@ func (This *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 	}
 }
 
-func (This *_WorkspaceController_) HandleExited_Closed__Pty(
-	PtyProxy_exited *_PtyProxy_,
+func (This *_PtyProxy_) HandleExited_SystemError(
+	exitSignal_PtyReader error,
 ) {
-	This.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _ExitPty__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WorkspacePty_exited: PtyProxy_exited.Id_WorkspacePty,
-		ExitOutcome_PtyProxy:   _Closed__ExitOutcome_PtyProxy_{},
-	}
+	__executeExitedTeardown(
+		This.HandleDispatchExited_SystemError,
+		This,
+		exitSignal_PtyReader,
+	)
+}
+
+func (This *_PtyProxy_) HandleDispatchExited_SystemError(
+	exitSignal_PtyReader error,
+) {
+	This.OnExited_SystemError__(
+		This,
+		exitSignal_PtyReader,
+	)
 }
 
 func (This *_WorkspaceController_) HandleExited_SystemError__Pty(

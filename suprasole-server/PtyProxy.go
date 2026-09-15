@@ -11,16 +11,6 @@ import (
 	_XTERM "github.com/gitpod-io/xterm-go"
 )
 
-type _Mode_PtyProxy_ int
-
-const (
-	SPAWNING__Mode_PtyProxy _Mode_PtyProxy_ = iota
-	LIVE_RUNNING__Mode_PtyProxy
-	PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
-	POST_SNAPSHOT__RUNNING___Mode_PtyProxy
-	EXITED__Mode_PtyProxy
-)
-
 type _PtyProxy_ struct {
 	OnOutput_Live__                  func(id_WorkspacePty uint32, outputData_PtyDevice []byte)
 	OnOutput_Snapshot__              func(id_WorkspacePty uint32, outputData_PtyTerminal []byte)
@@ -32,7 +22,7 @@ type _PtyProxy_ struct {
 	OnExited_SystemError__           func(ptyProxy *_PtyProxy_, exitSignal_PtyReader error)
 	Id_WorkspacePty                  uint32
 	Mutex                            _SYNC.Mutex
-	Mode_current                     _Mode_PtyProxy_
+	Mode_state                       _Mode_PtyProxy_
 	PtyCommand                       *_EXEC.Cmd
 	FileDescriptor_Master__PtyDevice *_OS.File
 	PtyTerminal                      *_XTERM.Terminal
@@ -41,81 +31,15 @@ type _PtyProxy_ struct {
 	PostSnapshotBuffer               *_BYTES.Buffer
 }
 
-type _SpawnApi_PtyProxy_ struct {
-	OnOutput_Live__PtyProxy__              func(id_WorkspacePty uint32, outputData_PtyDevice []byte)
-	OnOutput_Snapshot__PtyProxy__          func(id_WorkspacePty uint32, outputData_PtyTerminal []byte)
-	OnOutput_PostSnapshot__PtyProxy__      func(id_WorkspacePty uint32, outputData_PostSnapshot []byte)
-	OnExited_Eio_Success__PtyProxy__       func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Failure__PtyProxy__       func(ptyProxy *_PtyProxy_)
-	OnExited_Eio_Killed__PtyProxy__        func(ptyProxy *_PtyProxy_)
-	OnExited_Closed__PtyProxy__            func(ptyProxy *_PtyProxy_)
-	OnExited_SystemError__PtyProxy__       func(ptyProxy *_PtyProxy_, exitSignal_PtyReader error)
-	Id_WorkspacePty                        uint32
-	ColumnCount_PtyTerminal                int
-	RowCount_PtyTerminal                   int
-	Path_ShellBinary__PtyCommand           string
-	DirectoryPath_PtyCommand               string
-	EnvironmentVariables_PtyCommand        []string
-	Size_StagingBuffer__PtyReader          int
-	Count_ScrollbackLine__PtyTerminal      int
-	Size_PostSnapshotBuffer__PtyProxy      int
-	Size_QueueBuffer__InputOrder_PtyWriter int
-}
+type _Mode_PtyProxy_ int
 
-func (This *_PtyProxy_) TransitionMode_ToExited() {
-	This.Mode_current = EXITED__Mode_PtyProxy
-}
-
-func (This *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
-	This.Mutex.Lock()
-	This.Mode_current = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
-	This.Mutex.Unlock()
-}
-
-func (This *_PtyProxy_) TransitionMode_PostSnapshotToPreSnapshot() {
-	This.Mutex.Lock()
-	This.Mode_current = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
-	This.Mutex.Unlock()
-}
-
-func (This *_PtyProxy_) TransitionMode_PreToPostSnapshot() {
-	This.Mutex.Lock()
-	This.PostSnapshotBuffer.Reset()
-	This.Mode_current = POST_SNAPSHOT__RUNNING___Mode_PtyProxy
-	serializeAddon := _XTERM.NewSerializeAddon(This.PtyTerminal)
-	outputData_PtyTerminal := serializeAddon.Serialize(nil)
-	This.Mutex.Unlock()
-	if len(outputData_PtyTerminal) > 0 {
-		This.OnOutput_Snapshot__(
-			This.Id_WorkspacePty,
-			outputData_PtyTerminal,
-		)
-	}
-}
-
-func (This *_PtyProxy_) TransitionMode_PostSnapshotToLive() {
-	This.Mutex.Lock()
-	outputData_PostSnapshot := _BYTES.Clone(This.PostSnapshotBuffer.Bytes())
-	This.Mode_current = LIVE_RUNNING__Mode_PtyProxy
-	This.Mutex.Unlock()
-	if len(outputData_PostSnapshot) > 0 {
-		This.OnOutput_PostSnapshot__(
-			This.Id_WorkspacePty,
-			outputData_PostSnapshot,
-		)
-	}
-}
-
-func (This *_PtyProxy_) EmitSnapshot_Exited() {
-	serializeAddon := _XTERM.NewSerializeAddon(This.PtyTerminal)
-	outputData_PtyTerminal := serializeAddon.Serialize(nil)
-	if len(outputData_PtyTerminal) > 0 {
-		This.OnOutput_Snapshot__(
-			This.Id_WorkspacePty,
-			outputData_PtyTerminal,
-		)
-	}
-}
+const (
+	SPAWNING__Mode_PtyProxy _Mode_PtyProxy_ = iota
+	LIVE_RUNNING__Mode_PtyProxy
+	PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
+	POST_SNAPSHOT__RUNNING___Mode_PtyProxy
+	EXITED__Mode_PtyProxy
+)
 
 func (This *_PtyProxy_) Resize(
 	columnCount_PtyTerminal_next int,

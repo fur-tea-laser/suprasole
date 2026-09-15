@@ -63,7 +63,7 @@ func (This *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 		WorkspacePty_target := This.PtyPool[order_ResizePty__pending_some.Id_WorkspacePty]
 		This.Mutex.Unlock()
 		if WorkspacePty_target != nil {
-			WorkspacePty_target.State_current.HandleResize_Debouncer(
+			WorkspacePty_target.State_state.HandleResize_Debouncer(
 				order_ResizePty__pending_some.ColumnCount_PtyTerminal,
 				order_ResizePty__pending_some.RowCount_PtyTerminal,
 			)
@@ -71,16 +71,16 @@ func (This *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 	}
 }
 
-func (this *_State_Spawning__WorkspacePty_) HandleResize_Debouncer(
+func (This *_State_Spawning__WorkspacePty_) HandleResize_Debouncer(
 	columnCount_PtyTerminal int,
 	rowCount_PtyTerminal int,
 ) {
-	this.Mutex.Lock()
-	this.ResizeGeometry__deferred_maybe = &_ResizeGeometry___State_Spawning__WorkspacePty_{
+	This.Mutex.Lock()
+	This.ResizeGeometry__deferred_maybe = &_ResizeGeometry___State_Spawning__WorkspacePty_{
 		ColumnCount_PtyTerminal: columnCount_PtyTerminal,
 		RowCount_PtyTerminal:    rowCount_PtyTerminal,
 	}
-	this.Mutex.Unlock()
+	This.Mutex.Unlock()
 }
 
 func (this *_State_Active__WorkspacePty_) HandleResize_Debouncer(

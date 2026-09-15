@@ -115,12 +115,12 @@ func (this _WriteInput_Pty__PtyMessage_Ingress_) Execute(
 	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]
 	WorkspaceController_forwarded.Mutex.Unlock()
 	if WorkspacePty_target != nil {
-		WorkspacePty_target.State_current.HandleWriteInput_Ingress(this.InputOrder_PtyWriter)
+		WorkspacePty_target.State_state.HandleWriteInput_Ingress(this.InputOrder_PtyWriter)
 	}
 }
 
-func (this *_State_Spawning__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
-	_FMT.Println("invalid path: _State_Spawning__WorkspacePty_ HandleWriteInput_Ingress")
+func (This *_State_Spawning__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
+	panic("invalid path: _State_Spawning__WorkspacePty_ HandleWriteInput_Ingress")
 }
 
 func (this *_State_Active__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
@@ -147,14 +147,14 @@ func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]
 	WorkspaceController_forwarded.Mutex.Unlock()
 	if WorkspacePty_target != nil {
-		WorkspacePty_target.State_current.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
+		WorkspacePty_target.State_state.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
 	}
 }
 
-func (this *_State_Spawning__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
-	this.Mutex.Lock()
-	this.CancellationStatus = CANCELED____CancellationStatus___State_Spawning__WorkspacePty
-	this.Mutex.Unlock()
+func (This *_State_Spawning__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
+	This.Mutex.Lock()
+	This.CancellationStatus = CANCELED____CancellationStatus___State_Spawning__WorkspacePty
+	This.Mutex.Unlock()
 }
 
 func (this *_State_Active__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
@@ -174,7 +174,7 @@ func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
 	for _, order_RemovePty_current := range this.OrderBatch_RemovePty {
 		WorkspacePty_target := WorkspaceController_forwarded.PtyPool[order_RemovePty_current.Id_WorkspacePty]
 		if WorkspacePty_target != nil {
-			WorkspacePty_target.State_current.HandleRemove_Ingress(
+			WorkspacePty_target.State_state.HandleRemove_Ingress(
 				WorkspaceController_forwarded.PtyPool,
 				WorkspacePty_target.Id,
 			)
@@ -183,7 +183,7 @@ func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded.Mutex.Unlock()
 }
 
-func (this *_State_Spawning__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
+func (This *_State_Spawning__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
 	// Valid invocation: Client requested removal, but spawning sessions must remain in PtyPool until the OS spawn worker completes.
 	// No action required: Session is retained in PtyPool; coordinator will purge upon spawn failure or cancellation.
 }
@@ -206,4 +206,3 @@ func (this _Batch_SyncPty__PtyMessage_Ingress_) Execute(
 		Message__Batch_SyncPty:          this,
 	}
 }
-

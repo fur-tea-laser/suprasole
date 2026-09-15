@@ -4,15 +4,11 @@ import (
 	_ERRORS "errors"
 )
 
-var MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
-	payload_binaryMessage []byte,
-) (_PtyMessage_Ingress_, error){
-	SPAWN_PTY___Code__PtyMessage_Ingress:         decodePayload_SpawnPty,
-	BATCH__RESIZE_PTY___Code__PtyMessage_Ingress: decodePayload_Batch_ResizePty,
-	TERMINATE_PTY___Code__PtyMessage_Ingress:     decodePayload_TerminatePty,
-	BATCH__REMOVE_PTY___Code__PtyMessage_Ingress: decodePayload_Batch_RemovePty,
-	WRITE_INPUT__PTY___Code__PtyMessage_Ingress:  decodePayload_WriteInput_Pty,
-	BATCH__SYNC_PTY___Code__PtyMessage_Ingress:   decodePayload_Batch_SyncPty,
+type _PtyMessage_Ingress_ interface {
+	Execute(
+		WorkspaceController_forwarded *_WorkspaceController_,
+		id_WebsocketConnection_expected uint64,
+	)
 }
 
 type _Code__PtyMessage_Ingress_ uint16
@@ -26,11 +22,62 @@ const (
 	BATCH__SYNC_PTY___Code__PtyMessage_Ingress   _Code__PtyMessage_Ingress_ = 0x000a
 )
 
-type _PtyMessage_Ingress_ interface {
-	Execute(
-		WorkspaceController_forwarded *_WorkspaceController_,
-		id_WebsocketConnection_expected uint64,
+var MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
+	payload_binaryMessage []byte,
+) (_PtyMessage_Ingress_, error){
+	SPAWN_PTY___Code__PtyMessage_Ingress:         decodePayload_SpawnPty,
+	BATCH__RESIZE_PTY___Code__PtyMessage_Ingress: decodePayload__Batch_ResizePty,
+	TERMINATE_PTY___Code__PtyMessage_Ingress:     decodePayload_TerminatePty,
+	BATCH__REMOVE_PTY___Code__PtyMessage_Ingress: decodePayload__Batch_RemovePty,
+	WRITE_INPUT__PTY___Code__PtyMessage_Ingress:  decodePayload__WriteInput_Pty,
+	BATCH__SYNC_PTY___Code__PtyMessage_Ingress:   decodePayload__Batch_SyncPty,
+}
+
+type _SpawnPty__PtyMessage_Ingress_ struct {
+	ColumnCount_PtyTerminal         int
+	RowCount_PtyTerminal            int
+	Path_ShellBinary__PtyCommand    string
+	DirectoryPath_PtyCommand        string
+	EnvironmentVariables_PtyCommand []string
+	OptionBatch_PtyProxy            []_Option_PtyProxy_
+}
+
+type _Option_PtyProxy_ interface {
+	Update_OptionConfig(
+		optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
 	)
+}
+
+type _OptionConfig_PtyProxy_ struct {
+	Count_ScrollbackLine__PtyTerminal      int
+	Size_StagingBuffer__PtyReader          int
+	Size_PostSnapshotBuffer__PtyProxy      int
+	Size_QueueBuffer__InputOrder_PtyWriter int
+}
+
+type _Code__Option_PtyProxy_ uint16
+
+const (
+	COUNT__SCROLLBACK_LINE___Code__Option_PtyProxy          _Code__Option_PtyProxy_ = 0x0001
+	SIZE__STAGING_BUFFER___Code__Option_PtyProxy            _Code__Option_PtyProxy_ = 0x0002
+	SIZE__POST_SNAPSHOT_BUFFER___Code__Option_PtyProxy      _Code__Option_PtyProxy_ = 0x0003
+	SIZE__QUEUE_BUFFER__INPUT_ORDER___Code__Option_PtyProxy _Code__Option_PtyProxy_ = 0x0004
+)
+
+type _Count_ScrollbackLine__Option_PtyProxy_ struct {
+	Count_ScrollbackLine__PtyTerminal int
+}
+
+type _Size_StagingBuffer__Option_PtyProxy_ struct {
+	Size_StagingBuffer__PtyReader int
+}
+
+type _Size_PostSnapshotBuffer__Option_PtyProxy_ struct {
+	Size_PostSnapshotBuffer__PtyProxy int
+}
+
+type _Size_QueueBuffer__InputOrder_PtyWriter___Option_PtyProxy_ struct {
+	Size_QueueBuffer__InputOrder_PtyWriter int
 }
 
 func decodePayload_SpawnPty(
@@ -91,54 +138,17 @@ func decodePayload_SpawnPty(
 	}, nil
 }
 
-type _OptionConfig_PtyProxy_ struct {
-	Count_ScrollbackLine__PtyTerminal      int
-	Size_StagingBuffer__PtyReader          int
-	Size_PostSnapshotBuffer__PtyProxy      int
-	Size_QueueBuffer__InputOrder_PtyWriter int
+type _Batch_ResizePty__PtyMessage_Ingress_ struct {
+	OrderBatch_ResizePty []_Order_ResizePty_
 }
 
-type _Code__Option_PtyProxy_ uint16
-
-const (
-	COUNT__SCROLLBACK_LINE___Code__Option_PtyProxy          _Code__Option_PtyProxy_ = 0x0001
-	SIZE__STAGING_BUFFER___Code__Option_PtyProxy            _Code__Option_PtyProxy_ = 0x0002
-	SIZE__POST_SNAPSHOT_BUFFER___Code__Option_PtyProxy      _Code__Option_PtyProxy_ = 0x0003
-	SIZE__QUEUE_BUFFER__INPUT_ORDER___Code__Option_PtyProxy _Code__Option_PtyProxy_ = 0x0004
-)
-
-type _Option_PtyProxy_ interface {
-	Update_OptionConfig(
-		optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
-	)
+type _Order_ResizePty_ struct {
+	Id_WorkspacePty         uint32
+	ColumnCount_PtyTerminal int
+	RowCount_PtyTerminal    int
 }
 
-type _Count_ScrollbackLine__Option_PtyProxy_ struct {
-	Count_ScrollbackLine__PtyTerminal int
-}
-
-type _Size_StagingBuffer__Option_PtyProxy_ struct {
-	Size_StagingBuffer__PtyReader int
-}
-
-type _Size_PostSnapshotBuffer__Option_PtyProxy_ struct {
-	Size_PostSnapshotBuffer__PtyProxy int
-}
-
-type _Size_QueueBuffer__InputOrder_PtyWriter___Option_PtyProxy_ struct {
-	Size_QueueBuffer__InputOrder_PtyWriter int
-}
-
-type _SpawnPty__PtyMessage_Ingress_ struct {
-	ColumnCount_PtyTerminal         int
-	RowCount_PtyTerminal            int
-	Path_ShellBinary__PtyCommand    string
-	DirectoryPath_PtyCommand        string
-	EnvironmentVariables_PtyCommand []string
-	OptionBatch_PtyProxy            []_Option_PtyProxy_
-}
-
-func decodePayload_Batch_ResizePty(
+func decodePayload__Batch_ResizePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder__Batch_ResizePty := Make__BinaryDecoder_WebsocketMessage(
@@ -171,43 +181,9 @@ func decodePayload_Batch_ResizePty(
 	}, nil
 }
 
-type _Order_ResizePty_ struct {
-	Id_WorkspacePty         uint32
-	ColumnCount_PtyTerminal int
-	RowCount_PtyTerminal    int
-}
-
-type _Batch_ResizePty__PtyMessage_Ingress_ struct {
-	OrderBatch_ResizePty []_Order_ResizePty_
-}
-
-func decodePayload_WriteInput_Pty(
-	payload_binaryMessage []byte,
-) (_PtyMessage_Ingress_, error) {
-	binaryDecoder_WriteInput_Pty := Make__BinaryDecoder_WebsocketMessage(
-		_MakeApi__BinaryDecoder_WebsocketMessage_{
-			Label_MessageStruct__:         "WriteInput_Pty",
-			Cursor_Buffer:                 2,
-			Buffer__Payload_BinaryMessage: payload_binaryMessage,
-		},
-	)
-	id_WorkspacePty := binaryDecoder_WriteInput_Pty.DecodeParameter_Uint32("Id_WorkspacePty")
-	inputData_PtyDevice := binaryDecoder_WriteInput_Pty.DecodeParameter_TrailingBytes("InputData_PtyDevice")
-	binaryDecoder_WriteInput_Pty.AssertEndOfPayload()
-	if binaryDecoder_WriteInput_Pty.Error_Earliest_maybe != nil {
-		return nil, binaryDecoder_WriteInput_Pty.Error_Earliest_maybe
-	}
-	return _WriteInput_Pty__PtyMessage_Ingress_{
-		Id_WorkspacePty: id_WorkspacePty,
-		InputOrder_PtyWriter: &_Passthrough__InputOrder_PtyWriter_{
-			InputData_PtyDevice: inputData_PtyDevice,
-		},
-	}, nil
-}
-
-type _WriteInput_Pty__PtyMessage_Ingress_ struct {
-	Id_WorkspacePty      uint32
-	InputOrder_PtyWriter _InputOrder_PtyWriter_
+type _TerminatePty__PtyMessage_Ingress_ struct {
+	Id_WorkspacePty           uint32
+	TerminalSignal_PtyProcess int
 }
 
 func decodePayload_TerminatePty(
@@ -232,12 +208,15 @@ func decodePayload_TerminatePty(
 	}, nil
 }
 
-type _TerminatePty__PtyMessage_Ingress_ struct {
-	Id_WorkspacePty           uint32
-	TerminalSignal_PtyProcess int
+type _Batch_RemovePty__PtyMessage_Ingress_ struct {
+	OrderBatch_RemovePty []_Order_RemovePty_
 }
 
-func decodePayload_Batch_RemovePty(
+type _Order_RemovePty_ struct {
+	Id_WorkspacePty uint32
+}
+
+func decodePayload__Batch_RemovePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder__Batch_RemovePty := Make__BinaryDecoder_WebsocketMessage(
@@ -266,15 +245,46 @@ func decodePayload_Batch_RemovePty(
 	}, nil
 }
 
-type _Order_RemovePty_ struct {
-	Id_WorkspacePty uint32
+type _WriteInput_Pty__PtyMessage_Ingress_ struct {
+	Id_WorkspacePty      uint32
+	InputOrder_PtyWriter _InputOrder_PtyWriter_
 }
 
-type _Batch_RemovePty__PtyMessage_Ingress_ struct {
-	OrderBatch_RemovePty []_Order_RemovePty_
+func decodePayload__WriteInput_Pty(
+	payload_binaryMessage []byte,
+) (_PtyMessage_Ingress_, error) {
+	binaryDecoder_WriteInput_Pty := Make__BinaryDecoder_WebsocketMessage(
+		_MakeApi__BinaryDecoder_WebsocketMessage_{
+			Label_MessageStruct__:         "WriteInput_Pty",
+			Cursor_Buffer:                 2,
+			Buffer__Payload_BinaryMessage: payload_binaryMessage,
+		},
+	)
+	id_WorkspacePty := binaryDecoder_WriteInput_Pty.DecodeParameter_Uint32("Id_WorkspacePty")
+	inputData_PtyDevice := binaryDecoder_WriteInput_Pty.DecodeParameter_TrailingBytes("InputData_PtyDevice")
+	binaryDecoder_WriteInput_Pty.AssertEndOfPayload()
+	if binaryDecoder_WriteInput_Pty.Error_Earliest_maybe != nil {
+		return nil, binaryDecoder_WriteInput_Pty.Error_Earliest_maybe
+	}
+	return _WriteInput_Pty__PtyMessage_Ingress_{
+		Id_WorkspacePty: id_WorkspacePty,
+		InputOrder_PtyWriter: &_Passthrough__InputOrder_PtyWriter_{
+			InputData_PtyDevice: inputData_PtyDevice,
+		},
+	}, nil
 }
 
-func decodePayload_Batch_SyncPty(
+type _Batch_SyncPty__PtyMessage_Ingress_ struct {
+	OrderBatch_SyncPty map[uint32]*_Order_SyncPty_
+}
+
+type _Order_SyncPty_ struct {
+	Id_WorkspacePty         uint32
+	ColumnCount_PtyTerminal int
+	RowCount_PtyTerminal    int
+}
+
+func decodePayload__Batch_SyncPty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
 	binaryDecoder__Batch_SyncPty := Make__BinaryDecoder_WebsocketMessage(
@@ -306,14 +316,3 @@ func decodePayload_Batch_SyncPty(
 		OrderBatch_SyncPty: orderBatch_SyncPty,
 	}, nil
 }
-
-type _Order_SyncPty_ struct {
-	Id_WorkspacePty         uint32
-	ColumnCount_PtyTerminal int
-	RowCount_PtyTerminal    int
-}
-
-type _Batch_SyncPty__PtyMessage_Ingress_ struct {
-	OrderBatch_SyncPty map[uint32]*_Order_SyncPty_
-}
-

@@ -4,6 +4,7 @@ import (
 	_CONTEXT "context"
 	_FLAG "flag"
 	_FMT "fmt"
+	_NET "net"
 	_OS "os"
 	_SIGNAL "os/signal"
 	_SYSCALL "syscall"
@@ -61,10 +62,34 @@ func (This *_WorkspaceController_) StartSession() error {
 	return This.WorkspaceNetwork.Start()
 }
 
+func (this *_WorkspaceNetwork_) Start() error {
+	serverListener, error_serverListen_maybe := _NET.Listen(
+		"tcp",
+		this.HttpServer.Addr,
+	)
+	if error_serverListen_maybe != nil {
+		return error_serverListen_maybe
+	}
+	go this.WebsocketController_Pty.RunWorker__Submission_GetWebsocketConnection()
+	go this.HttpServer.Serve(serverListener)
+	return nil
+}
+
 func (This *_WorkspaceController_) StopSession(
 	context_shutdownDeadline__HttpServer _CONTEXT.Context,
 ) error {
 	This.MessageDebouncer__Batch_ResizePty.WorkerCancel()
 	This.LifecycleCoordinator_WorkspacePty.WorkerCancel()
 	return This.WorkspaceNetwork.Stop(context_shutdownDeadline__HttpServer)
+}
+
+func (this *_WorkspaceNetwork_) Stop(
+	context_shutdownDeadline__HttpServer _CONTEXT.Context,
+) error {
+	this.WebsocketController_Pty.WorkerCancel__Submission_GetWebsocketConnection()
+	this.WebsocketController_Pty.CloseWithCode_WebsocketConnection(
+		1001,
+		"Server Shutting Down",
+	)
+	return this.HttpServer.Shutdown(context_shutdownDeadline__HttpServer)
 }
