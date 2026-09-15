@@ -2,7 +2,6 @@ package main
 
 import (
 	_ERRORS "errors"
-	_FMT "fmt"
 )
 
 var MAP__DECODE_PAYLOAD___PTY_MESSAGE__INGRESS = map[_Code__PtyMessage_Ingress_]func(
@@ -139,16 +138,6 @@ type _SpawnPty__PtyMessage_Ingress_ struct {
 	OptionBatch_PtyProxy            []_Option_PtyProxy_
 }
 
-func (this _SpawnPty__PtyMessage_Ingress_) Execute(
-	WorkspaceController_forwarded *_WorkspaceController_,
-	id_WebsocketConnection_expected uint64,
-) {
-	WorkspaceController_forwarded.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _SpawnPty__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
-		Message_SpawnPty:                this,
-	}
-}
-
 func decodePayload_Batch_ResizePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
@@ -192,13 +181,6 @@ type _Batch_ResizePty__PtyMessage_Ingress_ struct {
 	OrderBatch_ResizePty []_Order_ResizePty_
 }
 
-func (this _Batch_ResizePty__PtyMessage_Ingress_) Execute(
-	WorkspaceController_forwarded *_WorkspaceController_,
-	id_WebsocketConnection_expected uint64,
-) {
-	WorkspaceController_forwarded.MessageDebouncer__Batch_ResizePty.QueueChannel <- this
-}
-
 func decodePayload_WriteInput_Pty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
@@ -228,38 +210,6 @@ type _WriteInput_Pty__PtyMessage_Ingress_ struct {
 	InputOrder_PtyWriter _InputOrder_PtyWriter_
 }
 
-func (this _WriteInput_Pty__PtyMessage_Ingress_) Execute(
-	WorkspaceController_forwarded *_WorkspaceController_,
-	id_WebsocketConnection_expected uint64,
-) {
-	WorkspaceController_forwarded.Mutex.Lock()
-	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]
-	WorkspaceController_forwarded.Mutex.Unlock()
-	if WorkspacePty_target != nil {
-		WorkspacePty_target.State_current.HandleWriteInput_Ingress(this.InputOrder_PtyWriter)
-	}
-}
-
-func (this *_State_Spawning__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
-	_FMT.Println("invalid path: _State_Spawning__WorkspacePty_ HandleWriteInput_Ingress")
-}
-
-func (this *_State_Active__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
-	select {
-	case <-this.PtyProxy.PtyWriter.WorkerContext.Done():
-	default:
-		select {
-		case this.PtyProxy.PtyWriter.QueueChannel_InputOrder <- inputOrder_PtyWriter:
-		default:
-		}
-	}
-}
-
-func (this *_State_Exited__WorkspacePty_) HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_) {
-	// Valid invocation: Client keystrokes transmitted prior to receiving process exit status cross in-flight across the network.
-	// No action required: The process has already exited and the input writer is closed. In-flight input is safely dropped.
-}
-
 func decodePayload_TerminatePty(
 	payload_binaryMessage []byte,
 ) (_PtyMessage_Ingress_, error) {
@@ -285,33 +235,6 @@ func decodePayload_TerminatePty(
 type _TerminatePty__PtyMessage_Ingress_ struct {
 	Id_WorkspacePty           uint32
 	TerminalSignal_PtyProcess int
-}
-
-func (this _TerminatePty__PtyMessage_Ingress_) Execute(
-	WorkspaceController_forwarded *_WorkspaceController_,
-	id_WebsocketConnection_expected uint64,
-) {
-	WorkspaceController_forwarded.Mutex.Lock()
-	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]
-	WorkspaceController_forwarded.Mutex.Unlock()
-	if WorkspacePty_target != nil {
-		WorkspacePty_target.State_current.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
-	}
-}
-
-func (this *_State_Spawning__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
-	this.Mutex.Lock()
-	this.CancellationStatus = CANCELED____CancellationStatus___State_Spawning__WorkspacePty
-	this.Mutex.Unlock()
-}
-
-func (this *_State_Active__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
-	this.PtyProxy.Terminate_PtyProcess(terminalSignal)
-}
-
-func (this *_State_Exited__WorkspacePty_) HandleTerminate_Ingress(terminalSignal int) {
-	// Valid invocation: A client termination request crosses in-flight across the network with natural process exit on the server.
-	// No action required: The process has already exited and its exit outcome is finalized.
 }
 
 func decodePayload_Batch_RemovePty(
@@ -349,37 +272,6 @@ type _Order_RemovePty_ struct {
 
 type _Batch_RemovePty__PtyMessage_Ingress_ struct {
 	OrderBatch_RemovePty []_Order_RemovePty_
-}
-
-func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
-	WorkspaceController_forwarded *_WorkspaceController_,
-	id_WebsocketConnection_expected uint64,
-) {
-	WorkspaceController_forwarded.Mutex.Lock()
-	for _, order_RemovePty_current := range this.OrderBatch_RemovePty {
-		WorkspacePty_target := WorkspaceController_forwarded.PtyPool[order_RemovePty_current.Id_WorkspacePty]
-		if WorkspacePty_target != nil {
-			WorkspacePty_target.State_current.HandleRemove_Ingress(
-				WorkspaceController_forwarded.PtyPool,
-				WorkspacePty_target.Id,
-			)
-		}
-	}
-	WorkspaceController_forwarded.Mutex.Unlock()
-}
-
-func (this *_State_Spawning__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
-	// Valid invocation: Client requested removal, but spawning sessions must remain in PtyPool until the OS spawn worker completes.
-	// No action required: Session is retained in PtyPool; coordinator will purge upon spawn failure or cancellation.
-}
-
-func (this *_State_Active__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
-	// Valid invocation: Client requested removal, but active running sessions cannot be purged.
-	// No action required: Running sessions remain protected in PtyPool until process termination.
-}
-
-func (this *_State_Exited__WorkspacePty_) HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32) {
-	delete(ptyPool, id_WorkspacePty)
 }
 
 func decodePayload_Batch_SyncPty(
@@ -425,12 +317,3 @@ type _Batch_SyncPty__PtyMessage_Ingress_ struct {
 	OrderBatch_SyncPty map[uint32]*_Order_SyncPty_
 }
 
-func (this _Batch_SyncPty__PtyMessage_Ingress_) Execute(
-	WorkspaceController_forwarded *_WorkspaceController_,
-	id_WebsocketConnection_expected uint64,
-) {
-	WorkspaceController_forwarded.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Sync__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
-		Message__Batch_SyncPty:          this,
-	}
-}
