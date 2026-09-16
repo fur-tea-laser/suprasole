@@ -16,12 +16,15 @@ func (this *_PtyReader_) RunWorker() {
 		if this.Size_UnflushedSlice__StagingBuffer > 0 && this.OnTryFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer]) {
 			this.Size_UnflushedSlice__StagingBuffer = 0
 		}
-		if len(this.StagingBuffer) == this.Size_UnflushedSlice__StagingBuffer {
-			this.OnBlockingFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer])
-			this.Size_UnflushedSlice__StagingBuffer = 0
-		}
 		if exitSignal_PtyReader_maybe != nil && 0 == this.Size_UnflushedSlice__StagingBuffer {
 			break
+		} else if exitSignal_PtyReader_maybe != nil {
+			this.OnBlockingFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer])
+			this.Size_UnflushedSlice__StagingBuffer = 0
+			break
+		} else if len(this.StagingBuffer) == this.Size_UnflushedSlice__StagingBuffer {
+			this.OnBlockingFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer])
+			this.Size_UnflushedSlice__StagingBuffer = 0
 		}
 	}
 	if _ERRORS.Is(exitSignal_PtyReader_maybe, _OS.ErrClosed) {
