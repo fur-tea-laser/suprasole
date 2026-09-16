@@ -369,7 +369,6 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 		PtyProxy: ptyProxy_quiescent,
 	}
 	This.Mutex.Unlock()
-	go ptyProxy_quiescent.PtyReader.RunWorker()
 	go ptyProxy_quiescent.PtyWriter.RunWorker()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		This.WorkspaceNetwork.WebsocketController_Pty,
@@ -379,6 +378,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 			Id_PtyProxy:     id_WorkspacePty_spawned,
 		},
 	)
+	go ptyProxy_quiescent.PtyReader.RunWorker()
 }
 
 func (this _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_) Execute(
