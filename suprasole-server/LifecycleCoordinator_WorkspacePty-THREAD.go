@@ -641,8 +641,10 @@ func (this *_State_Exited__WorkspacePty_) HandleSync_Coordinator(
 }
 
 func (This *_PtyProxy_) EmitSnapshot_Exited() {
+	This.Mutex.Lock()
 	serializeAddon := _XTERM.NewSerializeAddon(This.PtyTerminal)
 	outputData_PtyTerminal := serializeAddon.Serialize(nil)
+	This.Mutex.Unlock()
 	if len(outputData_PtyTerminal) > 0 {
 		This.OnOutput_Snapshot__(
 			This.Id_WorkspacePty,
