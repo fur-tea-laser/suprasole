@@ -350,8 +350,11 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 			resizeGeometry__deferred_maybe.RowCount_PtyTerminal,
 		)
 	}
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
+	status_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Status_WebsocketConnection_state
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
 	This.Mutex.Lock()
-	if CONNECTED__Status_WebsocketConnection == This.WorkspaceNetwork.WebsocketController_Pty.Status_WebsocketConnection_state && VISIBLE___Visibility__Client_connected == visibility__Client_connected__current {
+	if CONNECTED__Status_WebsocketConnection == status_WebsocketConnection_captured && VISIBLE___Visibility__Client_connected == visibility__Client_connected__current {
 		ptyProxy_quiescent.Mode_state = LIVE_RUNNING__Mode_PtyProxy
 	} else {
 		ptyProxy_quiescent.Mode_state = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
