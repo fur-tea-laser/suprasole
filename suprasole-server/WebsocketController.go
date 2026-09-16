@@ -13,22 +13,24 @@ import (
 )
 
 type _WebsocketController_ struct {
-	DeadlineTimeout_Read__                           _TIME.Duration
-	DeadlineTimeout_Write__                          _TIME.Duration
-	OnConnected__                                    func(id_WebsocketConnection_new uint64)
-	OnConnected_Takeover__                           func(id_WebsocketConnection_new uint64)
-	OnDisconnected__                                 func()
-	OnDisconnected_Takeover__                        func()
-	OnPayload_BinaryMessage__                        func(id_WebsocketConnection_expected uint64, payload_binaryMessage []byte)
-	Mutex                                            _SYNC.Mutex
-	EgressMutex                                      _SYNC.Mutex
-	WebsocketConnection_state                        *_WEBSOCKET.Conn
-	Status_WebsocketConnection_state                 _Status_WebsocketConnection_
-	Id_WebsocketConnection_state                     uint64
-	TakeoverStatus_WebsocketConnection_state         _TakeoverStatus_WebsocketConnection_
-	QueueChannel__Submission_GetWebsocketConnection  chan _Submission_GetWebsocketConnection_
-	WorkerContext__Submission_GetWebsocketConnection _CONTEXT.Context
-	WorkerCancel__Submission_GetWebsocketConnection  _CONTEXT.CancelFunc
+	DeadlineTimeout_Read__                              _TIME.Duration
+	DeadlineTimeout_Write__                             _TIME.Duration
+	PingPeriod__                                        _TIME.Duration
+	OnConnected__                                       func(id_WebsocketConnection_new uint64)
+	OnConnected_Takeover__                              func(id_WebsocketConnection_new uint64)
+	OnDisconnected__                                    func()
+	OnDisconnected_Takeover__                           func()
+	OnPayload_BinaryMessage__                           func(id_WebsocketConnection_expected uint64, payload_binaryMessage []byte)
+	Mutex                                               _SYNC.Mutex
+	EgressMutex                                         _SYNC.Mutex
+	WebsocketConnection_state                           *_WEBSOCKET.Conn
+	Status_WebsocketConnection_state                    _Status_WebsocketConnection_
+	Id_WebsocketConnection_state                        uint64
+	TakeoverStatus_WebsocketConnection_state            _TakeoverStatus_WebsocketConnection_
+	WorkerCancel_ClientPing__WebsocketConnection__state _CONTEXT.CancelFunc
+	QueueChannel__Submission_GetWebsocketConnection     chan _Submission_GetWebsocketConnection_
+	WorkerContext__Submission_GetWebsocketConnection    _CONTEXT.Context
+	WorkerCancel__Submission_GetWebsocketConnection     _CONTEXT.CancelFunc
 }
 
 type _Status_WebsocketConnection_ int

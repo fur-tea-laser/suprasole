@@ -1,6 +1,7 @@
 package main
 
 import (
+	_CONTEXT "context"
 	_HTTP "net/http"
 	_TIME "time"
 
@@ -31,6 +32,7 @@ func (This *_WebsocketController_) RunWorker__Submission_GetWebsocketConnection(
 							1003,
 							"Text Payloads Unsupported",
 						)
+						This.Teardown_WebsocketConnection()
 						break
 					} else {
 						panic("invalid path: _WebsocketController_ RunWorker__Submission_GetWebsocketConnection read loop")
@@ -117,10 +119,60 @@ func (This *_WebsocketController_) Attach_WebsocketConnection(
 	_ = This.WebsocketConnection_state.SetReadDeadline(
 		_TIME.Now().Add(This.DeadlineTimeout_Read__),
 	)
+	This.WebsocketConnection_state.SetPingHandler(This.HandlePing_WebsocketConnection)
+	This.WebsocketConnection_state.SetPongHandler(This.HandlePong_WebsocketConnection)
+	workerContext_ClientPing, workerCancel_ClientPing := _CONTEXT.WithCancel(This.WorkerContext__Submission_GetWebsocketConnection)
+	This.WorkerCancel_ClientPing__WebsocketConnection__state = workerCancel_ClientPing
+	go This.RunWorker_ClientPing(
+		websocketConnection_new,
+		workerContext_ClientPing,
+	)
 	This.Status_WebsocketConnection_state = CONNECTED__Status_WebsocketConnection
 	This.Mutex.Unlock()
 	onConnected__(id_WebsocketConnection_new)
 	return id_WebsocketConnection_new
+}
+
+func (This *_WebsocketController_) HandlePing_WebsocketConnection(
+	_ string,
+) error {
+	return nil
+}
+
+func (This *_WebsocketController_) HandlePong_WebsocketConnection(
+	_ string,
+) error {
+	This.Mutex.Lock()
+	WebsocketConnection_captured := This.WebsocketConnection_state
+	This.Mutex.Unlock()
+	if WebsocketConnection_captured != nil {
+		_ = WebsocketConnection_captured.SetReadDeadline(
+			_TIME.Now().Add(This.DeadlineTimeout_Read__),
+		)
+	}
+	return nil
+}
+
+func (This *_WebsocketController_) RunWorker_ClientPing(
+	WebsocketConnection_associated *_WEBSOCKET.Conn,
+	workerContext_ClientPing _CONTEXT.Context,
+) {
+	ticker_PingPeriod := _TIME.NewTicker(This.PingPeriod__)
+	for {
+		select {
+		case <-workerContext_ClientPing.Done():
+			ticker_PingPeriod.Stop()
+			return
+		case <-ticker_PingPeriod.C:
+			This.EgressMutex.Lock()
+			_ = WebsocketConnection_associated.WriteControl(
+				_WEBSOCKET.PingMessage,
+				nil,
+				_TIME.Now().Add(This.DeadlineTimeout_Write__),
+			)
+			This.EgressMutex.Unlock()
+		}
+	}
 }
 
 func (This *_WebsocketController_) Teardown_WebsocketConnection() {
@@ -138,6 +190,8 @@ func (This *_WebsocketController_) Teardown_WebsocketConnection() {
 		panic("invalid path: _WebsocketController_ Teardown_WebsocketConnection [STATE_TRANSITION]")
 	}
 	This.WebsocketConnection_state = nil
+	This.WorkerCancel_ClientPing__WebsocketConnection__state()
+	This.WorkerCancel_ClientPing__WebsocketConnection__state = nil
 	This.Mutex.Unlock()
 	if WebsocketConnection_closing != nil {
 		_ = WebsocketConnection_closing.Close()

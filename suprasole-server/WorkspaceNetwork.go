@@ -30,6 +30,7 @@ func Make_WorkspaceNetwork(
 	websocketController_pty__Network := &_WebsocketController_{
 		DeadlineTimeout_Read__:                   60 * _TIME.Second,
 		DeadlineTimeout_Write__:                  10 * _TIME.Second,
+		PingPeriod__:                             15 * _TIME.Second,
 		OnConnected__:                            api.OnConnected_PtyWebsocket__,
 		OnConnected_Takeover__:                   api.OnConnected_Takeover__PtyWebsocket__,
 		OnDisconnected__:                         api.OnDisconnected_PtyWebsocket__,
@@ -39,10 +40,11 @@ func Make_WorkspaceNetwork(
 		EgressMutex:                              _SYNC.Mutex{},
 		Status_WebsocketConnection_state:         STANDBY__Status_WebsocketConnection,
 		TakeoverStatus_WebsocketConnection_state: NOT_PENDING__TakeoverStatus_WebsocketConnection,
-		QueueChannel__Submission_GetWebsocketConnection:  queueChannel__Submission_GetWebsocketConnection,
-		WorkerContext__Submission_GetWebsocketConnection: workerContext__Submission_GetWebsocketConnection,
-		WorkerCancel__Submission_GetWebsocketConnection:  workerCancel__Submission_GetWebsocketConnection,
-		WebsocketConnection_state:                        nil,
+		QueueChannel__Submission_GetWebsocketConnection:     queueChannel__Submission_GetWebsocketConnection,
+		WorkerContext__Submission_GetWebsocketConnection:    workerContext__Submission_GetWebsocketConnection,
+		WorkerCancel__Submission_GetWebsocketConnection:     workerCancel__Submission_GetWebsocketConnection,
+		WebsocketConnection_state:                           nil,
+		WorkerCancel_ClientPing__WebsocketConnection__state: nil,
 	}
 	router_requestHandler__HttpServer := _HTTP.NewServeMux()
 	router_requestHandler__HttpServer.HandleFunc(
