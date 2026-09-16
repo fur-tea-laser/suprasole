@@ -112,10 +112,13 @@ func (this _WriteInput_Pty__PtyMessage_Ingress_) Execute(
 	id_WebsocketConnection_expected uint64,
 ) {
 	WorkspaceController_forwarded.Mutex.Lock()
-	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]
+	var State__WorkspacePty_target__captured _State_WorkspacePty_
+	if WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]; WorkspacePty_target != nil {
+		State__WorkspacePty_target__captured = WorkspacePty_target.State_state
+	}
 	WorkspaceController_forwarded.Mutex.Unlock()
-	if WorkspacePty_target != nil {
-		WorkspacePty_target.State_state.HandleWriteInput_Ingress(this.InputOrder_PtyWriter)
+	if State__WorkspacePty_target__captured != nil {
+		State__WorkspacePty_target__captured.HandleWriteInput_Ingress(this.InputOrder_PtyWriter)
 	}
 }
 
@@ -144,10 +147,13 @@ func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	id_WebsocketConnection_expected uint64,
 ) {
 	WorkspaceController_forwarded.Mutex.Lock()
-	WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]
+	var State__WorkspacePty_target__captured _State_WorkspacePty_
+	if WorkspacePty_target := WorkspaceController_forwarded.PtyPool[this.Id_WorkspacePty]; WorkspacePty_target != nil {
+		State__WorkspacePty_target__captured = WorkspacePty_target.State_state
+	}
 	WorkspaceController_forwarded.Mutex.Unlock()
-	if WorkspacePty_target != nil {
-		WorkspacePty_target.State_state.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
+	if State__WorkspacePty_target__captured != nil {
+		State__WorkspacePty_target__captured.HandleTerminate_Ingress(this.TerminalSignal_PtyProcess)
 	}
 }
 

@@ -60,10 +60,13 @@ func (This *_WorkspaceController_) HandleBatch_ResizePty__Debouncer(
 ) {
 	for _, order_ResizePty__pending_some := range orderBatch_ResizePty_pending {
 		This.Mutex.Lock()
-		WorkspacePty_target := This.PtyPool[order_ResizePty__pending_some.Id_WorkspacePty]
+		var State__WorkspacePty_target__captured _State_WorkspacePty_
+		if WorkspacePty_target := This.PtyPool[order_ResizePty__pending_some.Id_WorkspacePty]; WorkspacePty_target != nil {
+			State__WorkspacePty_target__captured = WorkspacePty_target.State_state
+		}
 		This.Mutex.Unlock()
-		if WorkspacePty_target != nil {
-			WorkspacePty_target.State_state.HandleResize_Debouncer(
+		if State__WorkspacePty_target__captured != nil {
+			State__WorkspacePty_target__captured.HandleResize_Debouncer(
 				order_ResizePty__pending_some.ColumnCount_PtyTerminal,
 				order_ResizePty__pending_some.RowCount_PtyTerminal,
 			)
