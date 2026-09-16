@@ -165,6 +165,7 @@ func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
 	)
 	go backgroundSpawn_PtyProxy__Coordinator(
 		This.LifecycleCoordinator_WorkspacePty,
+		id_WebsocketConnection_expected,
 		_SpawnApi_PtyProxy_{
 			OnOutput_Live__PtyProxy__:              This.HandleOutput_Pty,
 			OnOutput_Snapshot__PtyProxy__:          This.HandleOutput_Pty,
@@ -214,19 +215,22 @@ func (this _Size_QueueBuffer__InputOrder_PtyWriter___Option_PtyProxy_) Update_Op
 
 func backgroundSpawn_PtyProxy__Coordinator(
 	LifecycleCoordinator_WorkspacePty *_LifecycleCoordinator_WorkspacePty_,
+	id_WebsocketConnection_expected uint64,
 	spawnApi_PtyProxy _SpawnApi_PtyProxy_,
 ) {
 	ptyProxy_quiescent, error_start__PtyCommand__maybe := Spawn_PtyProxy(spawnApi_PtyProxy)
 	if error_start__PtyCommand__maybe != nil {
 		LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_{
-			Id_WorkspacePty_failed:  spawnApi_PtyProxy.Id_WorkspacePty,
-			Error_Start__PtyCommand: error_start__PtyCommand__maybe,
+			Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
+			Id_WorkspacePty_failed:          spawnApi_PtyProxy.Id_WorkspacePty,
+			Error_Start__PtyCommand:         error_start__PtyCommand__maybe,
 		}
 		return
 	}
 	LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_{
-		Id_WorkspacePty_spawned: spawnApi_PtyProxy.Id_WorkspacePty,
-		PtyProxy_quiescent:      ptyProxy_quiescent,
+		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
+		Id_WorkspacePty_spawned:         spawnApi_PtyProxy.Id_WorkspacePty,
+		PtyProxy_quiescent:              ptyProxy_quiescent,
 	}
 }
 
@@ -311,12 +315,14 @@ func (this _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_) Exec
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
 	lifecycleCoordinator.OnStatus_SpawnPty__Success__(
+		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty_spawned,
 		this.PtyProxy_quiescent,
 	)
 }
 
 func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
+	id_WebsocketConnection_expected uint64,
 	id_WorkspacePty_spawned uint32,
 	ptyProxy_quiescent *_PtyProxy_,
 ) {
@@ -336,7 +342,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 		ptyProxy_quiescent.Terminate_PtyProcess(int(_SYSCALL.SIGTERM))
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
-			This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state,
+			id_WebsocketConnection_expected,
 			_Status_SpawnPty__PtyMessage_Egress_{
 				Status_SpawnPty: CANCELED__Status_SpawnPty,
 				Id_PtyProxy:     id_WorkspacePty_spawned,
@@ -367,7 +373,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 	go ptyProxy_quiescent.PtyWriter.RunWorker()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		This.WorkspaceNetwork.WebsocketController_Pty,
-		This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state,
+		id_WebsocketConnection_expected,
 		_Status_SpawnPty__PtyMessage_Egress_{
 			Status_SpawnPty: SUCCESS__Status_SpawnPty,
 			Id_PtyProxy:     id_WorkspacePty_spawned,
@@ -379,12 +385,14 @@ func (this _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_) Exec
 	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
 ) {
 	lifecycleCoordinator.OnStatus_SpawnPty__Failure__(
+		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty_failed,
 		this.Error_Start__PtyCommand,
 	)
 }
 
 func (This *_WorkspaceController_) HandleStatus_SpawnPty__Failure__Coordinator(
+	id_WebsocketConnection_expected uint64,
 	id_WorkspacePty_failed uint32,
 	error_start__PtyCommand error,
 ) {
@@ -400,7 +408,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Failure__Coordinator(
 	case CANCELED____CancellationStatus___State_Spawning__WorkspacePty:
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
-			This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state,
+			id_WebsocketConnection_expected,
 			_Status_SpawnPty__PtyMessage_Egress_{
 				Status_SpawnPty: CANCELED__Status_SpawnPty,
 				Id_PtyProxy:     id_WorkspacePty_failed,
@@ -409,7 +417,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Failure__Coordinator(
 	case NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty:
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
-			This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state,
+			id_WebsocketConnection_expected,
 			_Status_SpawnPty__PtyMessage_Egress_{
 				Status_SpawnPty: FAILURE__Status_SpawnPty,
 				Id_PtyProxy:     id_WorkspacePty_failed,
@@ -704,9 +712,12 @@ func (This *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
 		ExitOutcome: exitOutcome_PtyProxy,
 	}
 	This.Mutex.Unlock()
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
+	id_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		This.WorkspaceNetwork.WebsocketController_Pty,
-		This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state,
+		id_WebsocketConnection_captured,
 		_PtyExit__PtyMessage_Egress_{
 			Id_PtyProxy:          id_WorkspacePty_exited,
 			ExitOutcome_PtyProxy: exitOutcome_PtyProxy,
