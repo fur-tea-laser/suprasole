@@ -1,11 +1,8 @@
 package main
 
-import (
-	_SYNC "sync"
-)
-
 type _WorkspacePty_ struct {
 	Id                                  uint32
+	PtyResizer                          *_PtyResizer_
 	Visibility__Client_connected__state _Visibility__Client_connected_
 	State_state                         _State_WorkspacePty_
 }
@@ -20,18 +17,12 @@ const (
 
 type _State_WorkspacePty_ interface {
 	HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_)
-	HandleTerminate_Ingress(terminalSignal int)
-	HandleRemove_Ingress(ptyPool map[uint32]*_WorkspacePty_, id_WorkspacePty uint32)
-	HandleResize_Debouncer(columnCount_PtyTerminal int, rowCount_PtyTerminal int)
 	HandleDisconnect_Coordinator()
 	Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_)
-	HandleSync_Coordinator(order_SyncPty_maybe *_Order_SyncPty_, visibility__Client_connected__previous _Visibility__Client_connected_, WebsocketController_Pty *_WebsocketController_, id_WebsocketConnection_expected uint64, id_WorkspacePty uint32)
 }
 
 type _State_Spawning__WorkspacePty_ struct {
-	Mutex                          _SYNC.Mutex
-	CancellationStatus             _CancellationStatus___State_Spawning__WorkspacePty_
-	ResizeGeometry__deferred_maybe *_ResizeGeometry___State_Spawning__WorkspacePty_
+	CancellationStatus _CancellationStatus___State_Spawning__WorkspacePty_
 }
 
 type _CancellationStatus___State_Spawning__WorkspacePty_ uint8
@@ -40,11 +31,6 @@ const (
 	NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty _CancellationStatus___State_Spawning__WorkspacePty_ = 0
 	CANCELED____CancellationStatus___State_Spawning__WorkspacePty     _CancellationStatus___State_Spawning__WorkspacePty_ = 1
 )
-
-type _ResizeGeometry___State_Spawning__WorkspacePty_ struct {
-	ColumnCount_PtyTerminal int
-	RowCount_PtyTerminal    int
-}
 
 type _State_Active__WorkspacePty_ struct {
 	PtyProxy *_PtyProxy_

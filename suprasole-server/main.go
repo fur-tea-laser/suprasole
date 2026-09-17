@@ -57,7 +57,7 @@ func main() {
 }
 
 func (This *_WorkspaceController_) StartSession() error {
-	go This.MessageDebouncer__Batch_ResizePty.RunWorker()
+	go This.MessageDebouncer__GeometryUpdate_PtyProxy.RunWorker()
 	go This.LifecycleCoordinator_WorkspacePty.RunWorker()
 	return This.WorkspaceNetwork.Start()
 }
@@ -78,7 +78,7 @@ func (this *_WorkspaceNetwork_) Start() error {
 func (This *_WorkspaceController_) StopSession(
 	context_shutdownDeadline__HttpServer _CONTEXT.Context,
 ) error {
-	This.MessageDebouncer__Batch_ResizePty.WorkerCancel()
+	This.MessageDebouncer__GeometryUpdate_PtyProxy.WorkerCancel()
 	This.LifecycleCoordinator_WorkspacePty.WorkerCancel()
 	return This.WorkspaceNetwork.Stop(context_shutdownDeadline__HttpServer)
 }

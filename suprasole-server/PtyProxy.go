@@ -5,9 +5,7 @@ import (
 	_OS "os"
 	_EXEC "os/exec"
 	_SYNC "sync"
-	_SYSCALL "syscall"
 
-	_PTY "github.com/creack/pty"
 	_XTERM "github.com/gitpod-io/xterm-go"
 )
 
@@ -40,35 +38,3 @@ const (
 	POST_SNAPSHOT__RUNNING___Mode_PtyProxy
 	EXITED__Mode_PtyProxy
 )
-
-func (This *_PtyProxy_) Resize(
-	columnCount_PtyTerminal_next int,
-	rowCount_PtyTerminal_next int,
-) error {
-	This.Mutex.Lock()
-	This.PtyTerminal.Resize(
-		columnCount_PtyTerminal_next,
-		rowCount_PtyTerminal_next,
-	)
-	This.Mutex.Unlock()
-	return _PTY.Setsize(
-		This.FileDescriptor_Master__PtyDevice,
-		&_PTY.Winsize{
-			Rows: uint16(rowCount_PtyTerminal_next),
-			Cols: uint16(columnCount_PtyTerminal_next),
-		},
-	)
-}
-
-func (This *_PtyProxy_) Terminate_PtyProcess(
-	terminalSignal_PtyProcess int,
-) {
-	syscallSignal_PtyProcess := _SYSCALL.Signal(terminalSignal_PtyProcess)
-	error_kill__PtyProcess__maybe := _SYSCALL.Kill(
-		-This.PtyCommand.Process.Pid,
-		syscallSignal_PtyProcess,
-	)
-	if error_kill__PtyProcess__maybe != nil {
-		_ = This.PtyCommand.Process.Signal(syscallSignal_PtyProcess)
-	}
-}
