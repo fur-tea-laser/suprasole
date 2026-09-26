@@ -51,27 +51,3 @@ type _LayoutUpdate_PtyProxy_ struct {
 	ColumnCount_PtyTerminal int
 	RowCount_PtyTerminal    int
 }
-
-type _MakeApi__MessageReducer__LayoutUpdate_PtyProxy_ struct {
-	DebounceTimeout__         _TIME.Duration
-	OnFlush__ResizeOnly__      func(batch__LayoutUpdate_PtyProxy map[uint32]*_LayoutUpdate_PtyProxy_)
-	OnFlush__SpawnPty__        func(order_SpawnPty _SpawnPty___MessageOrder__LayoutUpdate_PtyProxy_, batch__LayoutUpdate_PtyProxy map[uint32]*_LayoutUpdate_PtyProxy_)
-	OnFlush__Batch_RemovePty__ func(order_Batch_RemovePty _Batch_RemovePty___MessageOrder__LayoutUpdate_PtyProxy_, batch__LayoutUpdate_PtyProxy map[uint32]*_LayoutUpdate_PtyProxy_)
-	OnFlush__Batch_SyncPty__   func(order_Batch_SyncPty _Batch_SyncPty___MessageOrder__LayoutUpdate_PtyProxy_)
-}
-
-func Make__MessageReducer__LayoutUpdate_PtyProxy(
-	api _MakeApi__MessageReducer__LayoutUpdate_PtyProxy_,
-) *_MessageReducer__LayoutUpdate_PtyProxy_ {
-	workerContext, workerCancel := _CONTEXT.WithCancel(_CONTEXT.Background())
-	return &_MessageReducer__LayoutUpdate_PtyProxy_{
-		DebounceTimeout__:         api.DebounceTimeout__,
-		OnFlush__ResizeOnly__:      api.OnFlush__ResizeOnly__,
-		OnFlush__SpawnPty__:        api.OnFlush__SpawnPty__,
-		OnFlush__Batch_RemovePty__: api.OnFlush__Batch_RemovePty__,
-		OnFlush__Batch_SyncPty__:   api.OnFlush__Batch_SyncPty__,
-		QueueChannel:              make(chan _MessageOrder__LayoutUpdate_PtyProxy_, 512),
-		WorkerContext:             workerContext,
-		WorkerCancel:              workerCancel,
-	}
-}
