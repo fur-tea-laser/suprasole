@@ -40,6 +40,7 @@ type _SpawnPty__PtyMessage_Ingress_ struct {
 	DirectoryPath_PtyCommand        string
 	EnvironmentVariables_PtyCommand []string
 	OptionBatch_PtyProxy            []_Option_PtyProxy_
+	OrderBatch_LayoutUpdate         map[uint32]*_Order_LayoutUpdate_
 }
 
 type _Option_PtyProxy_ interface {
@@ -124,6 +125,10 @@ func decodePayload_SpawnPty(
 			}
 		},
 	)
+	orderBatch_LayoutUpdate := decodePayload_OrderBatch_LayoutUpdate(
+		&binaryDecoder_SpawnPty,
+		"OrderBatch_LayoutUpdate",
+	)
 	binaryDecoder_SpawnPty.AssertEndOfPayload()
 	if binaryDecoder_SpawnPty.Error_Earliest_maybe != nil {
 		return nil, binaryDecoder_SpawnPty.Error_Earliest_maybe
@@ -135,17 +140,12 @@ func decodePayload_SpawnPty(
 		DirectoryPath_PtyCommand:        directoryPath_PtyCommand,
 		EnvironmentVariables_PtyCommand: environmentVariables_PtyCommand,
 		OptionBatch_PtyProxy:            optionBatch_PtyProxy,
+		OrderBatch_LayoutUpdate:         orderBatch_LayoutUpdate,
 	}, nil
 }
 
 type _Batch_ResizePty__PtyMessage_Ingress_ struct {
-	OrderBatch_ResizePty []_Order_ResizePty_
-}
-
-type _Order_ResizePty_ struct {
-	Id_WorkspacePty         uint32
-	ColumnCount_PtyTerminal int
-	RowCount_PtyTerminal    int
+	OrderBatch_LayoutUpdate map[uint32]*_Order_LayoutUpdate_
 }
 
 func decodePayload__Batch_ResizePty(
@@ -158,26 +158,16 @@ func decodePayload__Batch_ResizePty(
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
 	)
-	orderBatch_ResizePty := DecodeParameter__Slice16__BinaryDecoder_WebsocketMessage(
+	orderBatch_LayoutUpdate := decodePayload_OrderBatch_LayoutUpdate(
 		&binaryDecoder__Batch_ResizePty,
-		"OrderBatch_ResizePty",
-		func(binaryDecoder__Batch_ResizePty *_BinaryDecoder_WebsocketMessage_, sliceIndex_current int) _Order_ResizePty_ {
-			id_WorkspacePty := binaryDecoder__Batch_ResizePty.DecodeParameter_Uint32("Id_WorkspacePty")
-			columnCount_PtyTerminal := int(binaryDecoder__Batch_ResizePty.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
-			rowCount_PtyTerminal := int(binaryDecoder__Batch_ResizePty.DecodeParameter_Uint16("RowCount_PtyTerminal"))
-			return _Order_ResizePty_{
-				Id_WorkspacePty:         id_WorkspacePty,
-				ColumnCount_PtyTerminal: columnCount_PtyTerminal,
-				RowCount_PtyTerminal:    rowCount_PtyTerminal,
-			}
-		},
+		"OrderBatch_LayoutUpdate",
 	)
 	binaryDecoder__Batch_ResizePty.AssertEndOfPayload()
 	if binaryDecoder__Batch_ResizePty.Error_Earliest_maybe != nil {
 		return nil, binaryDecoder__Batch_ResizePty.Error_Earliest_maybe
 	}
 	return _Batch_ResizePty__PtyMessage_Ingress_{
-		OrderBatch_ResizePty: orderBatch_ResizePty,
+		OrderBatch_LayoutUpdate: orderBatch_LayoutUpdate,
 	}, nil
 }
 
@@ -209,7 +199,8 @@ func decodePayload_TerminatePty(
 }
 
 type _Batch_RemovePty__PtyMessage_Ingress_ struct {
-	OrderBatch_RemovePty []_Order_RemovePty_
+	OrderBatch_RemovePty    []_Order_RemovePty_
+	OrderBatch_LayoutUpdate map[uint32]*_Order_LayoutUpdate_
 }
 
 type _Order_RemovePty_ struct {
@@ -236,12 +227,17 @@ func decodePayload__Batch_RemovePty(
 			}
 		},
 	)
+	orderBatch_LayoutUpdate := decodePayload_OrderBatch_LayoutUpdate(
+		&binaryDecoder__Batch_RemovePty,
+		"OrderBatch_LayoutUpdate",
+	)
 	binaryDecoder__Batch_RemovePty.AssertEndOfPayload()
 	if binaryDecoder__Batch_RemovePty.Error_Earliest_maybe != nil {
 		return nil, binaryDecoder__Batch_RemovePty.Error_Earliest_maybe
 	}
 	return _Batch_RemovePty__PtyMessage_Ingress_{
-		OrderBatch_RemovePty: orderBatch_RemovePty,
+		OrderBatch_RemovePty:    orderBatch_RemovePty,
+		OrderBatch_LayoutUpdate: orderBatch_LayoutUpdate,
 	}, nil
 }
 
@@ -275,13 +271,7 @@ func decodePayload__WriteInput_Pty(
 }
 
 type _Batch_SyncPty__PtyMessage_Ingress_ struct {
-	OrderBatch_SyncPty map[uint32]*_Order_SyncPty_
-}
-
-type _Order_SyncPty_ struct {
-	Id_WorkspacePty         uint32
-	ColumnCount_PtyTerminal int
-	RowCount_PtyTerminal    int
+	OrderBatch_LayoutUpdate map[uint32]*_Order_LayoutUpdate_
 }
 
 func decodePayload__Batch_SyncPty(
@@ -294,25 +284,39 @@ func decodePayload__Batch_SyncPty(
 			Buffer__Payload_BinaryMessage: payload_binaryMessage,
 		},
 	)
-	orderBatch_SyncPty := DecodeParameter__Map16__BinaryDecoder_WebsocketMessage(
+	orderBatch_LayoutUpdate := decodePayload_OrderBatch_LayoutUpdate(
 		&binaryDecoder__Batch_SyncPty,
-		"OrderBatch_SyncPty",
-		func(binaryDecoder__Batch_SyncPty *_BinaryDecoder_WebsocketMessage_, currentMapIndex int) (uint32, *_Order_SyncPty_) {
-			id_WorkspacePty := binaryDecoder__Batch_SyncPty.DecodeParameter_Uint32("Id_WorkspacePty")
-			columnCount_PtyTerminal := int(binaryDecoder__Batch_SyncPty.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
-			rowCount_PtyTerminal := int(binaryDecoder__Batch_SyncPty.DecodeParameter_Uint16("RowCount_PtyTerminal"))
-			return id_WorkspacePty, &_Order_SyncPty_{
-				Id_WorkspacePty:         id_WorkspacePty,
-				ColumnCount_PtyTerminal: columnCount_PtyTerminal,
-				RowCount_PtyTerminal:    rowCount_PtyTerminal,
-			}
-		},
+		"OrderBatch_LayoutUpdate",
 	)
 	binaryDecoder__Batch_SyncPty.AssertEndOfPayload()
 	if binaryDecoder__Batch_SyncPty.Error_Earliest_maybe != nil {
 		return nil, binaryDecoder__Batch_SyncPty.Error_Earliest_maybe
 	}
 	return _Batch_SyncPty__PtyMessage_Ingress_{
-		OrderBatch_SyncPty: orderBatch_SyncPty,
+		OrderBatch_LayoutUpdate: orderBatch_LayoutUpdate,
 	}, nil
+}
+
+type _Order_LayoutUpdate_ struct {
+	ColumnCount_PtyTerminal int
+	RowCount_PtyTerminal    int
+}
+
+func decodePayload_OrderBatch_LayoutUpdate(
+	binaryDecoder *_BinaryDecoder_WebsocketMessage_,
+	label_expectedParameter string,
+) map[uint32]*_Order_LayoutUpdate_ {
+	return DecodeParameter__Map16__BinaryDecoder_WebsocketMessage(
+		binaryDecoder,
+		label_expectedParameter,
+		func(binaryDecoder *_BinaryDecoder_WebsocketMessage_, _ int) (uint32, *_Order_LayoutUpdate_) {
+			id_WorkspacePty := binaryDecoder.DecodeParameter_Uint32("Id_WorkspacePty")
+			columnCount_PtyTerminal := int(binaryDecoder.DecodeParameter_Uint16("ColumnCount_PtyTerminal"))
+			rowCount_PtyTerminal := int(binaryDecoder.DecodeParameter_Uint16("RowCount_PtyTerminal"))
+			return id_WorkspacePty, &_Order_LayoutUpdate_{
+				ColumnCount_PtyTerminal: columnCount_PtyTerminal,
+				RowCount_PtyTerminal:    rowCount_PtyTerminal,
+			}
+		},
+	)
 }

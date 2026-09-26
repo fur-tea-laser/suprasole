@@ -5,7 +5,6 @@ import (
 	_CONTEXT "context"
 	_MAPS "maps"
 	_EXEC "os/exec"
-	_SLICES "slices"
 	_SYSCALL "syscall"
 
 	_PTY "github.com/creack/pty"
@@ -13,155 +12,203 @@ import (
 )
 
 func (this *_LifecycleCoordinator_WorkspacePty_) RunWorker() {
-	var orderBatch__pending_reconciled_state []_WorkspaceOrder_LifecycleCoordinator_
 	for {
 		select {
 		case <-this.WorkerContext.Done():
 			return
 		case order_leading := <-this.QueueChannel_WorkspaceOrder:
-			orderBatch__pending_reconciled_state = append(
-				orderBatch__pending_reconciled_state,
-				order_leading,
-			)
-		}
-		for len(orderBatch__pending_reconciled_state) > 0 {
-			select {
-			case <-this.WorkerContext.Done():
-				return
-			case order_next := <-this.QueueChannel_WorkspaceOrder:
-				insert_WorkspaceOrder___orderBatch__pending_reconciled_state(
-					&orderBatch__pending_reconciled_state,
-					order_next,
-				)
-			default:
-				order_active := orderBatch__pending_reconciled_state[0]
-				orderBatch__pending_reconciled_state = orderBatch__pending_reconciled_state[1:]
-				order_active.Execute(this)
-			}
+			groupJob_WorkspaceOrder__reconciled_state := &_GroupJob_WorkspaceOrder__LifecycleCoordinator_{}
+			order_leading.Apply(groupJob_WorkspaceOrder__reconciled_state)
+			this.DrainAndApply_QueueChannel(groupJob_WorkspaceOrder__reconciled_state)
+			groupJob_WorkspaceOrder__reconciled_state.Execute(this)
 		}
 	}
 }
 
-func insert_WorkspaceOrder___orderBatch__pending_reconciled_state(
-	orderBatch__pending_reconciled_state *[]_WorkspaceOrder_LifecycleCoordinator_,
-	order_next _WorkspaceOrder_LifecycleCoordinator_,
+func (this *_LifecycleCoordinator_WorkspacePty_) DrainAndApply_QueueChannel(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
 ) {
-	rank__order_next := reconciliationRank_WorkspaceOrder(order_next)
-	for index__subjectOrder_current, subjectOrder_current := range *orderBatch__pending_reconciled_state {
-		if reconciliationRank_WorkspaceOrder(subjectOrder_current) > rank__order_next {
-			*orderBatch__pending_reconciled_state = _SLICES.Insert(
-				*orderBatch__pending_reconciled_state,
-				index__subjectOrder_current,
-				order_next,
-			)
+	for {
+		select {
+		case order_next := <-this.QueueChannel_WorkspaceOrder:
+			order_next.Apply(groupJob_WorkspaceOrder__reconciled_state)
+		default:
 			return
 		}
 	}
-	*orderBatch__pending_reconciled_state = append(
-		*orderBatch__pending_reconciled_state,
-		order_next,
+}
+
+func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch_ExitPty = append(
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch_ExitPty,
+		this,
 	)
 }
 
-func reconciliationRank_WorkspaceOrder(
-	order _WorkspaceOrder_LifecycleCoordinator_,
-) int {
-	switch order.(type) {
-	case _ExitPty__WorkspaceOrder_LifecycleCoordinator_:
-		return 0
-	case _TerminatePty__WorkspaceOrder_LifecycleCoordinator_:
-		return 1
-	case _SpawnPty__WorkspaceOrder_LifecycleCoordinator_:
-		return 2
-	case _Disconnect__WorkspaceOrder_LifecycleCoordinator_,
-		_Connect__WorkspaceOrder_LifecycleCoordinator_,
-		_SyncVisibility__WorkspaceOrder_LifecycleCoordinator_:
-		return 3
-	case _EmitSnapshot_PtyProxy__WorkspaceOrder_LifecycleCoordinator_:
-		return 4
-	case _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_,
-		_Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_:
-		return 5
-	default:
-		panic("invalid path: reconciliationRank_WorkspaceOrder")
-	}
-}
-
-func (this _SpawnPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+func (this _TerminatePty__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
 ) {
-	lifecycleCoordinator.OnSpawnPty__(
-		this.Id_WebsocketConnection_expected,
-		this.Message_SpawnPty,
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch_TerminatePty = append(
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch_TerminatePty,
+		this,
 	)
 }
 
-func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
-	id_WebsocketConnection_expected uint64,
-	message_SpawnPty _SpawnPty__PtyMessage_Ingress_,
+func (this _RemovePty__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
 ) {
-	optionConfig_PtyProxy_result := This.OptionConfig_PtyProxy__default__
-	for _, option_PtyProxy_current := range message_SpawnPty.OptionBatch_PtyProxy {
-		option_PtyProxy_current.Update_OptionConfig(&optionConfig_PtyProxy_result)
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch_RemovePty = append(
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch_RemovePty,
+		this,
+	)
+}
+
+func (this _SpawnPty__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch_SpawnPty = append(
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch_SpawnPty,
+		this,
+	)
+}
+
+func (this _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch__Status_SpawnPty = append(
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch__Status_SpawnPty,
+		this,
+	)
+}
+
+func (this _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch__Status_SpawnPty = append(
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch__Status_SpawnPty,
+		this,
+	)
+}
+
+func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	groupJob_WorkspaceOrder__reconciled_state.Order_Disconnect_maybe = &this
+	groupJob_WorkspaceOrder__reconciled_state.Order_Connect_maybe = nil
+	groupJob_WorkspaceOrder__reconciled_state.Order_SyncVisibility_maybe = nil
+	groupJob_WorkspaceOrder__reconciled_state.OrderBatch_EmitSnapshot = nil
+}
+
+func (this _Connect__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	groupJob_WorkspaceOrder__reconciled_state.Order_Connect_maybe = &this
+}
+
+func (this _SyncVisibility__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	if nil == groupJob_WorkspaceOrder__reconciled_state.Order_Disconnect_maybe || groupJob_WorkspaceOrder__reconciled_state.Order_Connect_maybe != nil {
+		groupJob_WorkspaceOrder__reconciled_state.Order_SyncVisibility_maybe = &this
 	}
-	workerContext_PtyResizer, workerCancel_PtyResizer := _CONTEXT.WithCancel(_CONTEXT.Background())
+}
+
+func (this _EmitSnapshot_PtyProxy__WorkspaceOrder_LifecycleCoordinator_) Apply(
+	groupJob_WorkspaceOrder__reconciled_state *_GroupJob_WorkspaceOrder__LifecycleCoordinator_,
+) {
+	if nil == groupJob_WorkspaceOrder__reconciled_state.Order_Disconnect_maybe || groupJob_WorkspaceOrder__reconciled_state.Order_Connect_maybe != nil {
+		for _, order_EmitSnapshot_current := range groupJob_WorkspaceOrder__reconciled_state.OrderBatch_EmitSnapshot {
+			if order_EmitSnapshot_current.Id_WorkspacePty == this.Id_WorkspacePty {
+				return
+			}
+		}
+		groupJob_WorkspaceOrder__reconciled_state.OrderBatch_EmitSnapshot = append(
+			groupJob_WorkspaceOrder__reconciled_state.OrderBatch_EmitSnapshot,
+			this,
+		)
+	}
+}
+
+func (this *_GroupJob_WorkspaceOrder__LifecycleCoordinator_) Execute(
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
+) {
+	for _, order_ExitPty_current := range this.OrderBatch_ExitPty {
+		order_ExitPty_current.Execute(LifecycleCoordinator_forwarded)
+	}
+	for _, order_TerminatePty_current := range this.OrderBatch_TerminatePty {
+		order_TerminatePty_current.Execute(LifecycleCoordinator_forwarded)
+	}
+	for _, order_RemovePty_current := range this.OrderBatch_RemovePty {
+		order_RemovePty_current.Execute(LifecycleCoordinator_forwarded)
+	}
+	for _, order_SpawnPty_current := range this.OrderBatch_SpawnPty {
+		order_SpawnPty_current.Execute(LifecycleCoordinator_forwarded)
+	}
+	for _, order__Status_SpawnPty__current := range this.OrderBatch__Status_SpawnPty {
+		order__Status_SpawnPty__current.Execute(LifecycleCoordinator_forwarded)
+	}
+	if this.Order_Disconnect_maybe != nil {
+		this.Order_Disconnect_maybe.Execute(LifecycleCoordinator_forwarded)
+	}
+	if this.Order_Connect_maybe != nil {
+		this.Order_Connect_maybe.Execute(LifecycleCoordinator_forwarded)
+	}
+	if this.Order_SyncVisibility_maybe != nil {
+		this.Order_SyncVisibility_maybe.Execute(LifecycleCoordinator_forwarded)
+	}
+	for _, order_EmitSnapshot_current := range this.OrderBatch_EmitSnapshot {
+		order_EmitSnapshot_current.Execute(LifecycleCoordinator_forwarded)
+	}
+}
+
+func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
+) {
+	LifecycleCoordinator_forwarded.OnExit_PtyProxy__(
+		this.Id_WorkspacePty_exited,
+		this.ExitOutcome_PtyProxy,
+	)
+}
+
+func (This *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
+	id_WorkspacePty_exited uint32,
+	exitOutcome_PtyProxy _ExitOutcome_PtyProxy_,
+) {
 	This.Mutex.Lock()
-	id_WorkspacePty_new := This.Id_WorkspacePty_next
-	This.Id_WorkspacePty_next++
-	WorkspacePty_new := &_WorkspacePty_{
-		Id: id_WorkspacePty_new,
-		PtyResizer: &_PtyResizer_{
-			QueueChannel__Order_PtyResizer: make(chan _Order_PtyResizer_, 16),
-			BindChannel__PtyProxy_spawned:  make(chan *_PtyProxy_, 1),
-			WorkerContext:                 workerContext_PtyResizer,
-			WorkerCancel:                  workerCancel_PtyResizer,
-		},
-		Visibility__Client_connected__state: VISIBLE___Visibility__Client_connected,
-		State_state: &_State_Spawning__WorkspacePty_{
-			CancellationStatus: NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty,
-		},
-	}
-	This.PtyPool[id_WorkspacePty_new] = WorkspacePty_new
-	go WorkspacePty_new.PtyResizer.RunWorker()
+	WorkspacePty_target := This.PtyPool[id_WorkspacePty_exited]
+	State__WorkspacePty_target__active := WorkspacePty_target.State_state.(*_State_Active__WorkspacePty_)
 	This.Mutex.Unlock()
+	State__WorkspacePty_target__active.PtyProxy.TransitionMode_ToExited()
+	State__WorkspacePty_target__active.PtyProxy.PtyWriter.WorkerCancel()
+	This.Mutex.Lock()
+	WorkspacePty_target.State_state = &_State_Exited__WorkspacePty_{
+		PtyProxy:    State__WorkspacePty_target__active.PtyProxy,
+		ExitOutcome: exitOutcome_PtyProxy,
+	}
+	This.Mutex.Unlock()
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
+	id_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		This.WorkspaceNetwork.WebsocketController_Pty,
-		id_WebsocketConnection_expected,
-		_Status_SpawnPty__PtyMessage_Egress_{
-			Status_SpawnPty: SPAWNING__Status_SpawnPty,
-			Id_PtyProxy:     id_WorkspacePty_new,
+		id_WebsocketConnection_captured,
+		_PtyExit__PtyMessage_Egress_{
+			Id_PtyProxy:          id_WorkspacePty_exited,
+			ExitOutcome_PtyProxy: exitOutcome_PtyProxy,
 		},
 	)
-	go backgroundSpawn_PtyProxy__Coordinator(
-		This.LifecycleCoordinator_WorkspacePty,
-		id_WebsocketConnection_expected,
-		_SpawnApi_PtyProxy_{
-			OnOutput_Live__PtyProxy__:              This.HandleOutput_Pty,
-			OnOutput_Snapshot__PtyProxy__:          This.HandleOutput_Pty,
-			OnOutput_PostSnapshot__PtyProxy__:      This.HandleOutput_Pty,
-			OnExited_Eio_Success__PtyProxy__:       This.HandleExited_Eio_Success__Pty,
-			OnExited_Eio_Failure__PtyProxy__:       This.HandleExited_Eio_Failure__Pty,
-			OnExited_Eio_Killed__PtyProxy__:        This.HandleExited_Eio_Killed__Pty,
-			OnExited_Closed__PtyProxy__:            This.HandleExited_Closed__Pty,
-			OnExited_SystemError__PtyProxy__:       This.HandleExited_SystemError__Pty,
-			Id_WorkspacePty:                        id_WorkspacePty_new,
-			ColumnCount_PtyTerminal:                message_SpawnPty.ColumnCount_PtyTerminal,
-			RowCount_PtyTerminal:                   message_SpawnPty.RowCount_PtyTerminal,
-			Path_ShellBinary__PtyCommand:           message_SpawnPty.Path_ShellBinary__PtyCommand,
-			DirectoryPath_PtyCommand:               message_SpawnPty.DirectoryPath_PtyCommand,
-			EnvironmentVariables_PtyCommand:        message_SpawnPty.EnvironmentVariables_PtyCommand,
-			Size_StagingBuffer__PtyReader:          optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader,
-			Count_ScrollbackLine__PtyTerminal:      optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal,
-			Size_PostSnapshotBuffer__PtyProxy:      optionConfig_PtyProxy_result.Size_PostSnapshotBuffer__PtyProxy,
-			Size_QueueBuffer__InputOrder_PtyWriter: optionConfig_PtyProxy_result.Size_QueueBuffer__InputOrder_PtyWriter,
-		},
-	)
+}
+
+func (This *_PtyProxy_) TransitionMode_ToExited() {
+	This.Mode_state = EXITED__Mode_PtyProxy
 }
 
 func (this _TerminatePty__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnTerminatePty__(
+	LifecycleCoordinator_forwarded.OnTerminatePty__(
 		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty,
 		this.TerminalSignal_PtyProcess,
@@ -207,12 +254,102 @@ func (This *_PtyProxy_) Terminate_PtyProcess(
 	}
 }
 
-func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
-	This.Terminate_PtyProcess(
-		int(_SYSCALL.SIGTERM),
+func (this _RemovePty__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
+) {
+	LifecycleCoordinator_forwarded.OnRemovePty__(
+		this.Id_WebsocketConnection_expected,
+		this.OrderBatch_RemovePty,
 	)
-	_ = This.FileDescriptor_Master__PtyDevice.Close()
-	_ = This.PtyCommand.Wait()
+}
+
+func (This *_WorkspaceController_) HandleRemovePty__Coordinator(
+	id_WebsocketConnection_expected uint64,
+	orderBatch_RemovePty []_Order_RemovePty_,
+) {
+	This.Mutex.Lock()
+	for _, order_RemovePty__target_current := range orderBatch_RemovePty {
+		if WorkspacePty_target := This.PtyPool[order_RemovePty__target_current.Id_WorkspacePty]; WorkspacePty_target != nil {
+			State__WorkspacePty__target_exited_maybe, _ := WorkspacePty_target.State_state.(*_State_Exited__WorkspacePty_)
+			if State__WorkspacePty__target_exited_maybe != nil {
+				WorkspacePty_target.PtyResizer.WorkerCancel()
+				delete(
+					This.PtyPool,
+					order_RemovePty__target_current.Id_WorkspacePty,
+				)
+			}
+		}
+	}
+	This.Mutex.Unlock()
+}
+
+func (this _SpawnPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
+) {
+	LifecycleCoordinator_forwarded.OnSpawnPty__(
+		this.Id_WebsocketConnection_expected,
+		this.Message_SpawnPty,
+	)
+}
+
+func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
+	id_WebsocketConnection_expected uint64,
+	message_SpawnPty _SpawnPty__PtyMessage_Ingress_,
+) {
+	optionConfig_PtyProxy_result := This.OptionConfig_PtyProxy__default__
+	for _, option_PtyProxy_current := range message_SpawnPty.OptionBatch_PtyProxy {
+		option_PtyProxy_current.Update_OptionConfig(&optionConfig_PtyProxy_result)
+	}
+	workerContext_PtyResizer, workerCancel_PtyResizer := _CONTEXT.WithCancel(_CONTEXT.Background())
+	This.Mutex.Lock()
+	id_WorkspacePty_new := This.Id_WorkspacePty_next
+	This.Id_WorkspacePty_next++
+	WorkspacePty_new := &_WorkspacePty_{
+		Id: id_WorkspacePty_new,
+		PtyResizer: &_PtyResizer_{
+			QueueChannel__Order_PtyResizer: make(chan _Order_PtyResizer_, 128),
+			WorkerContext:                 workerContext_PtyResizer,
+			WorkerCancel:                  workerCancel_PtyResizer,
+		},
+		Visibility__Client_connected__state: VISIBLE___Visibility__Client_connected,
+		State_state: &_State_Spawning__WorkspacePty_{
+			CancellationStatus: NOT_CANCELED____CancellationStatus___State_Spawning__WorkspacePty,
+		},
+	}
+	This.PtyPool[id_WorkspacePty_new] = WorkspacePty_new
+	This.Mutex.Unlock()
+	Emit__PtyMessage_Egress__WebsocketController_Pty(
+		This.WorkspaceNetwork.WebsocketController_Pty,
+		id_WebsocketConnection_expected,
+		_Status_SpawnPty__PtyMessage_Egress_{
+			Status_SpawnPty: SPAWNING__Status_SpawnPty,
+			Id_PtyProxy:     id_WorkspacePty_new,
+		},
+	)
+	go backgroundSpawn_PtyProxy__Coordinator(
+		This.LifecycleCoordinator_WorkspacePty,
+		id_WebsocketConnection_expected,
+		_SpawnApi_PtyProxy_{
+			OnOutput_Live__PtyProxy__:              This.HandleOutput_Pty,
+			OnOutput_Snapshot__PtyProxy__:          This.HandleOutput_Pty,
+			OnOutput_PostSnapshot__PtyProxy__:      This.HandleOutput_Pty,
+			OnExited_Eio_Success__PtyProxy__:       This.HandleExited_Eio_Success__Pty,
+			OnExited_Eio_Failure__PtyProxy__:       This.HandleExited_Eio_Failure__Pty,
+			OnExited_Eio_Killed__PtyProxy__:        This.HandleExited_Eio_Killed__Pty,
+			OnExited_Closed__PtyProxy__:            This.HandleExited_Closed__Pty,
+			OnExited_SystemError__PtyProxy__:       This.HandleExited_SystemError__Pty,
+			Id_WorkspacePty:                        id_WorkspacePty_new,
+			ColumnCount_PtyTerminal:                message_SpawnPty.ColumnCount_PtyTerminal,
+			RowCount_PtyTerminal:                   message_SpawnPty.RowCount_PtyTerminal,
+			Path_ShellBinary__PtyCommand:           message_SpawnPty.Path_ShellBinary__PtyCommand,
+			DirectoryPath_PtyCommand:               message_SpawnPty.DirectoryPath_PtyCommand,
+			EnvironmentVariables_PtyCommand:        message_SpawnPty.EnvironmentVariables_PtyCommand,
+			Size_StagingBuffer__PtyReader:          optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader,
+			Count_ScrollbackLine__PtyTerminal:      optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal,
+			Size_PostSnapshotBuffer__PtyProxy:      optionConfig_PtyProxy_result.Size_PostSnapshotBuffer__PtyProxy,
+			Size_QueueBuffer__InputOrder_PtyWriter: optionConfig_PtyProxy_result.Size_QueueBuffer__InputOrder_PtyWriter,
+		},
+	)
 }
 
 func (this _Count_ScrollbackLine__Option_PtyProxy_) Update_OptionConfig(
@@ -332,9 +469,7 @@ func Spawn_PtyProxy(
 		WorkerCancel:                     workerCancel_PtyWriter,
 		FileDescriptor_Master__PtyDevice: fileDescriptor_master__PtyDevice,
 	}
-	ptyProxy_result.PostSnapshotBuffer = _BYTES.NewBuffer(
-		make([]byte, 0, api.Size_PostSnapshotBuffer__PtyProxy),
-	)
+	ptyProxy_result.PostSnapshotBuffer = _BYTES.NewBuffer(make([]byte, 0, api.Size_PostSnapshotBuffer__PtyProxy))
 	ptyProxy_result.PtyTerminal = _XTERM.New(
 		_XTERM.WithCols(api.ColumnCount_PtyTerminal),
 		_XTERM.WithRows(api.RowCount_PtyTerminal),
@@ -344,9 +479,9 @@ func Spawn_PtyProxy(
 }
 
 func (this _Status_SpawnPty__Success__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnStatus_SpawnPty__Success__(
+	LifecycleCoordinator_forwarded.OnStatus_SpawnPty__Success__(
 		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty_spawned,
 		this.PtyProxy_quiescent,
@@ -393,7 +528,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 		PtyProxy: ptyProxy_quiescent,
 	}
 	This.Mutex.Unlock()
-	WorkspacePty_target.PtyResizer.BindChannel__PtyProxy_spawned <- ptyProxy_quiescent
+	go WorkspacePty_target.PtyResizer.RunWorker(ptyProxy_quiescent)
 	go ptyProxy_quiescent.PtyWriter.RunWorker()
 	Emit__PtyMessage_Egress__WebsocketController_Pty(
 		This.WorkspaceNetwork.WebsocketController_Pty,
@@ -406,10 +541,16 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 	go ptyProxy_quiescent.PtyReader.RunWorker()
 }
 
+func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
+	This.Terminate_PtyProcess(int(_SYSCALL.SIGTERM))
+	_ = This.FileDescriptor_Master__PtyDevice.Close()
+	_ = This.PtyCommand.Wait()
+}
+
 func (this _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnStatus_SpawnPty__Failure__(
+	LifecycleCoordinator_forwarded.OnStatus_SpawnPty__Failure__(
 		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty_failed,
 		this.Error_Start__PtyCommand,
@@ -452,10 +593,55 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Failure__Coordinator(
 	}
 }
 
-func (this _Connect__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnConnect_PtyWebsocket__(this.Id_WebsocketConnection_expected)
+	LifecycleCoordinator_forwarded.OnDisconnect_PtyWebsocket__()
+}
+
+func (This *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() {
+	This.Mutex.Lock()
+	ptyPool_cloned := _MAPS.Clone(This.PtyPool)
+	for _, WorkspacePty_some := range ptyPool_cloned {
+		WorkspacePty_some.Visibility__Client_connected__state = DISCONNECTED_UNKNOWN___Visibility__Client_connected
+	}
+	This.Mutex.Unlock()
+	for _, WorkspacePty_some := range ptyPool_cloned {
+		WorkspacePty_some.State_state.HandleDisconnect_Coordinator()
+	}
+}
+
+func (This *_State_Spawning__WorkspacePty_) HandleDisconnect_Coordinator() {
+}
+
+func (this *_State_Active__WorkspacePty_) HandleDisconnect_Coordinator() {
+	switch this.PtyProxy.Mode_state {
+	case LIVE_RUNNING__Mode_PtyProxy:
+		this.PtyProxy.TransitionMode_LiveToPreSnapshot()
+	case POST_SNAPSHOT__RUNNING___Mode_PtyProxy:
+		this.PtyProxy.TransitionMode_PostSnapshotToPreSnapshot()
+	}
+}
+
+func (this *_State_Exited__WorkspacePty_) HandleDisconnect_Coordinator() {
+}
+
+func (This *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
+	This.Mutex.Lock()
+	This.Mode_state = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
+	This.Mutex.Unlock()
+}
+
+func (This *_PtyProxy_) TransitionMode_PostSnapshotToPreSnapshot() {
+	This.Mutex.Lock()
+	This.Mode_state = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
+	This.Mutex.Unlock()
+}
+
+func (this _Connect__WorkspaceOrder_LifecycleCoordinator_) Execute(
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
+) {
+	LifecycleCoordinator_forwarded.OnConnect_PtyWebsocket__(this.Id_WebsocketConnection_expected)
 }
 
 func (This *_WorkspaceController_) HandleConnect_PtyWebsocket__Coordinator(
@@ -499,102 +685,60 @@ func (this *_State_Exited__WorkspacePty_) Update_ManifestBulletin(bulletin_resul
 	bulletin_result.ExitOutcome_PtyProxy_maybe = this.ExitOutcome
 }
 
-func (this _Disconnect__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
-) {
-	lifecycleCoordinator.OnDisconnect_PtyWebsocket__()
-}
-
-func (This *_WorkspaceController_) HandleDisconnect_PtyWebsocket__Coordinator() {
-	This.Mutex.Lock()
-	ptyPool_cloned := _MAPS.Clone(This.PtyPool)
-	for _, WorkspacePty_some := range ptyPool_cloned {
-		WorkspacePty_some.Visibility__Client_connected__state = DISCONNECTED_UNKNOWN___Visibility__Client_connected
-	}
-	This.Mutex.Unlock()
-	for _, WorkspacePty_some := range ptyPool_cloned {
-		WorkspacePty_some.State_state.HandleDisconnect_Coordinator()
-	}
-}
-
-func (This *_State_Spawning__WorkspacePty_) HandleDisconnect_Coordinator() {
-}
-
-func (this *_State_Active__WorkspacePty_) HandleDisconnect_Coordinator() {
-	switch this.PtyProxy.Mode_state {
-	case LIVE_RUNNING__Mode_PtyProxy:
-		this.PtyProxy.TransitionMode_LiveToPreSnapshot()
-	case POST_SNAPSHOT__RUNNING___Mode_PtyProxy:
-		this.PtyProxy.TransitionMode_PostSnapshotToPreSnapshot()
-	}
-}
-
-func (this *_State_Exited__WorkspacePty_) HandleDisconnect_Coordinator() {
-}
-
-func (This *_PtyProxy_) TransitionMode_LiveToPreSnapshot() {
-	This.Mutex.Lock()
-	This.Mode_state = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
-	This.Mutex.Unlock()
-}
-
-func (This *_PtyProxy_) TransitionMode_PostSnapshotToPreSnapshot() {
-	This.Mutex.Lock()
-	This.Mode_state = PRE_SNAPSHOT__RUNNING___Mode_PtyProxy
-	This.Mutex.Unlock()
-}
-
 func (this _SyncVisibility__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnSyncVisibility__(
+	LifecycleCoordinator_forwarded.OnSyncVisibility__(
 		this.Id_WebsocketConnection_expected,
-		this.TargetBatch_pending,
+		this.Batch__LayoutUpdate_PtyProxy,
 	)
 }
 
 func (This *_WorkspaceController_) HandleSyncVisibility__Coordinator(
 	id_WebsocketConnection_expected uint64,
-	targetBatch_pending map[uint32]*_Target__GeometryUpdate_PtyProxy_,
+	batch__LayoutUpdate_PtyProxy map[uint32]*_LayoutUpdate_PtyProxy_,
 ) {
 	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
 	status_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Status_WebsocketConnection_state
 	id_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state
 	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
-
-	if CONNECTED__Status_WebsocketConnection != status_WebsocketConnection_captured ||
+	if status_WebsocketConnection_captured != CONNECTED__Status_WebsocketConnection ||
 		id_WebsocketConnection_captured != id_WebsocketConnection_expected {
 		return
 	}
-
-	var ptyProxyList_transitionToPreSnapshot []*_PtyProxy_
+	var batch__WorkspacePty__AlignMode_NotVisible []*_WorkspacePty_
 	This.Mutex.Lock()
 	for _, WorkspacePty_some := range This.PtyPool {
-		if _, isVisibleInSync := targetBatch_pending[WorkspacePty_some.Id]; isVisibleInSync {
+		if batch__LayoutUpdate_PtyProxy[WorkspacePty_some.Id] != nil {
 			WorkspacePty_some.Visibility__Client_connected__state = VISIBLE___Visibility__Client_connected
-		} else {
-			if VISIBLE___Visibility__Client_connected == WorkspacePty_some.Visibility__Client_connected__state {
-				WorkspacePty_some.Visibility__Client_connected__state = NOT_VISIBLE___Visibility__Client_connected
-				if State__WorkspacePty_active_maybe, ok := WorkspacePty_some.State_state.(*_State_Active__WorkspacePty_); ok {
-					ptyProxyList_transitionToPreSnapshot = append(
-						ptyProxyList_transitionToPreSnapshot,
-						State__WorkspacePty_active_maybe.PtyProxy,
-					)
-				}
-			}
+		} else if VISIBLE___Visibility__Client_connected == WorkspacePty_some.Visibility__Client_connected__state {
+			WorkspacePty_some.Visibility__Client_connected__state = NOT_VISIBLE___Visibility__Client_connected
+			batch__WorkspacePty__AlignMode_NotVisible = append(
+				batch__WorkspacePty__AlignMode_NotVisible,
+				WorkspacePty_some,
+			)
 		}
 	}
 	This.Mutex.Unlock()
-
-	for _, ptyProxy_some := range ptyProxyList_transitionToPreSnapshot {
-		ptyProxy_some.TransitionMode_LiveToPreSnapshot()
+	for _, WorkspacePty__target_current := range batch__WorkspacePty__AlignMode_NotVisible {
+		WorkspacePty__target_current.State_state.AlignMode_NotVisible()
 	}
 }
 
+func (This *_State_Spawning__WorkspacePty_) AlignMode_NotVisible() {
+}
+
+func (this *_State_Active__WorkspacePty_) AlignMode_NotVisible() {
+	this.PtyProxy.TransitionMode_LiveToPreSnapshot()
+}
+
+func (this *_State_Exited__WorkspacePty_) AlignMode_NotVisible() {
+}
+
 func (this _EmitSnapshot_PtyProxy__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
+	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
 ) {
-	lifecycleCoordinator.OnEmitSnapshot_PtyProxy__(
+	LifecycleCoordinator_forwarded.OnEmitSnapshot_PtyProxy__(
 		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty,
 	)
@@ -604,6 +748,14 @@ func (This *_WorkspaceController_) HandleEmitSnapshot_PtyProxy__Coordinator(
 	id_WebsocketConnection_expected uint64,
 	id_WorkspacePty uint32,
 ) {
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
+	status_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Status_WebsocketConnection_state
+	id_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state
+	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
+	if status_WebsocketConnection_captured != CONNECTED__Status_WebsocketConnection ||
+		id_WebsocketConnection_captured != id_WebsocketConnection_expected {
+		return
+	}
 	var visibility__Client_connected__current _Visibility__Client_connected_
 	var State__WorkspacePty_target__current _State_WorkspacePty_
 	This.Mutex.Lock()
@@ -612,8 +764,7 @@ func (This *_WorkspaceController_) HandleEmitSnapshot_PtyProxy__Coordinator(
 		State__WorkspacePty_target__current = WorkspacePty_target.State_state
 	}
 	This.Mutex.Unlock()
-
-	if nil == State__WorkspacePty_target__current || VISIBLE___Visibility__Client_connected != visibility__Client_connected__current {
+	if nil == State__WorkspacePty_target__current || visibility__Client_connected__current != VISIBLE___Visibility__Client_connected {
 		return
 	}
 	switch State__WorkspacePty_target__the := State__WorkspacePty_target__current.(type) {
@@ -633,6 +784,8 @@ func (This *_WorkspaceController_) HandleEmitSnapshot_PtyProxy__Coordinator(
 			id_WorkspacePty,
 		)
 	case *_State_Spawning__WorkspacePty_:
+	default:
+		panic("invalid path: _WorkspaceController_ HandleEmitSnapshot_PtyProxy__Coordinator")
 	}
 }
 
@@ -698,46 +851,4 @@ func __emitSnapshot_SyncPty__WebsocketController_Pty(
 			Id_PtyProxy: id_WorkspacePty_target,
 		},
 	)
-}
-
-func (this _ExitPty__WorkspaceOrder_LifecycleCoordinator_) Execute(
-	lifecycleCoordinator *_LifecycleCoordinator_WorkspacePty_,
-) {
-	lifecycleCoordinator.OnExit_PtyProxy__(
-		this.Id_WorkspacePty_exited,
-		this.ExitOutcome_PtyProxy,
-	)
-}
-
-func (This *_WorkspaceController_) HandleExit_PtyProxy__Coordinator(
-	id_WorkspacePty_exited uint32,
-	exitOutcome_PtyProxy _ExitOutcome_PtyProxy_,
-) {
-	This.Mutex.Lock()
-	WorkspacePty_target := This.PtyPool[id_WorkspacePty_exited]
-	State__WorkspacePty_target__active := WorkspacePty_target.State_state.(*_State_Active__WorkspacePty_)
-	This.Mutex.Unlock()
-	State__WorkspacePty_target__active.PtyProxy.TransitionMode_ToExited()
-	State__WorkspacePty_target__active.PtyProxy.PtyWriter.WorkerCancel()
-	This.Mutex.Lock()
-	WorkspacePty_target.State_state = &_State_Exited__WorkspacePty_{
-		PtyProxy:    State__WorkspacePty_target__active.PtyProxy,
-		ExitOutcome: exitOutcome_PtyProxy,
-	}
-	This.Mutex.Unlock()
-	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
-	id_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state
-	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
-	Emit__PtyMessage_Egress__WebsocketController_Pty(
-		This.WorkspaceNetwork.WebsocketController_Pty,
-		id_WebsocketConnection_captured,
-		_PtyExit__PtyMessage_Egress_{
-			Id_PtyProxy:          id_WorkspacePty_exited,
-			ExitOutcome_PtyProxy: exitOutcome_PtyProxy,
-		},
-	)
-}
-
-func (This *_PtyProxy_) TransitionMode_ToExited() {
-	This.Mode_state = EXITED__Mode_PtyProxy
 }

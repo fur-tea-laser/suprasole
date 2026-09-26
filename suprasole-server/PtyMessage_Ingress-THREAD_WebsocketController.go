@@ -94,9 +94,9 @@ func (this _SpawnPty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded *_WorkspaceController_,
 	id_WebsocketConnection_expected uint64,
 ) {
-	WorkspaceController_forwarded.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _SpawnPty__WorkspaceOrder_LifecycleCoordinator_{
+	WorkspaceController_forwarded.MessageReducer__LayoutUpdate_PtyProxy.QueueChannel <- _SpawnPty___MessageOrder__LayoutUpdate_PtyProxy_{
 		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
-		Message_SpawnPty:                this,
+		Message__SpawnPty:               this,
 	}
 }
 
@@ -104,9 +104,8 @@ func (this _Batch_ResizePty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded *_WorkspaceController_,
 	id_WebsocketConnection_expected uint64,
 ) {
-	WorkspaceController_forwarded.MessageDebouncer__GeometryUpdate_PtyProxy.QueueChannel <- _Resize___MessageOrder__GeometryUpdate_PtyProxy_{
-		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
-		Message__Batch_ResizePty:        this,
+	WorkspaceController_forwarded.MessageReducer__LayoutUpdate_PtyProxy.QueueChannel <- _Batch_ResizePty___MessageOrder__LayoutUpdate_PtyProxy_{
+		Message__Batch_ResizePty: this,
 	}
 }
 
@@ -160,27 +159,17 @@ func (this _Batch_RemovePty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded *_WorkspaceController_,
 	id_WebsocketConnection_expected uint64,
 ) {
-	WorkspaceController_forwarded.Mutex.Lock()
-	for _, order_RemovePty_current := range this.OrderBatch_RemovePty {
-		if WorkspacePty_target := WorkspaceController_forwarded.PtyPool[order_RemovePty_current.Id_WorkspacePty]; WorkspacePty_target != nil {
-			State__WorkspacePty__target_exited_maybe, _ := WorkspacePty_target.State_state.(*_State_Exited__WorkspacePty_)
-			if State__WorkspacePty__target_exited_maybe != nil {
-				WorkspacePty_target.PtyResizer.WorkerCancel()
-				delete(
-					WorkspaceController_forwarded.PtyPool,
-					order_RemovePty_current.Id_WorkspacePty,
-				)
-			}
-		}
+	WorkspaceController_forwarded.MessageReducer__LayoutUpdate_PtyProxy.QueueChannel <- _Batch_RemovePty___MessageOrder__LayoutUpdate_PtyProxy_{
+		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
+		Message__Batch_RemovePty:        this,
 	}
-	WorkspaceController_forwarded.Mutex.Unlock()
 }
 
 func (this _Batch_SyncPty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded *_WorkspaceController_,
 	id_WebsocketConnection_expected uint64,
 ) {
-	WorkspaceController_forwarded.MessageDebouncer__GeometryUpdate_PtyProxy.QueueChannel <- _Sync___MessageOrder__GeometryUpdate_PtyProxy_{
+	WorkspaceController_forwarded.MessageReducer__LayoutUpdate_PtyProxy.QueueChannel <- _Batch_SyncPty___MessageOrder__LayoutUpdate_PtyProxy_{
 		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
 		Message__Batch_SyncPty:          this,
 	}

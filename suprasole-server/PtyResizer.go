@@ -6,7 +6,6 @@ import (
 
 type _PtyResizer_ struct {
 	QueueChannel__Order_PtyResizer chan _Order_PtyResizer_
-	BindChannel__PtyProxy_spawned  chan *_PtyProxy_
 	WorkerContext                  _CONTEXT.Context
 	WorkerCancel                   _CONTEXT.CancelFunc
 }

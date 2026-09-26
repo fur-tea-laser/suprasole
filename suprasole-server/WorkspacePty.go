@@ -18,6 +18,7 @@ const (
 type _State_WorkspacePty_ interface {
 	HandleWriteInput_Ingress(inputOrder_PtyWriter _InputOrder_PtyWriter_)
 	HandleDisconnect_Coordinator()
+	AlignMode_NotVisible()
 	Update_ManifestBulletin(bulletin_result *_Bulletin_WorkspacePty_)
 }
 
