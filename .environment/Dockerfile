@@ -2,26 +2,21 @@ FROM codercom/code-server:latest
 
 USER root
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-ENV HOME="/home/coder"
+# 1. Go: unpack into /usr/local and expose binaries
+RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz | tar -C /usr/local -xzf - && \
+    ln -s /usr/local/go/bin/* /usr/local/bin/
 
-# Install Go toolchain and configure path
-RUN curl -fsSL https://go.dev/dl/go1.22.5.linux-amd64.tar.gz | tar -C /usr/local -xzf - && \
-    echo "export PATH=\"/usr/local/go/bin:\$HOME/go/bin:\$PATH\"" >> $HOME/.bashrc
+# 2. Deno: official system-wide install flag
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
 
-# Install Deno and configure path
-RUN curl -fsSL https://deno.land/install.sh | sh && \
-    echo "export PATH=\"\$HOME/.deno/bin:\$PATH\"" >> $HOME/.bashrc
-
-# Fix permissions
-RUN chown -R coder:coder $HOME/.bashrc $HOME/.deno
+# 3. Antigravity CLI: install as root and promote directly to /usr/local/bin
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash && \
+    mv /root/.local/bin/agy /usr/local/bin/
 
 USER coder
-
-# Install Antigravity CLI (agy) and update user PATH
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash && \
-    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> $HOME/.bashrc
