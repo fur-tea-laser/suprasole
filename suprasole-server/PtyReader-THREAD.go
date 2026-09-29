@@ -13,18 +13,17 @@ func (this *_PtyReader_) RunWorker() {
 	for {
 		bytesRed_PtyDevice, exitSignal_PtyReader_maybe = this.FileDescriptor_Master__PtyDevice.Read(this.StagingBuffer[this.Size_UnflushedSlice__StagingBuffer:])
 		this.Size_UnflushedSlice__StagingBuffer += bytesRed_PtyDevice
-		if this.Size_UnflushedSlice__StagingBuffer > 0 && this.OnTryFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer]) {
+		if nil == exitSignal_PtyReader_maybe && this.Size_UnflushedSlice__StagingBuffer > 0 && this.OnTryFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer]) {
 			this.Size_UnflushedSlice__StagingBuffer = 0
-		}
-		if exitSignal_PtyReader_maybe != nil && 0 == this.Size_UnflushedSlice__StagingBuffer {
+		} else if nil == exitSignal_PtyReader_maybe && len(this.StagingBuffer) == this.Size_UnflushedSlice__StagingBuffer {
+			this.OnBlockingFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer])
+			this.Size_UnflushedSlice__StagingBuffer = 0
+		} else if exitSignal_PtyReader_maybe != nil && 0 == this.Size_UnflushedSlice__StagingBuffer {
 			break
-		} else if exitSignal_PtyReader_maybe != nil {
+		} else if exitSignal_PtyReader_maybe != nil && this.Size_UnflushedSlice__StagingBuffer > 0 {
 			this.OnBlockingFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer])
 			this.Size_UnflushedSlice__StagingBuffer = 0
 			break
-		} else if len(this.StagingBuffer) == this.Size_UnflushedSlice__StagingBuffer {
-			this.OnBlockingFlush__(this.StagingBuffer[:this.Size_UnflushedSlice__StagingBuffer])
-			this.Size_UnflushedSlice__StagingBuffer = 0
 		}
 	}
 	if _ERRORS.Is(exitSignal_PtyReader_maybe, _OS.ErrClosed) {
@@ -65,11 +64,11 @@ func (This *_PtyProxy_) LockAndReturnTrue() bool {
 }
 
 func __flushReaderStagingBufferSliceIfLockAcquired(
-	maybeAcquirePtyProxyMutexLock__ func() bool,
+	maybeAcquireLock__Mutex_PtyProxy__ func() bool,
 	PtyProxy_this *_PtyProxy_,
 	UnflushedSlice_StagingBuffer__PtyReader []byte,
 ) bool {
-	if maybeAcquirePtyProxyMutexLock__() {
+	if maybeAcquireLock__Mutex_PtyProxy__() {
 		mode_PtyProxy_captured := PtyProxy_this.Mode_state
 		PtyProxy_this.PtyTerminal.Write(UnflushedSlice_StagingBuffer__PtyReader)
 		if LIVE_RUNNING__Mode_PtyProxy == mode_PtyProxy_captured {
@@ -93,24 +92,11 @@ func __flushReaderStagingBufferSliceIfLockAcquired(
 	return false
 }
 
-func (This *_WorkspaceController_) HandleOutput_Pty(
-	id_WorkspacePty uint32,
-	outputData_PtyProxy []byte,
-) {
-	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Lock()
-	id_WebsocketConnection_captured := This.WorkspaceNetwork.WebsocketController_Pty.Id_WebsocketConnection_state
-	This.WorkspaceNetwork.WebsocketController_Pty.Mutex.Unlock()
-	Emit__PtyMessage_Egress__WebsocketController_Pty(
-		This.WorkspaceNetwork.WebsocketController_Pty,
-		id_WebsocketConnection_captured,
-		_PtyOutput__PtyMessage_Egress_{
-			Id_PtyProxy:         id_WorkspacePty,
-			OutputData_PtyProxy: outputData_PtyProxy,
-		},
-	)
-}
+// *****************************************************************************
+// func (This *_WorkspaceController_) HandleOutput_Pty
+// *****************************************************************************
 
-func __executeExitedTeardown(
+func __executeTeardown_Exited(
 	onDispatchExited__ func(exitSignal_PtyReader error),
 	PtyProxy_this *_PtyProxy_,
 	exitSignal_PtyReader error,
@@ -123,7 +109,7 @@ func __executeExitedTeardown(
 func (This *_PtyProxy_) HandleExited_Closed(
 	exitSignal_PtyReader error,
 ) {
-	__executeExitedTeardown(
+	__executeTeardown_Exited(
 		This.HandleDispatchExited_Closed,
 		This,
 		exitSignal_PtyReader,
@@ -148,7 +134,7 @@ func (This *_WorkspaceController_) HandleExited_Closed__Pty(
 func (This *_PtyProxy_) HandleExited_Eio(
 	exitSignal_PtyReader error,
 ) {
-	__executeExitedTeardown(
+	__executeTeardown_Exited(
 		This.HandleDispatchExited_Eio,
 		This,
 		exitSignal_PtyReader,
@@ -205,7 +191,7 @@ func (This *_WorkspaceController_) HandleExited_Eio_Killed__Pty(
 func (This *_PtyProxy_) HandleExited_SystemError(
 	exitSignal_PtyReader error,
 ) {
-	__executeExitedTeardown(
+	__executeTeardown_Exited(
 		This.HandleDispatchExited_SystemError,
 		This,
 		exitSignal_PtyReader,

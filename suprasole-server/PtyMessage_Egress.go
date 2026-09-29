@@ -171,7 +171,7 @@ func (this _PtyExit__PtyMessage_Egress_) EncodePayload() []byte {
 }
 
 type _PtyOutput__PtyMessage_Egress_ struct {
-	Id_PtyProxy         uint32
+	Id_WorkspacePty     uint32
 	OutputData_PtyProxy []byte
 }
 
@@ -179,8 +179,8 @@ func (this _PtyOutput__PtyMessage_Egress_) EncodePayload() []byte {
 	binaryEncoder_PtyOutput := Make__BinaryEncoder_WebsocketMessage()
 	// Opcode
 	binaryEncoder_PtyOutput.EncodeParameter_Uint16(uint16(PTY_OUTPUT___Code__PtyMessage_Egress))
-	// Id_PtyProxy
-	binaryEncoder_PtyOutput.EncodeParameter_Uint32(this.Id_PtyProxy)
+	// Id_WorkspacePty
+	binaryEncoder_PtyOutput.EncodeParameter_Uint32(this.Id_WorkspacePty)
 	// OutputData_PtyProxy
 	binaryEncoder_PtyOutput.EncodeParameter_TrailingBytes(this.OutputData_PtyProxy)
 	return binaryEncoder_PtyOutput.Bytes()
