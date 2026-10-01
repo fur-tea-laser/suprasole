@@ -51,7 +51,6 @@ type _Option_PtyProxy_ interface {
 
 type _OptionConfig_PtyProxy_ struct {
 	Count_ScrollbackLine__PtyTerminal      int
-	Size_StagingBuffer__PtyReader          int
 	Size_PostSnapshotBuffer__PtyProxy      int
 	Size_QueueBuffer__InputOrder_PtyWriter int
 }
@@ -60,17 +59,12 @@ type _Code__Option_PtyProxy_ uint16
 
 const (
 	COUNT__SCROLLBACK_LINE___Code__Option_PtyProxy          _Code__Option_PtyProxy_ = 0x0001
-	SIZE__STAGING_BUFFER___Code__Option_PtyProxy            _Code__Option_PtyProxy_ = 0x0002
 	SIZE__POST_SNAPSHOT_BUFFER___Code__Option_PtyProxy      _Code__Option_PtyProxy_ = 0x0003
 	SIZE__QUEUE_BUFFER__INPUT_ORDER___Code__Option_PtyProxy _Code__Option_PtyProxy_ = 0x0004
 )
 
 type _Count_ScrollbackLine__Option_PtyProxy_ struct {
 	Count_ScrollbackLine__PtyTerminal int
-}
-
-type _Size_StagingBuffer__Option_PtyProxy_ struct {
-	Size_StagingBuffer__PtyReader int
 }
 
 type _Size_PostSnapshotBuffer__Option_PtyProxy_ struct {
@@ -106,10 +100,6 @@ func decodePayload_SpawnPty(
 			case COUNT__SCROLLBACK_LINE___Code__Option_PtyProxy:
 				return _Count_ScrollbackLine__Option_PtyProxy_{
 					Count_ScrollbackLine__PtyTerminal: optionValue_PtyProxy,
-				}
-			case SIZE__STAGING_BUFFER___Code__Option_PtyProxy:
-				return _Size_StagingBuffer__Option_PtyProxy_{
-					Size_StagingBuffer__PtyReader: optionValue_PtyProxy,
 				}
 			case SIZE__POST_SNAPSHOT_BUFFER___Code__Option_PtyProxy:
 				return _Size_PostSnapshotBuffer__Option_PtyProxy_{

@@ -25,7 +25,6 @@ func main() {
 			Address_HttpServer__: *cliOption__Address_HttpServer,
 			OptionConfig_PtyProxy__default__: _OptionConfig_PtyProxy_{
 				Count_ScrollbackLine__PtyTerminal:      10000,
-				Size_StagingBuffer__PtyReader:          16 * 1024,
 				Size_PostSnapshotBuffer__PtyProxy:      64 * 1024,
 				Size_QueueBuffer__InputOrder_PtyWriter: 1024,
 			},

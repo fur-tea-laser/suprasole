@@ -6,6 +6,7 @@ import (
 	_MAPS "maps"
 	_EXEC "os/exec"
 	_SYSCALL "syscall"
+	_TIME "time"
 
 	_PTY "github.com/creack/pty"
 	_XTERM "github.com/gitpod-io/xterm-go"
@@ -344,7 +345,6 @@ func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
 			Path_ShellBinary__PtyCommand:           message_SpawnPty.Path_ShellBinary__PtyCommand,
 			DirectoryPath_PtyCommand:               message_SpawnPty.DirectoryPath_PtyCommand,
 			EnvironmentVariables_PtyCommand:        message_SpawnPty.EnvironmentVariables_PtyCommand,
-			Size_StagingBuffer__PtyReader:          optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader,
 			Count_ScrollbackLine__PtyTerminal:      optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal,
 			Size_PostSnapshotBuffer__PtyProxy:      optionConfig_PtyProxy_result.Size_PostSnapshotBuffer__PtyProxy,
 			Size_QueueBuffer__InputOrder_PtyWriter: optionConfig_PtyProxy_result.Size_QueueBuffer__InputOrder_PtyWriter,
@@ -356,12 +356,6 @@ func (this _Count_ScrollbackLine__Option_PtyProxy_) Update_OptionConfig(
 	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
 ) {
 	optionConfig_PtyProxy_result.Count_ScrollbackLine__PtyTerminal = this.Count_ScrollbackLine__PtyTerminal
-}
-
-func (this _Size_StagingBuffer__Option_PtyProxy_) Update_OptionConfig(
-	optionConfig_PtyProxy_result *_OptionConfig_PtyProxy_,
-) {
-	optionConfig_PtyProxy_result.Size_StagingBuffer__PtyReader = this.Size_StagingBuffer__PtyReader
 }
 
 func (this _Size_PostSnapshotBuffer__Option_PtyProxy_) Update_OptionConfig(
@@ -412,7 +406,6 @@ type _SpawnApi_PtyProxy_ struct {
 	Path_ShellBinary__PtyCommand           string
 	DirectoryPath_PtyCommand               string
 	EnvironmentVariables_PtyCommand        []string
-	Size_StagingBuffer__PtyReader          int
 	Count_ScrollbackLine__PtyTerminal      int
 	Size_PostSnapshotBuffer__PtyProxy      int
 	Size_QueueBuffer__InputOrder_PtyWriter int
@@ -452,15 +445,29 @@ func Spawn_PtyProxy(
 		PtyWriter:                        nil,
 		PostSnapshotBuffer:               nil,
 	}
+	poolChannel___Data__Order_PtyFlusher___result := make(chan *_Data__Order_PtyFlusher_, SIZE_POOL_BUFFER___Data__Order_PtyFlusher)
+	for range SIZE_POOL_BUFFER___Data__Order_PtyFlusher {
+		poolChannel___Data__Order_PtyFlusher___result <- &_Data__Order_PtyFlusher_{
+			ReadBuffer_PtyDevice: make([]byte, SIZE_READ_BUFFER__PtyReader),
+		}
+	}
+	ptyFlusher_result := &_PtyFlusher_{
+		OnBlockingFlush__:                    ptyProxy_result.HandleBlockingFlush,
+		OnExited_Closed__:                    ptyProxy_result.HandleExited_Closed,
+		OnExited_Eio__:                       ptyProxy_result.HandleExited_Eio,
+		OnExited_SystemError__:               ptyProxy_result.HandleExited_SystemError,
+		Timeout__Timer_FlushPacing:           TIMEOUT__TIMER_FLUSH_PACING___PtyFlusher,
+		PoolChannel___Data__Order_PtyFlusher: poolChannel___Data__Order_PtyFlusher___result,
+		QueueChannel__Order_PtyFlusher:       make(chan _Order_PtyFlusher_, SIZE_QUEUE_BUFFER__Order_PtyFlusher),
+		StagingBuffer:                        make([]byte, 0, SIZE_STAGING_BUFFER__PtyFlusher),
+		Status_state:                         IDLE__Status_PtyFlusher,
+		Timer_FlushPacing:                    nil,
+	}
+	ptyFlusher_result.Timer_FlushPacing = _TIME.NewTimer(ptyFlusher_result.Timeout__Timer_FlushPacing)
+	ptyFlusher_result.Timer_FlushPacing.Stop()
 	ptyProxy_result.PtyReader = &_PtyReader_{
-		OnTryFlush__:                       ptyProxy_result.HandleTryFlush,
-		OnBlockingFlush__:                  ptyProxy_result.HandleBlockingFlush,
-		OnExited_Closed__:                  ptyProxy_result.HandleExited_Closed,
-		OnExited_Eio__:                     ptyProxy_result.HandleExited_Eio,
-		OnExited_SystemError__:             ptyProxy_result.HandleExited_SystemError,
-		StagingBuffer:                      make([]byte, api.Size_StagingBuffer__PtyReader),
-		Size_UnflushedSlice__StagingBuffer: 0,
-		FileDescriptor_Master__PtyDevice:   fileDescriptor_master__PtyDevice,
+		FileDescriptor_Master__PtyDevice: fileDescriptor_master__PtyDevice,
+		PtyFlusher:                       ptyFlusher_result,
 	}
 	workerContext_PtyWriter, workerCancel_PtyWriter := _CONTEXT.WithCancel(_CONTEXT.Background())
 	ptyProxy_result.PtyWriter = &_PtyWriter_{
@@ -539,6 +546,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 		},
 	)
 	go ptyProxy_quiescent.PtyReader.RunWorker()
+	go ptyProxy_quiescent.PtyReader.PtyFlusher.RunWorker()
 }
 
 func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
