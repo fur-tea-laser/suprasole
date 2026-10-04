@@ -51,11 +51,11 @@ When initializing a new terminal instance via NewPtyProxy, PtyProxy enforces a s
 
 ## Flush Handling Callback Complexity & Lock Scoping Strategy
 
-The primary architectural complexity in PtyProxy centers on its flush handling callbacks (HandleTryFlush and HandleBlockingFlush) and their underlying helper __flushReaderStagingBufferSliceIfLockAcquired. This pipeline bridges PtyReader's lock-free background read loop with PtyProxy's thread-safe state machine across four critical boundaries:
- 1. Downstream Coupling to PtyReader Staging Cushion:
-    PtyReader drains the OS PTY descriptor into its pre-allocated staging cushion unlocked. It calls HandleTryFlush via TryLock(). If Mutex is contended, TryLock() returns false immediately, allowing PtyReader to continue absorbing PTY stdout without stalling kernel pipe draining. Only when the staging cushion saturates does PtyReader call HandleBlockingFlush to wait on Mutex.Lock().
+The primary architectural complexity in PtyProxy centers on its flush handling callback (HandleBlockingFlush). This pipeline bridges PtyReader's lock-free background read loop with PtyProxy's thread-safe state machine across four critical boundaries:
+ 1. Direct Blocking Flush Delivery:
+    PtyReader drains the OS PTY descriptor into its pre-allocated staging buffer unlocked. It immediately invokes HandleBlockingFlush on every read. Because PtyProxy.Mutex is strictly held for fast in-memory CPU operations (virtual terminal emulator writes, resizes) and never across I/O, lock contention resolves within microseconds, providing zero-delay delivery and eliminating user-space circular wait deadlocks.
  2. Lock Scoping & Deadlock Avoidance:
-    __flushReaderStagingBufferSliceIfLockAcquired updates the VTE grid (*xterm.Terminal) and evaluates Mode strictly under Mutex. However, it MUST unlock Mutex BEFORE calling OnOutput_Live. Dispatching egress callbacks outside Mutex eliminates downstream lock coupling and minimizes lock contention.
+    HandleBlockingFlush updates the VTE grid (*xterm.Terminal) and evaluates Mode strictly under Mutex. However, it MUST unlock Mutex BEFORE calling OnOutput_Live. Dispatching egress callbacks outside Mutex eliminates downstream lock coupling and minimizes lock contention.
  3. Memory Safety & Allocation Nuances Across Staging Buffer Consumers:
     - Synchronous In-Memory Writers (TerminalState.Write & PostSnapshotBuffer.Write): Do NOT require byte cloning. Both methods synchronously consume or copy incoming bytes into their own backing memory during the locked execution window, leaving the caller's slice untouched.
     - Asynchronous Egress Callbacks (OnOutput_Live): MUST receive bytes.Clone(unflushedSlice_StagingBuffer). Because egress callbacks execute outside Mutex, PtyReader could immediately overwrite its reusable staging buffer on the next read iteration. Cloning guarantees complete memory safety across goroutines.
@@ -178,89 +178,56 @@ Closing the master PTY file descriptor via MasterFileDescriptor_PtyDevice.Close(
 
 ## Multi-Threaded Concurrency Map & Synchronization Architecture
 
-PtyProxy operates across two concurrent execution contexts that intersect at shared instance memory:
+PtyProxy operates across concurrent execution contexts that intersect at shared instance memory:
 
-### 1. Background Reader Execution Context (Goroutine 1: PtyReader.StartReading)
+### 1. Background Reader & Flusher Execution Context (PtyReader.RunWorker & PtyFlusher.RunWorker)
 
-    Executes continuously on a single background goroutine, reading PTY stdout bytes from the OS master file descriptor unlocked into PtyReader.StagingBuffer. PTY output and process teardown propagate through nine distinct mutually exclusive code paths.
+    Executes on two decoupled background goroutines:
+    - PtyReader.RunWorker drains PTY stdout bytes from the OS master file descriptor 100% unlocked into 4,095-byte chunks and pushes them into QueueChannel__Order_PtyFlusher.
+    - PtyFlusher.RunWorker drains QueueChannel__Order_PtyFlusher, accumulates bursts into StagingBuffer (96 KB), coordinates the 16 ms / 60 FPS pacing cadence (with 0 µs leading-edge prompt flush), and dispatches flushes and exit events across six distinct mutually exclusive code paths.
 
-    Note on Mutual Exclusivity: Because PtyReader.StartReading operates on a single background goroutine and Mode evaluates atomically under Mutex, exactly one path executes per flush or exit event. Furthermore, once a teardown path (Paths 7-9) is triggered upon read loop termination, no further flushes can ever occur.
+    Note on Mutual Exclusivity: Because PtyFlusher.RunWorker operates on a single background goroutine and Mode evaluates atomically under Mutex, exactly one path executes per flush or exit event. Furthermore, once a teardown path (Paths 4-6) is triggered upon read loop termination and channel drain, no further flushes can ever occur.
 
-    - Path 1: Optimistic Live Streaming Call Tree (Hot-Path TryFlush in Live Mode)
-      PtyReader.StartReading
-        -> OnTryFlush__
-          -> HandleTryFlush
-            -> __flushReaderStagingBufferSliceIfLockAcquired
-              -> Mutex.TryLock
-              -> TerminalState.Write
-              -> Mutex.Unlock
-              -> OnOutput_Live (bytes.Clone)
-
-    - Path 2: Saturation Fallback Live Streaming Call Tree (BlockingFlush in Live Mode)
-      PtyReader.StartReading
+    - Path 1: Live Streaming Call Tree (BlockingFlush in Live Mode)
+      PtyFlusher.RunWorker
         -> OnBlockingFlush__
           -> HandleBlockingFlush
-            -> __flushReaderStagingBufferSliceIfLockAcquired
-              -> LockAndReturnTrue
-                -> Mutex.Lock
-              -> TerminalState.Write
-              -> Mutex.Unlock
-              -> OnOutput_Live (bytes.Clone)
+            -> Mutex.Lock
+            -> TerminalState.Write
+            -> Mutex.Unlock
+            -> OnOutput_Live (bytes.Clone)
 
-    - Path 3: Optimistic PostSnapshotBuffer Staging Call Tree (TryFlush in PostSnapshot Mode)
-      PtyReader.StartReading
-        -> OnTryFlush__
-          -> HandleTryFlush
-            -> __flushReaderStagingBufferSliceIfLockAcquired
-              -> Mutex.TryLock
-              -> TerminalState.Write
-              -> PostSnapshotBuffer.Write
-              -> Mutex.Unlock
-
-    - Path 4: Saturation Fallback PostSnapshotBuffer Staging Call Tree (BlockingFlush in PostSnapshot Mode)
-      PtyReader.StartReading
+    - Path 2: PostSnapshotBuffer Staging Call Tree (BlockingFlush in PostSnapshot Mode)
+      PtyFlusher.RunWorker
         -> OnBlockingFlush__
           -> HandleBlockingFlush
-            -> __flushReaderStagingBufferSliceIfLockAcquired
-              -> LockAndReturnTrue
-                -> Mutex.Lock
-              -> TerminalState.Write
-              -> PostSnapshotBuffer.Write
-              -> Mutex.Unlock
+            -> Mutex.Lock
+            -> TerminalState.Write
+            -> PostSnapshotBuffer.Write
+            -> Mutex.Unlock
 
-    - Path 5: Optimistic Pre-Snapshot VTE Update Call Tree (Hot-Path TryFlush in PreSnapshot Mode)
-      PtyReader.StartReading
-        -> OnTryFlush__
-          -> HandleTryFlush
-            -> __flushReaderStagingBufferSliceIfLockAcquired
-              -> Mutex.TryLock
-              -> TerminalState.Write
-              -> Mutex.Unlock
-
-    - Path 6: Saturation Fallback Pre-Snapshot VTE Update Call Tree (BlockingFlush in PreSnapshot Mode)
-      PtyReader.StartReading
+    - Path 3: Pre-Snapshot VTE Update Call Tree (BlockingFlush in PreSnapshot Mode)
+      PtyFlusher.RunWorker
         -> OnBlockingFlush__
           -> HandleBlockingFlush
-            -> __flushReaderStagingBufferSliceIfLockAcquired
-              -> LockAndReturnTrue
-                -> Mutex.Lock
-              -> TerminalState.Write
-              -> Mutex.Unlock
+            -> Mutex.Lock
+            -> TerminalState.Write
+            -> Mutex.Unlock
 
-    - Path 7: Descriptor Closure Process Teardown Call Tree
-      PtyReader.StartReading
+    - Path 4: Descriptor Closure Process Teardown Call Tree
+      PtyFlusher.RunWorker
         -> OnExited_Closed__
           -> HandleExited_Closed
             -> __executeExitedTeardown
-              -> Mutex.Lock (Mode_current = EXITED__Mode_PtyProxy)
+            -> Mutex.Lock (Mode_current = EXITED__Mode_PtyProxy)
               -> Mutex.Unlock
               -> MasterFileDescriptor_PtyDevice.Close
               -> TerminalCommand.Wait
               -> HandleDispatchExited_Closed
                 -> OnExited_Closed__
 
-    - Path 8: Child Process EOF Exit Status Teardown Call Tree
-      PtyReader.StartReading
+    - Path 5: Child Process EOF Exit Status Teardown Call Tree
+      PtyFlusher.RunWorker
         -> OnExited_Eio__
           -> HandleExited_Eio
             -> __executeExitedTeardown
@@ -274,8 +241,8 @@ PtyProxy operates across two concurrent execution contexts that intersect at sha
                   - OnExited_Eio_Failure (if ExitStatus != 0)
                   - OnExited_Eio_Killed (if Signaled)
 
-    - Path 9: Kernel System Error Teardown Call Tree
-      PtyReader.StartReading
+    - Path 6: Kernel System Error Teardown Call Tree
+      PtyFlusher.RunWorker
         -> OnExited_SystemError__
           -> HandleExited_SystemError
             -> __executeExitedTeardown
@@ -360,7 +327,7 @@ When resizing a pseudo-terminal session via `Resize(nextColumnCount, nextRowCoun
 
 ## Isolated Execution Spheres (Where Mutex IS NOT Required)
 
-  - Internal PtyReader Loop: Draining kernel PTY file descriptor into StagingBuffer, tracking Size_UnflushedSlice__StagingBuffer, and resetting write head are 100% single-threaded within PtyReader. No mutex is required inside PtyReader itself.
+  - Internal PtyReader Loop: Draining kernel PTY file descriptor directly into StagingBuffer and invoking OnBlockingFlush__ are 100% single-threaded within PtyReader. No mutex is required inside PtyReader itself.
   - Egress Callback Dispatch: Egress callbacks (OnOutput_Live, OnOutput_Snapshot, OnOutput_PostSnapshot__, OnExited_*) are dispatched 100% unlocked outside Mutex. The parent handler acquires Mutex first to update state and clone data, releasing Mutex BEFORE dispatching the egress callback to eliminate downstream circular-wait deadlocks and minimize lock contention.
 
 ## State Mutation Concurrency Protections (Why Mutex Is Mandatory)

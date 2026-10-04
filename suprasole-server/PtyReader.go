@@ -6,5 +6,5 @@ import (
 
 type _PtyReader_ struct {
 	FileDescriptor_Master__PtyDevice *_OS.File
-	PtyFlusher                       *_PtyFlusher_
+	PtyDispatcher                    *_PtyDispatcher_
 }

@@ -445,29 +445,29 @@ func Spawn_PtyProxy(
 		PtyWriter:                        nil,
 		PostSnapshotBuffer:               nil,
 	}
-	poolChannel___Data__Order_PtyFlusher___result := make(chan *_Data__Order_PtyFlusher_, SIZE_POOL_BUFFER___Data__Order_PtyFlusher)
-	for range SIZE_POOL_BUFFER___Data__Order_PtyFlusher {
-		poolChannel___Data__Order_PtyFlusher___result <- &_Data__Order_PtyFlusher_{
+	poolChannel___Data__Order_PtyDispatcher___result := make(chan *_Data__Order_PtyDispatcher_, SIZE_POOL_BUFFER___Data__Order_PtyDispatcher)
+	for range SIZE_POOL_BUFFER___Data__Order_PtyDispatcher {
+		poolChannel___Data__Order_PtyDispatcher___result <- &_Data__Order_PtyDispatcher_{
 			ReadBuffer_PtyDevice: make([]byte, SIZE_READ_BUFFER__PtyReader),
 		}
 	}
-	ptyFlusher_result := &_PtyFlusher_{
-		OnBlockingFlush__:                    ptyProxy_result.HandleBlockingFlush,
-		OnExited_Closed__:                    ptyProxy_result.HandleExited_Closed,
-		OnExited_Eio__:                       ptyProxy_result.HandleExited_Eio,
-		OnExited_SystemError__:               ptyProxy_result.HandleExited_SystemError,
-		Timeout__Timer_FlushPacing:           TIMEOUT__TIMER_FLUSH_PACING___PtyFlusher,
-		PoolChannel___Data__Order_PtyFlusher: poolChannel___Data__Order_PtyFlusher___result,
-		QueueChannel__Order_PtyFlusher:       make(chan _Order_PtyFlusher_, SIZE_QUEUE_BUFFER__Order_PtyFlusher),
-		StagingBuffer:                        make([]byte, 0, SIZE_STAGING_BUFFER__PtyFlusher),
-		Status_state:                         IDLE__Status_PtyFlusher,
-		Timer_FlushPacing:                    nil,
+	ptyDispatcher_result := &_PtyDispatcher_{
+		OnBlockingFlush__:                       ptyProxy_result.HandleBlockingFlush,
+		OnExited_Closed__:                       ptyProxy_result.HandleExited_Closed,
+		OnExited_Eio__:                          ptyProxy_result.HandleExited_Eio,
+		OnExited_SystemError__:                  ptyProxy_result.HandleExited_SystemError,
+		Timeout__Timer_FlushPacing:              TIMEOUT__TIMER_FLUSH_PACING___PtyDispatcher,
+		PoolChannel___Data__Order_PtyDispatcher: poolChannel___Data__Order_PtyDispatcher___result,
+		QueueChannel__Order_PtyDispatcher:       make(chan _Order_PtyDispatcher_, SIZE_QUEUE_BUFFER__Order_PtyDispatcher),
+		StagingBuffer:                           make([]byte, 0, SIZE_STAGING_BUFFER__PtyDispatcher),
+		Status_state:                            IDLE__Status_PtyDispatcher,
+		Timer_FlushPacing:                       nil,
 	}
-	ptyFlusher_result.Timer_FlushPacing = _TIME.NewTimer(ptyFlusher_result.Timeout__Timer_FlushPacing)
-	ptyFlusher_result.Timer_FlushPacing.Stop()
+	ptyDispatcher_result.Timer_FlushPacing = _TIME.NewTimer(ptyDispatcher_result.Timeout__Timer_FlushPacing)
+	ptyDispatcher_result.Timer_FlushPacing.Stop()
 	ptyProxy_result.PtyReader = &_PtyReader_{
 		FileDescriptor_Master__PtyDevice: fileDescriptor_master__PtyDevice,
-		PtyFlusher:                       ptyFlusher_result,
+		PtyDispatcher:                    ptyDispatcher_result,
 	}
 	workerContext_PtyWriter, workerCancel_PtyWriter := _CONTEXT.WithCancel(_CONTEXT.Background())
 	ptyProxy_result.PtyWriter = &_PtyWriter_{
@@ -545,8 +545,8 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 			Id_PtyProxy:     id_WorkspacePty_spawned,
 		},
 	)
+	go ptyProxy_quiescent.PtyReader.PtyDispatcher.RunWorker()
 	go ptyProxy_quiescent.PtyReader.RunWorker()
-	go ptyProxy_quiescent.PtyReader.PtyFlusher.RunWorker()
 }
 
 func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
