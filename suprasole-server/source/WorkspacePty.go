@@ -62,9 +62,11 @@ type _Killed__ExitOutcome_PtyProxy_ struct {
 
 func (_Killed__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _Closed__ExitOutcome_PtyProxy_ struct{}
+type _Stopped__ExitOutcome_PtyProxy_ struct {
+	StopSignal_PtyProcess int
+}
 
-func (_Closed__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
+func (_Stopped__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
 type _SystemError__ExitOutcome_PtyProxy_ struct {
 	SystemError_PtyDevice error

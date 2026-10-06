@@ -45,14 +45,14 @@ const (
 	EXITED__Status_WorkspacePty   _Status_WorkspacePty_ = 0x02
 )
 
-type _ExitReason_PtyProxy_ int
+type _ExitDisposition_PtyProxy_ int
 
 const (
-	SUCCESS__ExitReason_PtyProxy _ExitReason_PtyProxy_ = iota
-	FAILURE__ExitReason_PtyProxy
-	KILLED__ExitReason_PtyProxy
-	CLOSED__ExitReason_PtyProxy
-	SYSTEM_ERROR__ExitReason_PtyProxy
+	SUCCESS__ExitDisposition_PtyProxy _ExitDisposition_PtyProxy_ = iota
+	FAILURE__ExitDisposition_PtyProxy
+	KILLED__ExitDisposition_PtyProxy
+	STOPPED__ExitDisposition_PtyProxy
+	SYSTEM_ERROR__ExitDisposition_PtyProxy
 )
 
 func encodeStruct__ExitOutcome_PtyProxy(
@@ -61,36 +61,36 @@ func encodeStruct__ExitOutcome_PtyProxy(
 ) {
 	switch exitOutcome_the := exitOutcome_PtyProxy.(type) {
 	case _Success__ExitOutcome_PtyProxy_:
-		// ExitReason
-		binaryEncoder.EncodeParameter_Uint8(uint8(SUCCESS__ExitReason_PtyProxy))
+		// ExitDisposition
+		binaryEncoder.EncodeParameter_Uint8(uint8(SUCCESS__ExitDisposition_PtyProxy))
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(0)
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(0)
 	case _Failure__ExitOutcome_PtyProxy_:
-		// ExitReason
-		binaryEncoder.EncodeParameter_Uint8(uint8(FAILURE__ExitReason_PtyProxy))
+		// ExitDisposition
+		binaryEncoder.EncodeParameter_Uint8(uint8(FAILURE__ExitDisposition_PtyProxy))
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(int32(exitOutcome_the.ExitCode_PtyProcess))
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(0)
 	case _Killed__ExitOutcome_PtyProxy_:
-		// ExitReason
-		binaryEncoder.EncodeParameter_Uint8(uint8(KILLED__ExitReason_PtyProxy))
+		// ExitDisposition
+		binaryEncoder.EncodeParameter_Uint8(uint8(KILLED__ExitDisposition_PtyProxy))
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(0)
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(int32(exitOutcome_the.ExitSignal_PtyProcess))
-	case _Closed__ExitOutcome_PtyProxy_:
-		// ExitReason
-		binaryEncoder.EncodeParameter_Uint8(uint8(CLOSED__ExitReason_PtyProxy))
+	case _Stopped__ExitOutcome_PtyProxy_:
+		// ExitDisposition
+		binaryEncoder.EncodeParameter_Uint8(uint8(STOPPED__ExitDisposition_PtyProxy))
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(0)
 		// ExitSignal
-		binaryEncoder.EncodeParameter_Int32(0)
+		binaryEncoder.EncodeParameter_Int32(int32(exitOutcome_the.StopSignal_PtyProcess))
 	case _SystemError__ExitOutcome_PtyProxy_:
-		// ExitReason
-		binaryEncoder.EncodeParameter_Uint8(uint8(SYSTEM_ERROR__ExitReason_PtyProxy))
+		// ExitDisposition
+		binaryEncoder.EncodeParameter_Uint8(uint8(SYSTEM_ERROR__ExitDisposition_PtyProxy))
 		// ExitCode
 		binaryEncoder.EncodeParameter_Int32(-1)
 		// ExitSignal

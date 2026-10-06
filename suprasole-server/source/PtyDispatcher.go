@@ -6,9 +6,7 @@ import (
 
 type _PtyDispatcher_ struct {
 	OnBlockingFlush__                       func(UnflushedSlice_StagingBuffer []byte)
-	OnExited_Closed__                       func(exitSignal_PtyReader error)
-	OnExited_Eio__                          func(exitSignal_PtyReader error)
-	OnExited_SystemError__                  func(exitSignal_PtyReader error)
+	OnExited__                              func(exitSignal_PtyReader error)
 	Timeout__Timer_FlushPacing              _TIME.Duration
 	PoolChannel___Data__Order_PtyDispatcher chan *_Data__Order_PtyDispatcher_
 	QueueChannel__Order_PtyDispatcher       chan _Order_PtyDispatcher_
