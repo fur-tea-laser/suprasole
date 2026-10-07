@@ -10,20 +10,20 @@ func (this *_PtyWriter_) RunWorker() {
 		case <-this.WorkerContext.Done():
 			return
 		case inputOrder_next := <-this.QueueChannel_InputOrder:
-			inputOrder_next.WriteInput(this.FileDescriptor_Master__PtyDevice)
+			inputOrder_next.WriteInput(this.FileDescriptor_Master__Pty__shared)
 		}
 	}
 }
 
 func (this *_Passthrough__InputOrder_PtyWriter_) WriteInput(
-	FileDescriptor_Master__PtyDevice *_OS.File,
+	FileDescriptor_Master__Pty__shared *_OS.File,
 ) {
-	if len(this.InputData_PtyDevice) > 0 {
-		_, _ = FileDescriptor_Master__PtyDevice.Write(this.InputData_PtyDevice)
+	if len(this.InputData_PtyDescriptor) > 0 {
+		_, _ = FileDescriptor_Master__Pty__shared.Write(this.InputData_PtyDescriptor)
 	}
 }
 
 func (this *_Paced__InputOrder_PtyWriter_) WriteInput(
-	FileDescriptor_Master__PtyDevice *_OS.File,
+	FileDescriptor_Master__Pty__shared *_OS.File,
 ) {
 }

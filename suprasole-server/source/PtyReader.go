@@ -5,6 +5,6 @@ import (
 )
 
 type _PtyReader_ struct {
-	FileDescriptor_Master__PtyDevice *_OS.File
-	PtyDispatcher                    *_PtyDispatcher_
+	FileDescriptor_Master__Pty__shared *_OS.File
+	PtyDispatcher                      *_PtyDispatcher_
 }

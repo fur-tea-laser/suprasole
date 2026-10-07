@@ -68,8 +68,14 @@ type _Stopped__ExitOutcome_PtyProxy_ struct {
 
 func (_Stopped__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
 
-type _SystemError__ExitOutcome_PtyProxy_ struct {
-	SystemError_PtyDevice error
+type _SystemError_Descriptor__ExitOutcome_PtyProxy_ struct {
+	SystemError_PtyDescriptor error
 }
 
-func (_SystemError__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
+func (_SystemError_Descriptor__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}
+
+type _SystemError_Process__ExitOutcome_PtyProxy_ struct {
+	SystemError_PtyProcess error
+}
+
+func (_SystemError_Process__ExitOutcome_PtyProxy_) compiletimemarker_ExitOutcome_PtyProxy() {}

@@ -88,7 +88,14 @@ func encodeStruct__ExitOutcome_PtyProxy(
 		binaryEncoder.EncodeParameter_Int32(0)
 		// ExitSignal
 		binaryEncoder.EncodeParameter_Int32(int32(exitOutcome_the.StopSignal_PtyProcess))
-	case _SystemError__ExitOutcome_PtyProxy_:
+	case _SystemError_Descriptor__ExitOutcome_PtyProxy_:
+		// ExitDisposition
+		binaryEncoder.EncodeParameter_Uint8(uint8(SYSTEM_ERROR__ExitDisposition_PtyProxy))
+		// ExitCode
+		binaryEncoder.EncodeParameter_Int32(-1)
+		// ExitSignal
+		binaryEncoder.EncodeParameter_Int32(0)
+	case _SystemError_Process__ExitOutcome_PtyProxy_:
 		// ExitDisposition
 		binaryEncoder.EncodeParameter_Uint8(uint8(SYSTEM_ERROR__ExitDisposition_PtyProxy))
 		// ExitCode

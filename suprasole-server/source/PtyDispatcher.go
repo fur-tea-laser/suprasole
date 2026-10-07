@@ -27,7 +27,7 @@ type _Order_PtyDispatcher_ interface {
 }
 
 type _Data__Order_PtyDispatcher_ struct {
-	ReadBuffer_PtyDevice []byte
+	ReadBuffer_PtyDescriptor []byte
 }
 
 type _ExitSignal__Order_PtyDispatcher_ struct {

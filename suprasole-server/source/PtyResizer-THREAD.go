@@ -82,7 +82,7 @@ func (This *_PtyProxy_) Resize(
 	)
 	This.Mutex.Unlock()
 	return _PTY.Setsize(
-		This.FileDescriptor_Master__PtyDevice,
+		This.FileDescriptor_Master__Pty__shared,
 		&_PTY.Winsize{
 			Rows: uint16(rowCount_PtyTerminal_next),
 			Cols: uint16(columnCount_PtyTerminal_next),

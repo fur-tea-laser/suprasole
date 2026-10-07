@@ -247,7 +247,7 @@ func decodePayload__WriteInput_Pty(
 		},
 	)
 	id_WorkspacePty := binaryDecoder_WriteInput_Pty.DecodeParameter_Uint32("Id_WorkspacePty")
-	inputData_PtyDevice := binaryDecoder_WriteInput_Pty.DecodeParameter_TrailingBytes("InputData_PtyDevice")
+	inputData_PtyDescriptor := binaryDecoder_WriteInput_Pty.DecodeParameter_TrailingBytes("InputData_PtyDescriptor")
 	binaryDecoder_WriteInput_Pty.AssertEndOfPayload()
 	if binaryDecoder_WriteInput_Pty.Error_Earliest_maybe != nil {
 		return nil, binaryDecoder_WriteInput_Pty.Error_Earliest_maybe
@@ -255,7 +255,7 @@ func decodePayload__WriteInput_Pty(
 	return _WriteInput_Pty__PtyMessage_Ingress_{
 		Id_WorkspacePty: id_WorkspacePty,
 		InputOrder_PtyWriter: &_Passthrough__InputOrder_PtyWriter_{
-			InputData_PtyDevice: inputData_PtyDevice,
+			InputData_PtyDescriptor: inputData_PtyDescriptor,
 		},
 	}, nil
 }

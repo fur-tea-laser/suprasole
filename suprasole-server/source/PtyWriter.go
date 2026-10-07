@@ -6,18 +6,18 @@ import (
 )
 
 type _PtyWriter_ struct {
-	FileDescriptor_Master__PtyDevice *_OS.File
-	QueueChannel_InputOrder          chan _InputOrder_PtyWriter_
-	WorkerContext                    _CONTEXT.Context
-	WorkerCancel                     _CONTEXT.CancelFunc
+	FileDescriptor_Master__Pty__shared *_OS.File
+	QueueChannel_InputOrder            chan _InputOrder_PtyWriter_
+	WorkerContext                      _CONTEXT.Context
+	WorkerCancel                       _CONTEXT.CancelFunc
 }
 
 type _InputOrder_PtyWriter_ interface {
-	WriteInput(FileDescriptor_Master__PtyDevice *_OS.File)
+	WriteInput(FileDescriptor_Master__Pty__shared *_OS.File)
 }
 
 type _Passthrough__InputOrder_PtyWriter_ struct {
-	InputData_PtyDevice []byte
+	InputData_PtyDescriptor []byte
 }
 
 type _Paced__InputOrder_PtyWriter_ struct {

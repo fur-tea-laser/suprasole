@@ -37,18 +37,18 @@ func (this *_Data__Order_PtyDispatcher_) Execute(
 ) _Directive__Order_PtyDispatcher_ {
 	switch PtyDispatcher_forwarded.Status_state {
 	case IDLE__Status_PtyDispatcher:
-		PtyDispatcher_forwarded.OnBlockingFlush__(this.ReadBuffer_PtyDevice)
+		PtyDispatcher_forwarded.OnBlockingFlush__(this.ReadBuffer_PtyDescriptor)
 		PtyDispatcher_forwarded.Timer_FlushPacing.Reset(PtyDispatcher_forwarded.Timeout__Timer_FlushPacing)
 		PtyDispatcher_forwarded.Status_state = PACING__Status_PtyDispatcher
 	case PACING__Status_PtyDispatcher:
 		PtyDispatcher_forwarded.StagingBuffer = append(
 			PtyDispatcher_forwarded.StagingBuffer,
-			this.ReadBuffer_PtyDevice...,
+			this.ReadBuffer_PtyDescriptor...,
 		)
 	default:
 		panic("invalid path: _Data__Order_PtyDispatcher_ Execute")
 	}
-	this.ReadBuffer_PtyDevice = this.ReadBuffer_PtyDevice[:cap(this.ReadBuffer_PtyDevice)]
+	this.ReadBuffer_PtyDescriptor = this.ReadBuffer_PtyDescriptor[:cap(this.ReadBuffer_PtyDescriptor)]
 	PtyDispatcher_forwarded.PoolChannel___Data__Order_PtyDispatcher <- this
 	return CONTINUE_WORKER__Directive__Order_PtyDispatcher
 }
@@ -64,7 +64,6 @@ func (this *_ExitSignal__Order_PtyDispatcher_) Execute(
 	PtyDispatcher_forwarded.OnExited__(this.ExitSignal)
 	return EXIT_WORKER__Directive__Order_PtyDispatcher
 }
-
 
 func (This *_PtyProxy_) HandleBlockingFlush(
 	UnflushedSlice_StagingBuffer__PtyDispatcher []byte,
@@ -98,7 +97,7 @@ func (This *_PtyProxy_) HandleBlockingFlush(
 func (This *_PtyProxy_) HandleExited(
 	exitSignal_PtyReader error,
 ) {
-	_ = This.FileDescriptor_Master__PtyDevice.Close()
+	_ = This.FileDescriptor_Master__Pty__shared.Close()
 	teardownReport := This.TeardownExited_PtyProcess()
 	if _ERRORS.Is(exitSignal_PtyReader, _SYSCALL.EIO) {
 		This.OnExitOutcome__(
@@ -108,8 +107,8 @@ func (This *_PtyProxy_) HandleExited(
 	} else if exitSignal_PtyReader != nil && false == _ERRORS.Is(exitSignal_PtyReader, _OS.ErrClosed) {
 		This.OnExitOutcome__(
 			This.Id_WorkspacePty,
-			_SystemError__ExitOutcome_PtyProxy_{
-				SystemError_PtyDevice: exitSignal_PtyReader,
+			_SystemError_Descriptor__ExitOutcome_PtyProxy_{
+				SystemError_PtyDescriptor: exitSignal_PtyReader,
 			},
 		)
 	} else {
@@ -196,16 +195,16 @@ type _SystemError__TeardownReport_PtyProcess_ struct {
 }
 
 func (this _SystemError__TeardownReport_PtyProcess_) Resolve__ExitOutcome_PtyProxy() _ExitOutcome_PtyProxy_ {
-	return _SystemError__ExitOutcome_PtyProxy_{
-		SystemError_PtyDevice: this.SystemError_Wait,
+	return _SystemError_Process__ExitOutcome_PtyProxy_{
+		SystemError_PtyProcess: this.SystemError_Wait,
 	}
 }
 
 type _Unresponsive_Uninterruptible__TeardownReport_PtyProcess_ struct{}
 
 func (_Unresponsive_Uninterruptible__TeardownReport_PtyProcess_) Resolve__ExitOutcome_PtyProxy() _ExitOutcome_PtyProxy_ {
-	return _SystemError__ExitOutcome_PtyProxy_{
-		SystemError_PtyDevice: _ERRORS.New("unresolved process exit state: process unkillable (hung in kernel sleep)"),
+	return _SystemError_Process__ExitOutcome_PtyProxy_{
+		SystemError_PtyProcess: _ERRORS.New("unresolved process exit state: process unkillable"),
 	}
 }
 
@@ -222,8 +221,8 @@ func (this _Unresponsive_Stopped__TeardownReport_PtyProcess_) Resolve__ExitOutco
 type _Unresponsive_Rogue__TeardownReport_PtyProcess_ struct{}
 
 func (_Unresponsive_Rogue__TeardownReport_PtyProcess_) Resolve__ExitOutcome_PtyProxy() _ExitOutcome_PtyProxy_ {
-	return _SystemError__ExitOutcome_PtyProxy_{
-		SystemError_PtyDevice: _ERRORS.New("unresolved process exit state: process unresponsive to hangup (terminated by watchdog escalation)"),
+	return _SystemError_Process__ExitOutcome_PtyProxy_{
+		SystemError_PtyProcess: _ERRORS.New("unresolved process exit state: process unresponsive to hangup"),
 	}
 }
 
