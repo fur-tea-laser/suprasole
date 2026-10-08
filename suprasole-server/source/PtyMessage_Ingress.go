@@ -162,8 +162,7 @@ func decodePayload__Batch_ResizePty(
 }
 
 type _TerminatePty__PtyMessage_Ingress_ struct {
-	Id_WorkspacePty           uint32
-	TerminalSignal_PtyProcess int
+	Id_WorkspacePty uint32
 }
 
 func decodePayload_TerminatePty(
@@ -177,14 +176,12 @@ func decodePayload_TerminatePty(
 		},
 	)
 	id_WorkspacePty := binaryDecoder_TerminatePty.DecodeParameter_Uint32("Id_WorkspacePty")
-	terminalSignal_PtyProcess := int(binaryDecoder_TerminatePty.DecodeParameter_Int32("TerminalSignal_PtyProcess"))
 	binaryDecoder_TerminatePty.AssertEndOfPayload()
 	if binaryDecoder_TerminatePty.Error_Earliest_maybe != nil {
 		return nil, binaryDecoder_TerminatePty.Error_Earliest_maybe
 	}
 	return _TerminatePty__PtyMessage_Ingress_{
-		Id_WorkspacePty:           id_WorkspacePty,
-		TerminalSignal_PtyProcess: terminalSignal_PtyProcess,
+		Id_WorkspacePty: id_WorkspacePty,
 	}, nil
 }
 

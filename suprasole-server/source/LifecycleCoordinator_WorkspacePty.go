@@ -12,7 +12,7 @@ type _LifecycleCoordinator_WorkspacePty_ struct {
 	OnSpawnPty__                 func(id_WebsocketConnection_expected uint64, message _SpawnPty__PtyMessage_Ingress_)
 	OnStatus_SpawnPty__Success__ func(id_WebsocketConnection_expected uint64, id_WorkspacePty_spawned uint32, ptyProxy_quiescent *_PtyProxy_)
 	OnStatus_SpawnPty__Failure__ func(id_WebsocketConnection_expected uint64, id_WorkspacePty_failed uint32, error_Start__PtyCommand error)
-	OnTerminatePty__             func(id_WebsocketConnection_expected uint64, id_WorkspacePty uint32, terminalSignal_PtyProcess int)
+	OnTerminatePty__             func(id_WebsocketConnection_expected uint64, id_WorkspacePty uint32)
 	OnExit_PtyProxy__            func(id_WorkspacePty_exited uint32, exitOutcome_PtyProxy _ExitOutcome_PtyProxy_)
 	OnRemovePty__                func(id_WebsocketConnection_expected uint64, orderBatch_RemovePty []_Order_RemovePty_)
 	QueueChannel_WorkspaceOrder  chan _WorkspaceOrder_LifecycleCoordinator_
@@ -61,7 +61,6 @@ type _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_ struct {
 type _TerminatePty__WorkspaceOrder_LifecycleCoordinator_ struct {
 	Id_WebsocketConnection_expected uint64
 	Id_WorkspacePty                 uint32
-	TerminalSignal_PtyProcess       int
 }
 
 type _ExitPty__WorkspaceOrder_LifecycleCoordinator_ struct {

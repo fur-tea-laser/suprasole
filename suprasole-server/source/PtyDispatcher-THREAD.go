@@ -99,12 +99,12 @@ func (This *_PtyProxy_) HandleExited(
 ) {
 	_ = This.FileDescriptor_Master__Pty__shared.Close()
 	teardownReport := This.TeardownExited_PtyProcess()
-	if _ERRORS.Is(exitSignal_PtyReader, _SYSCALL.EIO) {
+	if _ERRORS.Is(exitSignal_PtyReader, _SYSCALL.EIO) || _ERRORS.Is(exitSignal_PtyReader, _OS.ErrClosed) {
 		This.OnExitOutcome__(
 			This.Id_WorkspacePty,
 			teardownReport.Resolve__ExitOutcome_PtyProxy(),
 		)
-	} else if exitSignal_PtyReader != nil && false == _ERRORS.Is(exitSignal_PtyReader, _OS.ErrClosed) {
+	} else if exitSignal_PtyReader != nil {
 		This.OnExitOutcome__(
 			This.Id_WorkspacePty,
 			_SystemError_Descriptor__ExitOutcome_PtyProxy_{
@@ -112,7 +112,7 @@ func (This *_PtyProxy_) HandleExited(
 			},
 		)
 	} else {
-		// _ERRORS.Is(exitSignal_PtyReader, _OS.ErrClosed)
+		// nil == exitSignal_PtyReader
 		panic("invalid path: _PtyProxy_ HandleExited")
 	}
 }

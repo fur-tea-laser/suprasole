@@ -151,7 +151,6 @@ func (this _TerminatePty__PtyMessage_Ingress_) Execute(
 	WorkspaceController_forwarded.LifecycleCoordinator_WorkspacePty.QueueChannel_WorkspaceOrder <- _TerminatePty__WorkspaceOrder_LifecycleCoordinator_{
 		Id_WebsocketConnection_expected: id_WebsocketConnection_expected,
 		Id_WorkspacePty:                 this.Id_WorkspacePty,
-		TerminalSignal_PtyProcess:       this.TerminalSignal_PtyProcess,
 	}
 }
 
