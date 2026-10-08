@@ -3,7 +3,6 @@ package main
 import (
 	_BYTES "bytes"
 	_OS "os"
-	_EXEC "os/exec"
 	_SYNC "sync"
 
 	_XTERM "github.com/gitpod-io/xterm-go"
@@ -17,7 +16,7 @@ type _PtyProxy_ struct {
 	Id_WorkspacePty                    uint32
 	Mutex                              _SYNC.Mutex
 	Mode_state                         _Mode_PtyProxy_
-	PtyCommand                         *_EXEC.Cmd
+	PtyProcess                         *_OS.Process
 	FileDescriptor_Master__Pty__shared *_OS.File
 	PtyTerminal                        *_XTERM.Terminal
 	PtyReader                          *_PtyReader_

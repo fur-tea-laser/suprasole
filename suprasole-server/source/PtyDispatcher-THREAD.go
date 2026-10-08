@@ -118,42 +118,123 @@ func (This *_PtyProxy_) HandleExited(
 }
 
 func (This *_PtyProxy_) TeardownExited_PtyProcess() _TeardownReport_PtyProcess_ {
-	channel_reapResult__PtyProcess__initial := spawnReaper_PtyProcess(This.PtyCommand.Process)
+	channel_reapResult__PtyProcess__initial := spawnReaper_PtyProcess(This.PtyProcess)
 	timer_Unresponsive := _TIME.NewTimer(TIMEOUT_UNRESPONSIVE__PtyProcess)
-	select {
-	case reapResult_only := <-channel_reapResult__PtyProcess__initial:
-		if reapResult_only.ProcessState_maybe != nil && false == reapResult_only.ProcessState_maybe.Sys().(_SYSCALL.WaitStatus).Stopped() {
-			return _Reaped__TeardownReport_PtyProcess_{
-				ProcessState: reapResult_only.ProcessState_maybe,
-			}
-		} else if reapResult_only.ProcessState_maybe != nil && reapResult_only.ProcessState_maybe.Sys().(_SYSCALL.WaitStatus).Stopped() {
-			return kill__PtyProcess_Unreaped(
-				This.PtyCommand.Process,
-				spawnReaper_PtyProcess(This.PtyCommand.Process),
-				_Stopped_Traced__TeardownReport_PtyProcess_{
-					StopSignal_Teardown: reapResult_only.ProcessState_maybe.Sys().(_SYSCALL.WaitStatus).StopSignal(),
-				},
-			)
-		} else if _ERRORS.Is(reapResult_only.Error_Wait_maybe, _SYSCALL.ECHILD) || _ERRORS.Is(reapResult_only.Error_Wait_maybe, _SYSCALL.EINVAL) || _ERRORS.Is(reapResult_only.Error_Wait_maybe, _SYSCALL.EBADF) {
-			return _SystemError__TeardownReport_PtyProcess_{
-				SystemError_Wait: reapResult_only.Error_Wait_maybe,
-			}
-		} else {
-			panic("invalid path: _PtyProxy_ TeardownExited_PtyProcess")
-		}
-	case <-timer_Unresponsive.C:
-		return kill__PtyProcess_Unreaped(
-			This.PtyCommand.Process,
-			channel_reapResult__PtyProcess__initial,
-			probeStatus__PtyProcess_Unresponsive(This.PtyCommand.Process),
+	return selectReapResult_Exited__PtyProcess(
+		This.PtyProcess,
+		channel_reapResult__PtyProcess__initial,
+		timer_Unresponsive,
+	)
+}
+
+func selectReapResult_Exited__PtyProcess(
+	PtyProcess_this *_OS.Process,
+	channel_reapResult__PtyProcess__initial <-chan _ReapResult_PtyProcess_,
+	timer_Unresponsive *_TIME.Timer,
+) _TeardownReport_PtyProcess_ {
+	handleStopped_Ptrace := func(waitStatus_PtyProcess _SYSCALL.WaitStatus) _TeardownReport_PtyProcess_ {
+		return killExited__PtyProcess_Unreaped(
+			PtyProcess_this,
+			spawnReaper_PtyProcess(PtyProcess_this),
+			_Stopped_Traced__TeardownReport_PtyProcess_{
+				StopSignal_Teardown: waitStatus_PtyProcess.StopSignal(),
+			},
 		)
 	}
+	return __selectReapResult__PtyProcess(
+		channel_reapResult__PtyProcess__initial,
+		timer_Unresponsive,
+		func(error_wait error) _TeardownReport_PtyProcess_ {
+			return _SystemError__TeardownReport_PtyProcess_{
+				SystemError_Wait: error_wait,
+			}
+		},
+		func(processState *_OS.ProcessState) _TeardownReport_PtyProcess_ {
+			return _Reaped__TeardownReport_PtyProcess_{
+				ProcessState: processState,
+			}
+		},
+		handleStopped_Ptrace,
+		handleStopped_Ptrace,
+		func() _TeardownReport_PtyProcess_ {
+			return killExited__PtyProcess_Unreaped(
+				PtyProcess_this,
+				channel_reapResult__PtyProcess__initial,
+				probeStatus__PtyProcess_Unresponsive(PtyProcess_this),
+			)
+		},
+	)
+}
+
+type _ReapResult_PtyProcess_ struct {
+	ProcessState_maybe *_OS.ProcessState
+	Error_Wait_maybe   error
+}
+
+func killExited__PtyProcess_Unreaped(
+	PtyProcess_this *_OS.Process,
+	channel_reapResult__PtyProcess__leading <-chan _ReapResult_PtyProcess_,
+	report_originating _TeardownReport_PtyProcess_,
+) _TeardownReport_PtyProcess_ {
+	return __kill__PtyProcess_Unreaped(
+		PtyProcess_this,
+		channel_reapResult__PtyProcess__leading,
+		func(error_wait error) _TeardownReport_PtyProcess_ {
+			return _SystemError__TeardownReport_PtyProcess_{
+				SystemError_Wait: error_wait,
+			}
+		},
+		func(_ *_OS.ProcessState) _TeardownReport_PtyProcess_ {
+			return report_originating
+		},
+		func() _TeardownReport_PtyProcess_ {
+			return _Unresponsive_Uninterruptible__TeardownReport_PtyProcess_{}
+		},
+	)
+}
+
+type _SigInfo_Waitid_ struct {
+	Signo  int32
+	Errno  int32
+	Code   int32
+	_pad   int32
+	Pid    int32
+	Uid    uint32
+	Status int32
+	_rest  [128 - 28]byte
 }
 
 const (
-	TIMEOUT_UNRESPONSIVE__PtyProcess    = 1 * _TIME.Second
-	TIMEOUT_UNINTERRUPTIBLE__PtyProcess = 1 * _TIME.Second
+	_P_PID___WAITID    = 1
+	_CLD_STOPPED       = 5
+	_PTRACE_EVENT_EXIT = 6
 )
+
+func probeStatus__PtyProcess_Unresponsive(
+	PtyProcess_this *_OS.Process,
+) _TeardownReport_PtyProcess_ {
+	var sigInfo_result _SigInfo_Waitid_
+	returnCode_WAITID, _, errorCode_WAITID := _SYSCALL.Syscall6(
+		_SYSCALL.SYS_WAITID,
+		uintptr(_P_PID___WAITID),
+		uintptr(PtyProcess_this.Pid),
+		uintptr(_UNSAFE.Pointer(&sigInfo_result)),
+		uintptr(_SYSCALL.WSTOPPED|_SYSCALL.WNOHANG|_SYSCALL.WNOWAIT),
+		0,
+		0,
+	)
+	if returnCode_WAITID == 0 && errorCode_WAITID == 0 && int32(PtyProcess_this.Pid) == sigInfo_result.Pid && _CLD_STOPPED == sigInfo_result.Code {
+		return _Unresponsive_Stopped__TeardownReport_PtyProcess_{
+			StopSignal_Teardown: _SYSCALL.Signal(sigInfo_result.Status),
+		}
+	} else if returnCode_WAITID == 0 && errorCode_WAITID == 0 && 0 == sigInfo_result.Pid {
+		return _Unresponsive_Rogue__TeardownReport_PtyProcess_{}
+	} else {
+		return _SystemError__TeardownReport_PtyProcess_{
+			SystemError_Wait: _ERRORS.New("unresolved process exit state: process reaping took too long (you should play the lottery)"),
+		}
+	}
+}
 
 type _TeardownReport_PtyProcess_ interface {
 	Resolve__ExitOutcome_PtyProxy() _ExitOutcome_PtyProxy_
@@ -223,98 +304,6 @@ type _Unresponsive_Rogue__TeardownReport_PtyProcess_ struct{}
 func (_Unresponsive_Rogue__TeardownReport_PtyProcess_) Resolve__ExitOutcome_PtyProxy() _ExitOutcome_PtyProxy_ {
 	return _SystemError_Process__ExitOutcome_PtyProxy_{
 		SystemError_PtyProcess: _ERRORS.New("unresolved process exit state: process unresponsive to hangup"),
-	}
-}
-
-type _ReapResult_PtyProcess_ struct {
-	ProcessState_maybe *_OS.ProcessState
-	Error_Wait_maybe   error
-}
-
-func spawnReaper_PtyProcess(
-	process_Pty *_OS.Process,
-) chan _ReapResult_PtyProcess_ {
-	channel_reapResult__PtyProcess := make(chan _ReapResult_PtyProcess_, 1)
-	go func() {
-		processState, error_wait := process_Pty.Wait()
-		channel_reapResult__PtyProcess <- _ReapResult_PtyProcess_{
-			ProcessState_maybe: processState,
-			Error_Wait_maybe:   error_wait,
-		}
-	}()
-	return channel_reapResult__PtyProcess
-}
-
-func kill__PtyProcess_Unreaped(
-	process_Pty *_OS.Process,
-	channel_reapResult__PtyProcess__leading <-chan _ReapResult_PtyProcess_,
-	report_originating _TeardownReport_PtyProcess_,
-) _TeardownReport_PtyProcess_ {
-	pid_PtyProcess := process_Pty.Pid
-	_ = _SYSCALL.Kill(-pid_PtyProcess, _SYSCALL.SIGKILL)
-	_ = _SYSCALL.Kill(pid_PtyProcess, _SYSCALL.SIGKILL)
-	timer_Uninterruptible := _TIME.NewTimer(TIMEOUT_UNINTERRUPTIBLE__PtyProcess)
-	channel_reapResult__PtyProcess__next := channel_reapResult__PtyProcess__leading
-	for {
-		select {
-		case reapResult_only := <-channel_reapResult__PtyProcess__next:
-			if reapResult_only.ProcessState_maybe != nil && false == reapResult_only.ProcessState_maybe.Sys().(_SYSCALL.WaitStatus).Stopped() {
-				return report_originating
-			} else if reapResult_only.ProcessState_maybe != nil && reapResult_only.ProcessState_maybe.Sys().(_SYSCALL.WaitStatus).Stopped() {
-				channel_reapResult__PtyProcess__next = spawnReaper_PtyProcess(process_Pty)
-				continue
-			} else if _ERRORS.Is(reapResult_only.Error_Wait_maybe, _SYSCALL.ECHILD) || _ERRORS.Is(reapResult_only.Error_Wait_maybe, _SYSCALL.EINVAL) || _ERRORS.Is(reapResult_only.Error_Wait_maybe, _SYSCALL.EBADF) {
-				return _SystemError__TeardownReport_PtyProcess_{
-					SystemError_Wait: reapResult_only.Error_Wait_maybe,
-				}
-			} else {
-				panic("invalid path: kill__PtyProcess_Unreaped")
-			}
-		case <-timer_Uninterruptible.C:
-			return _Unresponsive_Uninterruptible__TeardownReport_PtyProcess_{}
-		}
-	}
-}
-
-type _SigInfo_Waitid_ struct {
-	Signo  int32
-	Errno  int32
-	Code   int32
-	_pad   int32
-	Pid    int32
-	Uid    uint32
-	Status int32
-	_rest  [128 - 28]byte
-}
-
-const (
-	_P_PID___WAITID = 1
-	_CLD_STOPPED    = 5
-)
-
-func probeStatus__PtyProcess_Unresponsive(
-	process_Pty *_OS.Process,
-) _TeardownReport_PtyProcess_ {
-	var sigInfo_result _SigInfo_Waitid_
-	returnCode_WAITID, _, errorCode_WAITID := _SYSCALL.Syscall6(
-		_SYSCALL.SYS_WAITID,
-		uintptr(_P_PID___WAITID),
-		uintptr(process_Pty.Pid),
-		uintptr(_UNSAFE.Pointer(&sigInfo_result)),
-		uintptr(_SYSCALL.WSTOPPED|_SYSCALL.WNOHANG|_SYSCALL.WNOWAIT),
-		0,
-		0,
-	)
-	if returnCode_WAITID == 0 && errorCode_WAITID == 0 && int32(process_Pty.Pid) == sigInfo_result.Pid && _CLD_STOPPED == sigInfo_result.Code {
-		return _Unresponsive_Stopped__TeardownReport_PtyProcess_{
-			StopSignal_Teardown: _SYSCALL.Signal(sigInfo_result.Status),
-		}
-	} else if returnCode_WAITID == 0 && errorCode_WAITID == 0 && 0 == sigInfo_result.Pid {
-		return _Unresponsive_Rogue__TeardownReport_PtyProcess_{}
-	} else {
-		return _SystemError__TeardownReport_PtyProcess_{
-			SystemError_Wait: _ERRORS.New("unresolved process exit state: process reaping took too long (you should play the lottery)"),
-		}
 	}
 }
 
