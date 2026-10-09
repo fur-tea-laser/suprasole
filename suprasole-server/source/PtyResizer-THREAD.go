@@ -1,9 +1,5 @@
 package main
 
-import (
-	_PTY "github.com/creack/pty"
-)
-
 func (this *_PtyResizer_) RunWorker(PtyProxy_spawned *_PtyProxy_) {
 	for {
 		select {
@@ -81,11 +77,9 @@ func (This *_PtyProxy_) Resize(
 		rowCount_PtyTerminal_next,
 	)
 	This.Mutex.Unlock()
-	return _PTY.Setsize(
+	return Resize_PtyDescriptor(
 		This.FileDescriptor_Master__Pty__shared,
-		&_PTY.Winsize{
-			Rows: uint16(rowCount_PtyTerminal_next),
-			Cols: uint16(columnCount_PtyTerminal_next),
-		},
+		columnCount_PtyTerminal_next,
+		rowCount_PtyTerminal_next,
 	)
 }

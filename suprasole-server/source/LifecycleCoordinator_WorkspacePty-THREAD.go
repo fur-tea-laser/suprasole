@@ -9,7 +9,6 @@ import (
 	_SYSCALL "syscall"
 	_TIME "time"
 
-	_PTY "github.com/creack/pty"
 	_XTERM "github.com/gitpod-io/xterm-go"
 )
 
@@ -213,14 +212,12 @@ func (this _TerminatePty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	LifecycleCoordinator_forwarded.OnTerminatePty__(
 		this.Id_WebsocketConnection_expected,
 		this.Id_WorkspacePty,
-		this.TerminalSignal_PtyProcess,
 	)
 }
 
 func (This *_WorkspaceController_) HandleTerminatePty__Coordinator(
 	id_WebsocketConnection_expected uint64,
 	id_WorkspacePty uint32,
-	terminalSignal_PtyProcess int,
 ) {
 	var PtyProxy__WorkspacePty_target__active_maybe *_PtyProxy_
 	This.Mutex.Lock()
@@ -239,20 +236,17 @@ func (This *_WorkspaceController_) HandleTerminatePty__Coordinator(
 	}
 	This.Mutex.Unlock()
 	if PtyProxy__WorkspacePty_target__active_maybe != nil {
-		go PtyProxy__WorkspacePty_target__active_maybe.Terminate_PtyProcess(terminalSignal_PtyProcess)
+		go PtyProxy__WorkspacePty_target__active_maybe.Terminate_PtyProcess()
 	}
 }
 
-func (This *_PtyProxy_) Terminate_PtyProcess(
-	terminalSignal_PtyProcess int,
-) {
-	syscallSignal_PtyProcess := _SYSCALL.Signal(terminalSignal_PtyProcess)
+func (This *_PtyProxy_) Terminate_PtyProcess() {
 	error_kill__PtyProcess__maybe := _SYSCALL.Kill(
 		-This.PtyProcess.Pid,
-		syscallSignal_PtyProcess,
+		_SYSCALL.SIGTERM,
 	)
 	if error_kill__PtyProcess__maybe != nil {
-		_ = This.PtyProcess.Signal(syscallSignal_PtyProcess)
+		_ = This.PtyProcess.Signal(_SYSCALL.SIGTERM)
 	}
 }
 
@@ -407,17 +401,24 @@ type _SpawnApi_PtyProxy_ struct {
 func Spawn_PtyProxy(
 	api _SpawnApi_PtyProxy_,
 ) (*_PtyProxy_, error) {
+	fileDescriptor_master__Pty__shared, fileDescriptor_slave__Pty, error_open__PtyDescriptor__maybe := Open_PtyDescriptor(
+		api.ColumnCount_PtyTerminal,
+		api.RowCount_PtyTerminal,
+	)
+	if error_open__PtyDescriptor__maybe != nil {
+		return nil, error_open__PtyDescriptor__maybe
+	}
 	ptyCommand_PtyProxy_result := _EXEC.Command(api.Path_ShellBinary__PtyCommand)
 	ptyCommand_PtyProxy_result.Env = api.EnvironmentVariables_PtyCommand
 	ptyCommand_PtyProxy_result.Dir = api.DirectoryPath_PtyCommand
-	fileDescriptor_master__Pty__shared, error_start__PtyCommand__maybe := _PTY.StartWithSize(
+	AttachSlave_PtyDescriptor(
 		ptyCommand_PtyProxy_result,
-		&_PTY.Winsize{
-			Rows: uint16(api.RowCount_PtyTerminal),
-			Cols: uint16(api.ColumnCount_PtyTerminal),
-		},
+		fileDescriptor_slave__Pty,
 	)
+	error_start__PtyCommand__maybe := ptyCommand_PtyProxy_result.Start()
+	_ = fileDescriptor_slave__Pty.Close()
 	if error_start__PtyCommand__maybe != nil {
+		_ = fileDescriptor_master__Pty__shared.Close()
 		return nil, error_start__PtyCommand__maybe
 	}
 	ptyProxy_result := &_PtyProxy_{
@@ -537,7 +538,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 }
 
 func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
-	This.Terminate_PtyProcess(int(_SYSCALL.SIGTERM))
+	This.Terminate_PtyProcess()
 	_ = This.FileDescriptor_Master__Pty__shared.Close()
 	channel_reapResult__PtyProcess__initial := spawnReaper_PtyProcess(This.PtyProcess)
 	timer_Unresponsive := _TIME.NewTimer(TIMEOUT_UNRESPONSIVE__PtyProcess)
