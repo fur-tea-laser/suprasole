@@ -2,7 +2,6 @@ package main
 
 import (
 	_OS "os"
-	_EXEC "os/exec"
 	_STRCONV "strconv"
 	_SYSCALL "syscall"
 	_UNSAFE "unsafe"
@@ -11,7 +10,7 @@ import (
 const (
 	PATH_MULTIPLEXER__PtyDescriptor  = "/dev/ptmx"
 	PATH_PREFIX_SLAVE__PtyDescriptor = "/dev/pts/"
-	_TIOCGPTPEER                     = 0x5441
+	TIOCGPTPEER__Linux               = 0x5441
 )
 
 type _Winsize_PtyDescriptor_ struct {
@@ -37,59 +36,59 @@ func Open_PtyDescriptor(
 		return nil, nil, error_open__PtyDescriptor
 	}
 	var lockStatus_unlocked int32
-	_, _, errorCode_TIOCSPTLCK := _SYSCALL.Syscall(
+	_, _, errorCode__TIOCSPTLCK := _SYSCALL.Syscall(
 		_SYSCALL.SYS_IOCTL,
 		uintptr(fileDescriptor_master),
 		_SYSCALL.TIOCSPTLCK,
 		uintptr(_UNSAFE.Pointer(&lockStatus_unlocked)),
 	)
-	if errorCode_TIOCSPTLCK != 0 {
+	if errorCode__TIOCSPTLCK != 0 {
 		error_open__PtyDescriptor := abortOpen__PtyDescriptor(
 			fileDescriptor_master,
 			"TIOCSPTLCK",
-			errorCode_TIOCSPTLCK,
+			errorCode__TIOCSPTLCK,
 		)
 		return nil, nil, error_open__PtyDescriptor
 	}
 	var number_PtyDescriptor uint32
-	_, _, errorCode_TIOCGPTN := _SYSCALL.Syscall(
+	_, _, errorCode__TIOCGPTN := _SYSCALL.Syscall(
 		_SYSCALL.SYS_IOCTL,
 		uintptr(fileDescriptor_master),
 		_SYSCALL.TIOCGPTN,
 		uintptr(_UNSAFE.Pointer(&number_PtyDescriptor)),
 	)
-	if errorCode_TIOCGPTN != 0 {
+	if errorCode__TIOCGPTN != 0 {
 		error_open__PtyDescriptor := abortOpen__PtyDescriptor(
 			fileDescriptor_master,
 			"TIOCGPTN",
-			errorCode_TIOCGPTN,
+			errorCode__TIOCGPTN,
 		)
 		return nil, nil, error_open__PtyDescriptor
 	}
-	errorCode_TIOCSWINSZ := setWindowSize__PtyDescriptor(
+	errorCode__TIOCSWINSZ := setWindowSize__PtyDescriptor(
 		uintptr(fileDescriptor_master),
 		columnCount_PtyTerminal,
 		rowCount_PtyTerminal,
 	)
-	if errorCode_TIOCSWINSZ != 0 {
+	if errorCode__TIOCSWINSZ != 0 {
 		error_open__PtyDescriptor := abortOpen__PtyDescriptor(
 			fileDescriptor_master,
 			"TIOCSWINSZ",
-			errorCode_TIOCSWINSZ,
+			errorCode__TIOCSWINSZ,
 		)
 		return nil, nil, error_open__PtyDescriptor
 	}
-	fileDescriptor_slave, _, errorCode_TIOCGPTPEER := _SYSCALL.Syscall(
+	fileDescriptor_slave, _, errorCode__TIOCGPTPEER := _SYSCALL.Syscall(
 		_SYSCALL.SYS_IOCTL,
 		uintptr(fileDescriptor_master),
-		_TIOCGPTPEER,
+		TIOCGPTPEER__Linux,
 		_SYSCALL.O_RDWR|_SYSCALL.O_NOCTTY|_SYSCALL.O_CLOEXEC,
 	)
-	if errorCode_TIOCGPTPEER != 0 {
+	if errorCode__TIOCGPTPEER != 0 {
 		error_open__PtyDescriptor := abortOpen__PtyDescriptor(
 			fileDescriptor_master,
 			"TIOCGPTPEER",
-			errorCode_TIOCGPTPEER,
+			errorCode__TIOCGPTPEER,
 		)
 		return nil, nil, error_open__PtyDescriptor
 	}
@@ -110,28 +109,14 @@ func Open_PtyDescriptor(
 
 func abortOpen__PtyDescriptor(
 	fileDescriptor_master int,
-	request_IOCTL string,
-	errorCode_IOCTL _SYSCALL.Errno,
+	request__IOCTL string,
+	errorCode__IOCTL _SYSCALL.Errno,
 ) error {
 	_ = _SYSCALL.Close(fileDescriptor_master)
 	return _OS.NewSyscallError(
-		"ioctl "+request_IOCTL,
-		errorCode_IOCTL,
+		"ioctl "+request__IOCTL,
+		errorCode__IOCTL,
 	)
-}
-
-func AttachSlave_PtyDescriptor(
-	ptyCommand_target *_EXEC.Cmd,
-	fileDescriptor_slave__Pty *_OS.File,
-) {
-	ptyCommand_target.Stdin = fileDescriptor_slave__Pty
-	ptyCommand_target.Stdout = fileDescriptor_slave__Pty
-	ptyCommand_target.Stderr = fileDescriptor_slave__Pty
-	ptyCommand_target.SysProcAttr = &_SYSCALL.SysProcAttr{
-		Setsid:  true,
-		Setctty: true,
-		Ctty:    0,
-	}
 }
 
 func Resize_PtyDescriptor(
@@ -140,12 +125,13 @@ func Resize_PtyDescriptor(
 	rowCount_PtyTerminal_next int,
 ) error {
 	rawConn_Master, error_syscallConn__maybe := FileDescriptor_Master__Pty__shared.SyscallConn()
+	// [unreachable by construction] SyscallConn fails only for a nil *os.File; the master never is
 	if error_syscallConn__maybe != nil {
 		return error_syscallConn__maybe
 	}
-	var errorCode_TIOCSWINSZ _SYSCALL.Errno
+	var errorCode__TIOCSWINSZ _SYSCALL.Errno
 	error_control__maybe := rawConn_Master.Control(func(fileDescriptor_master uintptr) {
-		errorCode_TIOCSWINSZ = setWindowSize__PtyDescriptor(
+		errorCode__TIOCSWINSZ = setWindowSize__PtyDescriptor(
 			fileDescriptor_master,
 			columnCount_PtyTerminal_next,
 			rowCount_PtyTerminal_next,
@@ -153,14 +139,14 @@ func Resize_PtyDescriptor(
 	})
 	if error_control__maybe != nil {
 		return error_control__maybe
-	}
-	if errorCode_TIOCSWINSZ != 0 {
+	} else if errorCode__TIOCSWINSZ != 0 {
 		return _OS.NewSyscallError(
 			"ioctl TIOCSWINSZ",
-			errorCode_TIOCSWINSZ,
+			errorCode__TIOCSWINSZ,
 		)
+	} else {
+		return nil
 	}
-	return nil
 }
 
 func setWindowSize__PtyDescriptor(
@@ -172,11 +158,11 @@ func setWindowSize__PtyDescriptor(
 		RowCount_PtyTerminal:    uint16(rowCount_PtyTerminal),
 		ColumnCount_PtyTerminal: uint16(columnCount_PtyTerminal),
 	}
-	_, _, errorCode_TIOCSWINSZ := _SYSCALL.Syscall(
+	_, _, errorCode__TIOCSWINSZ := _SYSCALL.Syscall(
 		_SYSCALL.SYS_IOCTL,
 		fileDescriptor_master,
 		_SYSCALL.TIOCSWINSZ,
 		uintptr(_UNSAFE.Pointer(winsize_next)),
 	)
-	return errorCode_TIOCSWINSZ
+	return errorCode__TIOCSWINSZ
 }

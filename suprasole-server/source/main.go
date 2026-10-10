@@ -19,6 +19,11 @@ func main() {
 		"127.0.0.1:8000",
 		"Network address (host:port) for the HTTP server to listen on",
 	)
+	cliOption__Path_PtyExec := _FLAG.String(
+		"Path_PtyExec",
+		"",
+		"Path to the suprasole-pty-exec spawn helper, supplied by the launcher",
+	)
 	_FLAG.Parse()
 	WorkspaceController := Make_WorkspaceController(
 		_MakeApi_WorkspaceController_{
@@ -28,6 +33,7 @@ func main() {
 				Size_PostSnapshotBuffer__PtyProxy:      64 * 1024,
 				Size_QueueBuffer__InputOrder_PtyWriter: 1024,
 			},
+			Path_PtyExec: *cliOption__Path_PtyExec,
 		},
 	)
 	error__Listen_HttpServer__maybe := WorkspaceController.Start()
@@ -57,6 +63,7 @@ func main() {
 type _MakeApi_WorkspaceController_ struct {
 	Address_HttpServer__             string
 	OptionConfig_PtyProxy__default__ _OptionConfig_PtyProxy_
+	Path_PtyExec                     string
 }
 
 func Make_WorkspaceController(
@@ -64,6 +71,7 @@ func Make_WorkspaceController(
 ) *_WorkspaceController_ {
 	workspaceController_result := &_WorkspaceController_{
 		OptionConfig_PtyProxy__default__:          api.OptionConfig_PtyProxy__default__,
+		Path_PtyExec:                              api.Path_PtyExec,
 		Mutex:                                     _SYNC.Mutex{},
 		PtyPool:                                   make(map[uint32]*_WorkspacePty_),
 		Id_WorkspacePty_next:                      0,

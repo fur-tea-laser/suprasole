@@ -16,7 +16,7 @@ type _PtyProxy_ struct {
 	Id_WorkspacePty                    uint32
 	Mutex                              _SYNC.Mutex
 	Mode_state                         _Mode_PtyProxy_
-	PtyProcess                         *_OS.Process
+	PtyProcess                         *_PtyProcess_
 	FileDescriptor_Master__Pty__shared *_OS.File
 	PtyTerminal                        *_XTERM.Terminal
 	PtyReader                          *_PtyReader_

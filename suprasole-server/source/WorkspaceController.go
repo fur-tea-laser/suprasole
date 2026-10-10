@@ -6,6 +6,7 @@ import (
 
 type _WorkspaceController_ struct {
 	OptionConfig_PtyProxy__default__          _OptionConfig_PtyProxy_
+	Path_PtyExec                              string
 	Mutex                                     _SYNC.Mutex
 	PtyPool                                   map[uint32]*_WorkspacePty_
 	Id_WorkspacePty_next                      uint32

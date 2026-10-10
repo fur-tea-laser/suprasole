@@ -4,9 +4,7 @@ import (
 	_BYTES "bytes"
 	_CONTEXT "context"
 	_MAPS "maps"
-	_OS "os"
-	_EXEC "os/exec"
-	_SYSCALL "syscall"
+	// [phase 3] _SYSCALL "syscall"
 	_TIME "time"
 
 	_XTERM "github.com/gitpod-io/xterm-go"
@@ -236,19 +234,19 @@ func (This *_WorkspaceController_) HandleTerminatePty__Coordinator(
 	}
 	This.Mutex.Unlock()
 	if PtyProxy__WorkspacePty_target__active_maybe != nil {
-		go PtyProxy__WorkspacePty_target__active_maybe.Terminate_PtyProcess()
+		// [phase 3] go PtyProxy__WorkspacePty_target__active_maybe.Terminate_PtyProcess()
 	}
 }
 
-func (This *_PtyProxy_) Terminate_PtyProcess() {
-	error_kill__PtyProcess__maybe := _SYSCALL.Kill(
-		-This.PtyProcess.Pid,
-		_SYSCALL.SIGTERM,
-	)
-	if error_kill__PtyProcess__maybe != nil {
-		_ = This.PtyProcess.Signal(_SYSCALL.SIGTERM)
-	}
-}
+// [phase 3]
+// func (This *_PtyProxy_) Terminate_PtyProcess() {
+// 	This.PtyProcess.Mutex.Lock()
+// 	_ = This.PtyProcess.State_state.Signal(
+// 		_SYSCALL.SIGTERM,
+// 		PIDFD_SIGNAL_PROCESS_GROUP__Linux,
+// 	)
+// 	This.PtyProcess.Mutex.Unlock()
+// }
 
 func (this _RemovePty__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
@@ -333,6 +331,7 @@ func (This *_WorkspaceController_) HandleSpawnPty__Coordinator(
 			Id_WorkspacePty:                        id_WorkspacePty_new,
 			ColumnCount_PtyTerminal:                message_SpawnPty.ColumnCount_PtyTerminal,
 			RowCount_PtyTerminal:                   message_SpawnPty.RowCount_PtyTerminal,
+			Path_PtyExec:                           This.Path_PtyExec,
 			Path_ShellBinary__PtyCommand:           message_SpawnPty.Path_ShellBinary__PtyCommand,
 			DirectoryPath_PtyCommand:               message_SpawnPty.DirectoryPath_PtyCommand,
 			EnvironmentVariables_PtyCommand:        message_SpawnPty.EnvironmentVariables_PtyCommand,
@@ -390,6 +389,7 @@ type _SpawnApi_PtyProxy_ struct {
 	Id_WorkspacePty                        uint32
 	ColumnCount_PtyTerminal                int
 	RowCount_PtyTerminal                   int
+	Path_PtyExec                           string
 	Path_ShellBinary__PtyCommand           string
 	DirectoryPath_PtyCommand               string
 	EnvironmentVariables_PtyCommand        []string
@@ -401,6 +401,16 @@ type _SpawnApi_PtyProxy_ struct {
 func Spawn_PtyProxy(
 	api _SpawnApi_PtyProxy_,
 ) (*_PtyProxy_, error) {
+	command_PtyProxy, error_prepare__Command__maybe := Prepare__Command_PtyProcess(
+		_PrepareApi__Command_PtyProcess_{
+			Path_ShellBinary: api.Path_ShellBinary__PtyCommand,
+			Path_Directory:   api.DirectoryPath_PtyCommand,
+			Environment:      api.EnvironmentVariables_PtyCommand,
+		},
+	)
+	if error_prepare__Command__maybe != nil {
+		return nil, error_prepare__Command__maybe
+	}
 	fileDescriptor_master__Pty__shared, fileDescriptor_slave__Pty, error_open__PtyDescriptor__maybe := Open_PtyDescriptor(
 		api.ColumnCount_PtyTerminal,
 		api.RowCount_PtyTerminal,
@@ -408,19 +418,17 @@ func Spawn_PtyProxy(
 	if error_open__PtyDescriptor__maybe != nil {
 		return nil, error_open__PtyDescriptor__maybe
 	}
-	ptyCommand_PtyProxy_result := _EXEC.Command(api.Path_ShellBinary__PtyCommand)
-	ptyCommand_PtyProxy_result.Env = api.EnvironmentVariables_PtyCommand
-	ptyCommand_PtyProxy_result.Dir = api.DirectoryPath_PtyCommand
-	AttachSlave_PtyDescriptor(
-		ptyCommand_PtyProxy_result,
+	ptyProcess_PtyProxy_result, error_start__PtyCommand__maybe := Spawn_PtyProcess(
+		api.Path_PtyExec,
+		command_PtyProxy,
 		fileDescriptor_slave__Pty,
 	)
-	error_start__PtyCommand__maybe := ptyCommand_PtyProxy_result.Start()
 	_ = fileDescriptor_slave__Pty.Close()
 	if error_start__PtyCommand__maybe != nil {
 		_ = fileDescriptor_master__Pty__shared.Close()
 		return nil, error_start__PtyCommand__maybe
 	}
+	go ptyProcess_PtyProxy_result.RunWorker()
 	ptyProxy_result := &_PtyProxy_{
 		OnOutput_Live__:                    api.OnOutput_Live__PtyProxy__,
 		OnOutput_Snapshot__:                api.OnOutput_Snapshot__PtyProxy__,
@@ -428,7 +436,7 @@ func Spawn_PtyProxy(
 		OnExitOutcome__:                    api.OnExitOutcome__PtyProxy__,
 		Id_WorkspacePty:                    api.Id_WorkspacePty,
 		Mode_state:                         SPAWNING__Mode_PtyProxy,
-		PtyProcess:                         ptyCommand_PtyProxy_result.Process,
+		PtyProcess:                         ptyProcess_PtyProxy_result,
 		FileDescriptor_Master__Pty__shared: fileDescriptor_master__Pty__shared,
 		PtyTerminal:                        nil,
 		PtyReader:                          nil,
@@ -443,7 +451,7 @@ func Spawn_PtyProxy(
 	}
 	ptyDispatcher_result := &_PtyDispatcher_{
 		OnBlockingFlush__:                       ptyProxy_result.HandleBlockingFlush,
-		OnExited__:                              ptyProxy_result.HandleExited,
+		// [phase 3] OnExited__: ptyProxy_result.HandleExited,
 		Timeout__Timer_FlushPacing:              TIMEOUT__TIMER_FLUSH_PACING___PtyDispatcher,
 		PoolChannel___Data__Order_PtyDispatcher: poolChannel___Data__Order_PtyDispatcher___result,
 		QueueChannel__Order_PtyDispatcher:       make(chan _Order_PtyDispatcher_, SIZE_QUEUE_BUFFER__Order_PtyDispatcher),
@@ -499,7 +507,7 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 	This.Mutex.Unlock()
 	if CANCELED____CancellationStatus___State_Spawning__WorkspacePty == cancellationStatus_captured {
 		WorkspacePty_target.PtyResizer.WorkerCancel()
-		go ptyProxy_quiescent.TerminateCancelled_PtyProxy()
+		// [phase 3] go ptyProxy_quiescent.TerminateCancelled_PtyProxy()
 		Emit__PtyMessage_Egress__WebsocketController_Pty(
 			This.WorkspaceNetwork.WebsocketController_Pty,
 			id_WebsocketConnection_expected,
@@ -537,67 +545,27 @@ func (This *_WorkspaceController_) HandleStatus_SpawnPty__Success__Coordinator(
 	go ptyProxy_quiescent.PtyReader.RunWorker()
 }
 
-func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
-	This.Terminate_PtyProcess()
-	_ = This.FileDescriptor_Master__Pty__shared.Close()
-	channel_reapResult__PtyProcess__initial := spawnReaper_PtyProcess(This.PtyProcess)
-	timer_Unresponsive := _TIME.NewTimer(TIMEOUT_UNRESPONSIVE__PtyProcess)
-	selectReapResult_Cancelled__PtyProcess(
-		This.PtyProcess,
-		channel_reapResult__PtyProcess__initial,
-		timer_Unresponsive,
-	)
-}
-
-func selectReapResult_Cancelled__PtyProcess(
-	PtyProcess_this *_OS.Process,
-	channel_reapResult__PtyProcess__initial <-chan _ReapResult_PtyProcess_,
-	timer_Unresponsive *_TIME.Timer,
-) {
-	handleStopped_Ptrace := func(_ _SYSCALL.WaitStatus) struct{} {
-		return killCancelled__PtyProcess_Unreaped(
-			PtyProcess_this,
-			spawnReaper_PtyProcess(PtyProcess_this),
-		)
-	}
-	_ = __selectReapResult__PtyProcess(
-		channel_reapResult__PtyProcess__initial,
-		timer_Unresponsive,
-		func(_ error) struct{} {
-			return struct{}{}
-		},
-		func(_ *_OS.ProcessState) struct{} {
-			return struct{}{}
-		},
-		handleStopped_Ptrace,
-		handleStopped_Ptrace,
-		func() struct{} {
-			return killCancelled__PtyProcess_Unreaped(
-				PtyProcess_this,
-				channel_reapResult__PtyProcess__initial,
-			)
-		},
-	)
-}
-
-func killCancelled__PtyProcess_Unreaped(
-	PtyProcess_this *_OS.Process,
-	channel_reapResult__PtyProcess__leading <-chan _ReapResult_PtyProcess_,
-) struct{} {
-	return __kill__PtyProcess_Unreaped(
-		PtyProcess_this,
-		channel_reapResult__PtyProcess__leading,
-		func(_ error) struct{} {
-			return struct{}{}
-		},
-		func(_ *_OS.ProcessState) struct{} {
-			return struct{}{}
-		},
-		func() struct{} {
-			return struct{}{}
-		},
-	)
-}
+// [phase 3]
+// func (This *_PtyProxy_) TerminateCancelled_PtyProxy() {
+// 	This.PtyProcess.Mutex.Lock()
+// 	_ = This.PtyProcess.State_state.Signal(
+// 		_SYSCALL.SIGTERM,
+// 		PIDFD_SIGNAL_PROCESS_GROUP__Linux,
+// 	)
+// 	This.PtyProcess.Mutex.Unlock()
+// 	_ = This.FileDescriptor_Master__Pty__shared.Close()
+// 	timer_Unresponsive := _TIME.NewTimer(TIMEOUT_UNRESPONSIVE__PtyProcess)
+// 	select {
+// 	case <-This.PtyProcess.Channel_FinalState:
+// 	case <-timer_Unresponsive.C:
+// 		This.PtyProcess.Mutex.Lock()
+// 		_ = This.PtyProcess.State_state.Signal(
+// 			_SYSCALL.SIGKILL,
+// 			PIDFD_SIGNAL_PROCESS_GROUP__Linux,
+// 		)
+// 		This.PtyProcess.Mutex.Unlock()
+// 	}
+// }
 
 func (this _Status_SpawnPty__Failure__WorkspaceOrder_LifecycleCoordinator_) Execute(
 	LifecycleCoordinator_forwarded *_LifecycleCoordinator_WorkspacePty_,
