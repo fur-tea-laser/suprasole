@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	// [phase 3] TIMEOUT_UNRESPONSIVE__PtyProcess = 1 * _TIME.Second
-	// [phase 3] TIMEOUT_UNINTERRUPTIBLE__PtyProcess = 1 * _TIME.Second
 	INTERVAL_REPEEK__PtyProcess         = 1 * _TIME.Second
 	INTERVAL_REAP_ABANDONED__PtyProcess = 1 * _TIME.Second
 	NAME_FILE__Pidfd                    = "pidfd"
@@ -96,7 +94,7 @@ type _PtyProcess_ struct {
 
 type _State_PtyProcess_ interface {
 	Signal(signalNumber_PtyProcess _SYSCALL.Signal, flags__PIDFD_SEND_SIGNAL uintptr) error
-	// [phase 3] ProbeStatus_Unresponsive() _TeardownReport_PtyProcess_
+	Observe_Unresponsive() (_Status_Observation__PtyProcess_, _TeardownReport_PtyProcess_)
 }
 
 type _Alive__State_PtyProcess_ struct {

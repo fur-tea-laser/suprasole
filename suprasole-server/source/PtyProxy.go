@@ -12,11 +12,11 @@ type _PtyProxy_ struct {
 	OnOutput_Live__                    func(id_WorkspacePty uint32, outputData_PtyDescriptor []byte)
 	OnOutput_Snapshot__                func(id_WorkspacePty uint32, outputData_PtyTerminal []byte)
 	OnOutput_PostSnapshot__            func(id_WorkspacePty uint32, outputData_PostSnapshot []byte)
-	OnExitOutcome__                    func(id_WorkspacePty uint32, exitOutcome _ExitOutcome_PtyProxy_)
 	Id_WorkspacePty                    uint32
 	Mutex                              _SYNC.Mutex
 	Mode_state                         _Mode_PtyProxy_
 	PtyProcess                         *_PtyProcess_
+	PtyTeardown                        *_PtyTeardown_
 	FileDescriptor_Master__Pty__shared *_OS.File
 	PtyTerminal                        *_XTERM.Terminal
 	PtyReader                          *_PtyReader_
