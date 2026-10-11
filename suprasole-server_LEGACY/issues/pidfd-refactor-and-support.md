@@ -1,28 +1,8 @@
-# pidfd Process Lifecycle & Native PTY — Complete Plan Before Phase 3
-
-> **What this file is.** The whole refactor plan, copied on 2026-10-10 from `pidfd-refactor-and-support.md`, which is unchanged. Nothing is left out: phase 2's remaining work, the unified spawn lifecycle (§3H), sends every ending through phase 3's `_PtyTeardown_` (§3E–F, §8.1), so the plan is complete only with both.
-> - **Copied verbatim, with the original section numbers,** so every cross-reference (§3B, §5A.3, §6-AL, …) still resolves.
-> - **Added here:** this note, the status, and the companion-document list. Everything else is identical to the original.
+# Proposal: pidfd Process Lifecycle & Native PTY Architecture
 
 > **Audit — 2026-10-09 (revision 6: kernel floor 6.9, kernel-aligned state machine, `_PtyTeardown_`, process × PTY interplay, provenance).** Checked against `source/*.go` (including the uncommitted `Terminate_PtyProxy` first pass), `creack/pty` v1.1.24, the Go 1.27.1 standard library (`go.mod` targets 1.25), and Linux 6.12.76. Every kernel, PTY and Go-runtime behavior relied on below was exercised with throwaway harnesses, and the design (§3) was run end-to-end as a prototype — results in §6. Blindspots, invariants and the provenance of every load-bearing behavior (documented vs. designed vs. merely observed) are in §5, changes from the original draft in §7, open choices in §8, and the full interplay between the kernel's process and TTY subsystems — every process event, PTY event and descendant kind — in §9.
 >
 > **Vocabulary.** "Final state" means a state the machine never leaves. "Terminal" is avoided in that sense, because in this codebase it means the PTY / `PtyTerminal`. "Terminated" and "termination" follow POSIX: a process terminates when it exits or is killed, and its *termination status* is what `waitid` reports.
-
-## Status — 2026-10-10
-- **Phase 1 (§3A):** committed, `b507ca7`.
-- **Phase 2 (§3B–D, §4), with spawning through the helper** (§3B, "Current implementation"): in the working tree, uncommitted. `tests/runTests.sh` passes.
-- **Phase 2 rework** (§3B, "Decided 2026-10-10"; §3H): not implemented, except one item.
-  - **Done:** the helper resets every signal disposition to default, except `SIGKILL` and `SIGSTOP` (§3B, "Helper change"). If that step ever failed, the helper would report it as step 7.
-  - **Still to do for that item:** step 7's constant in `_Step__PtyExec_`, and the companion documents, which still describe the helper before the reset (`documentation/launchPtyExec.md` lists ignored signals as a known limit).
-  - **Not started:** everything else in §3B's decided block and in §3H.
-- **Open** (§3B, §3H): the backstop timeout; the client protocol for launching → running; a cancel while `Spawning`.
-- **Phase 3 (§3E–F):** pending.
-
-## Companion Documents
-Code-level detail lives beside the code:
-- `documentation/PtyDescriptor.md` — the native PTY (phase 1).
-- `documentation/PtyProcess.md`, `documentation/PtyProcess-THREAD.md` — `_PtyProcess_` and its worker.
-- `documentation/PtyExec.md`, `documentation/launchPtyExec.md` — the helper and its launch, including the 2026-10-10 launch audit (`launchPtyExec.md`, "Known limits").
 
 ---
 

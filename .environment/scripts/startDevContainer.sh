@@ -1,6 +1,6 @@
 #/bin/sh
 
-docker run -it --rm -p 127.0.0.1:8080:8080 \
+docker run --platform linux/arm64 -it --rm -p 127.0.0.1:8080:8080 \
   -v "$HOME/.coder-local:/home/coder/.local" \
   -v "$HOME/.coder-config:/home/coder/.config" \
   -v "$PWD:/home/coder/project" \

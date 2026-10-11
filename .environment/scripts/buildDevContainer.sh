@@ -1,3 +1,3 @@
 #/bin/sh
 
-docker build --no-cache -t suprasole-dev -f ./.environment/Dockerfile .
+docker build --platform linux/arm64 --no-cache -t suprasole-dev -f ./.environment/Dockerfile .
